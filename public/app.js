@@ -70,7 +70,7 @@ async function enterMain() {
   showMain();
   const me = await api('GET', '/api/me');
   $('whoami').textContent = me.username;
-  $('usersBtn').classList.toggle('hidden', !me.isAdmin);
+  $('usersNav').classList.toggle('hidden', !me.isAdmin);
   const devices = await api('GET', '/api/devices');
   const sel = $('deviceSelect');
   sel.innerHTML = '';
@@ -987,14 +987,17 @@ function pickAndUpload(accept, onDone, beforeUpload) {
   input.click();
 }
 
-// ---------- 帳號管理（限管理員） ----------
-$('usersBtn').addEventListener('click', () => {
-  const open = $('usersView').classList.contains('hidden');
-  $('usersView').classList.toggle('hidden', !open);
-  $('editor').classList.toggle('hidden', open);
-  $('emptyState').classList.add('hidden');
-  $('usersBtn').textContent = open ? '回內容編輯' : '帳號管理';
-  if (open) renderUsersView();
+// ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
+function switchView(view) {
+  document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
+  $('editorView').classList.toggle('hidden', view !== 'editor');
+  $('usersView').classList.toggle('hidden', view !== 'users');
+  if (view === 'users') renderUsersView();
+}
+document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
+  b.addEventListener('click', () => switchView(b.dataset.view));
 });
 
 async function renderUsersView() {
