@@ -56,14 +56,23 @@ $('loginForm').addEventListener('submit', async (e) => {
 });
 
 $('logoutBtn').addEventListener('click', logout);
-$('reloadBtn').addEventListener('click', () => confirmDiscard() && loadConfig());
-$('deviceSelect').addEventListener('change', () => {
-  if (!confirmDiscard()) { $('deviceSelect').value = deviceId; return; }
+$('reloadBtn').addEventListener('click', async () => { if (await confirmDiscard()) loadConfig(); });
+$('deviceSelect').addEventListener('change', async () => {
+  if (!(await confirmDiscard())) {
+    $('deviceSelect').value = deviceId;
+    if (window.BDropdown) BDropdown.refresh($('deviceSelect'));
+    return;
+  }
   deviceId = $('deviceSelect').value;
   loadConfig();
 });
 
-function confirmDiscard() { return !dirty || confirm('有尚未儲存的修改，捨棄嗎？'); }
+async function confirmDiscard() {
+  if (!dirty) return true;
+  return BDialog.confirm({
+    title: '有尚未儲存的修改', desc: '捨棄這些修改嗎？', variant: 'danger', confirmText: '捨棄',
+  });
+}
 window.addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
 
 // ---------- 載入 / 儲存 ----------
@@ -71,6 +80,7 @@ async function enterMain() {
   showMain();
   const me = await api('GET', '/api/me');
   $('whoami').textContent = me.username;
+  $('whoamiMenu').textContent = me.username;
   meIsAdmin = !!me.isAdmin;
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
   const devices = await refreshDeviceSelect();
@@ -99,6 +109,7 @@ async function refreshDeviceSelect() {
     sel.appendChild(o);
   }
   if (devices.some((d) => d.DeviceId === deviceId)) sel.value = deviceId;
+  if (window.BDropdown) BDropdown.refresh(sel);
   return devices;
 }
 
@@ -135,9 +146,7 @@ $('saveBtn').addEventListener('click', async () => {
 
 function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; }
 function setStatus(msg, isErr) {
-  const el = $('status');
-  el.textContent = msg; el.classList.toggle('err', !!isErr);
-  clearTimeout(el._t); el._t = setTimeout(() => (el.textContent = ''), 6000);
+  if (window.BToast) (isErr ? BToast.danger : BToast.success)(msg);
 }
 
 // ---------- 共用 ----------
@@ -199,18 +208,22 @@ function renderTabs() {
     }
     const ren = document.createElement('button');
     ren.textContent = '✎'; ren.title = '重新命名';
-    ren.onclick = (e) => {
+    ren.onclick = async (e) => {
       e.stopPropagation();
-      const v = prompt('頁面名稱：', p.name || '');
-      if (v !== null) { p.name = v.trim(); setDirty(true); renderTabs(); }
+      const v = await BDialog.prompt({ title: '頁面名稱', value: p.name || '', placeholder: `頁面 ${i + 1}` });
+      if (v !== null && v !== undefined) { p.name = String(v).trim(); setDirty(true); renderTabs(); }
     };
     tab.appendChild(ren);
     if (state.config.pages.length > 1) {
       const del = document.createElement('button');
       del.textContent = '✕'; del.title = '刪除此頁';
-      del.onclick = (e) => {
+      del.onclick = async (e) => {
         e.stopPropagation();
-        if (!confirm(`刪除「${p.name || `頁面 ${i + 1}`}」？`)) return;
+        const ok = await BDialog.confirm({
+          title: `刪除「${p.name || `頁面 ${i + 1}`}」？`, desc: '這一頁的版面會一併刪除。',
+          variant: 'danger', confirmText: '刪除',
+        });
+        if (!ok) return;
         state.config.pages.splice(i, 1);
         if ((state.config.activePage || 0) >= state.config.pages.length) state.config.activePage = state.config.pages.length - 1;
         pageIndex = Math.min(pageIndex, state.config.pages.length - 1);
@@ -223,7 +236,7 @@ function renderTabs() {
   });
   if (state.config.pages.length < MAX_PAGES) {
     const add = document.createElement('button');
-    add.className = 'ghost'; add.textContent = '＋新增頁面';
+    add.className = 'add-page'; add.textContent = '＋ 新增頁面';
     add.onclick = () => {
       const nextId = Math.max(0, ...state.config.pages.map((p) => p.id || 0)) + 1;
       state.config.pages.push({ id: nextId, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] });
@@ -678,7 +691,7 @@ function renderPanel() {
   h3.textContent = `${cellLabel(sel)}｜${cellPx.w}×${cellPx.h} px`;
   head.appendChild(h3);
   const close = document.createElement('button');
-  close.className = 'ghost'; close.textContent = '完成';
+  close.className = 'b-btn b-btn-sm'; close.textContent = '完成';
   close.onclick = () => { selected = null; renderCanvas(); renderPanel(); };
   head.appendChild(close);
   panel.appendChild(head);
@@ -712,12 +725,15 @@ function renderPanel() {
       }));
     }
     if (blocks.length > 1) {
-      const del = btn('刪除整個區塊', () => {
-        if (!confirm('刪除這個大區塊？')) return;
+      const del = btn('刪除整個區塊', async () => {
+        const ok = await BDialog.confirm({
+          title: '刪除這個大區塊？', desc: '區塊內的設定會一併刪除。', variant: 'danger', confirmText: '刪除',
+        });
+        if (!ok) return;
         blocks.splice(sel.bi, 1);
         selected = null; setDirty(true); refresh();
       });
-      del.classList.add('ghost');
+      del.classList.add('b-btn-danger-soft');
       row.appendChild(del);
     }
     g.appendChild(row);
@@ -757,6 +773,7 @@ function renderPanel() {
     ));
     if (cell.content === 'Marquee' || cell.content === 'Text') {
       const ta = document.createElement('textarea');
+      ta.className = 'b-textarea';
       ta.value = cell.text || '';
       ta.placeholder = cell.content === 'Marquee' ? '跑馬燈文字' : '顯示文字';
       ta.addEventListener('input', () => { cell.text = ta.value; touch(); });
@@ -833,6 +850,8 @@ function renderPanel() {
       g.appendChild(hint('Agent ID 需與智能客服平台上的客服一致（可在機器上的編輯器選好後同步上來）。'));
     }
   }));
+
+  if (window.BDropdown) BDropdown.init(panel); // 動態產生的下拉套 kit 樣式
 }
 
 // ---------- 面板小元件 ----------
@@ -847,11 +866,13 @@ function group(title, build) {
 }
 function btn(text, onClick) {
   const b = document.createElement('button');
+  b.className = 'b-btn b-btn-sm';
   b.textContent = text; b.onclick = onClick;
   return b;
 }
 function lbl(text) {
   const l = document.createElement('label');
+  l.className = 'field-label';
   l.textContent = text;
   return l;
 }
@@ -873,6 +894,7 @@ function segRow(items) {
 }
 function selInput(options, value, onChange) {
   const s = document.createElement('select');
+  s.className = 'b-select';
   for (const [v, label] of options) {
     const o = document.createElement('option');
     o.value = v; o.textContent = label; o.selected = v === value;
@@ -883,6 +905,7 @@ function selInput(options, value, onChange) {
 }
 function numInput(value, min, max, onChange) {
   const i = document.createElement('input');
+  i.className = 'b-input';
   i.type = 'number'; i.min = min; i.max = max; i.value = value;
   i.addEventListener('change', () => {
     const v = Math.min(max, Math.max(min, Number(i.value) || min));
@@ -892,6 +915,7 @@ function numInput(value, min, max, onChange) {
 }
 function txtInput(value, placeholder, onChange, type = 'text') {
   const i = document.createElement('input');
+  i.className = 'b-input';
   i.type = type; i.value = value ?? ''; i.placeholder = placeholder;
   i.addEventListener('input', () => onChange(i.value));
   return i;
@@ -957,10 +981,12 @@ function thumbList(cell, cellPx) {
         // 與 App 相同的尺寸警告：圖片像素與此格在機器上的實際尺寸不符時先確認
         const dims = await imagePixelSizeOf(file);
         if (!dims || !cellPx || (dims.w === cellPx.w && dims.h === cellPx.h)) return true;
-        return confirm(
-          `圖片與區塊尺寸不符\n\n本區塊尺寸為 ${cellPx.w}×${cellPx.h} px，` +
-          `所選圖片尺寸為 ${dims.w}×${dims.h} px。\n\n仍要上傳這張圖片嗎？（顯示時會依「顯示方式」設定縮放）`,
-        );
+        return BDialog.confirm({
+          title: '圖片與區塊尺寸不符',
+          desc: `本區塊尺寸為 ${cellPx.w}×${cellPx.h} px，所選圖片尺寸為 ${dims.w}×${dims.h} px。` +
+            '仍要上傳這張圖片嗎？（顯示時會依「顯示方式」設定縮放）',
+          confirmText: '仍要上傳',
+        });
       });
       box.appendChild(add);
     }
@@ -1025,8 +1051,8 @@ async function renderDevicesView() {
     const tr = document.createElement('tr');
     const updated = d.UpdatedAt ? new Date(d.UpdatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
     tr.innerHTML =
-      `<td><strong>${d.DeviceName || d.DeviceId}</strong></td>` +
-      `<td style="color:#6c757b">${d.DeviceId}</td>` +
+      `<td class="b-th">${d.DeviceName || d.DeviceId}</td>` +
+      `<td class="device-id-dim">${d.DeviceId}</td>` +
       `<td>第 ${d.Version} 版</td><td>${updated}</td>`;
 
     const ownerTd = document.createElement('td');
@@ -1052,11 +1078,17 @@ async function renderDevicesView() {
     tr.appendChild(ownerTd);
 
     const opTd = document.createElement('td');
+    opTd.style.textAlign = 'right';
     if (meIsAdmin) {
       const del = document.createElement('button');
-      del.className = 'danger'; del.textContent = '刪除';
+      del.className = 'b-btn b-btn-sm b-btn-danger-soft'; del.textContent = '刪除';
       del.onclick = async () => {
-        if (!confirm(`刪除機器「${d.DeviceName || d.DeviceId}」的雲端資料？\n（機器本身不受影響，重新開啟雲端同步會再上傳）`)) return;
+        const ok = await BDialog.confirm({
+          title: `刪除機器「${d.DeviceName || d.DeviceId}」的雲端資料？`,
+          desc: '機器本身不受影響，重新開啟雲端同步會再上傳。',
+          variant: 'danger', confirmText: '刪除',
+        });
+        if (!ok) return;
         try {
           await api('DELETE', `/api/devices/${encodeURIComponent(d.DeviceId)}`);
           setStatus('已刪除');
@@ -1073,6 +1105,7 @@ async function renderDevicesView() {
     tr.appendChild(opTd);
     tb.appendChild(tr);
   }
+  if (window.BDropdown) BDropdown.init(tb);
 }
 
 // ---------- 帳號管理 ----------
@@ -1088,9 +1121,13 @@ async function renderUsersView() {
     const td = document.createElement('td');
     if (!u.IsAdmin) {
       const del = document.createElement('button');
-      del.className = 'danger'; del.textContent = '刪除';
+      del.className = 'b-btn b-btn-sm b-btn-danger-soft'; del.textContent = '刪除';
       del.onclick = async () => {
-        if (!confirm(`刪除帳號 ${u.Username}？（機器會變回未分配）`)) return;
+        const ok = await BDialog.confirm({
+          title: `刪除帳號 ${u.Username}？`, desc: '該帳號的機器會變回未分配。',
+          variant: 'danger', confirmText: '刪除',
+        });
+        if (!ok) return;
         try { await api('DELETE', `/api/users/${u.UserId}`); renderUsersView(); }
         catch (e) { setStatus(e.message, true); }
       };

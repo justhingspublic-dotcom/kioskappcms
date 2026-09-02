@@ -4,115 +4,196 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kiosk 管理後台</title>
+  <script>
+    /* 深淺色＋字級偏好：首繪前套用，避免載入閃色/閃字級（admin-kit 規範） */
+    (function () {
+      try {
+        if (localStorage.getItem('adminColorMode') === 'dark') document.documentElement.setAttribute('data-color-mode', 'dark');
+        var fs = localStorage.getItem('adminFontSize');
+        if (fs === 'sm' || fs === 'lg') document.documentElement.setAttribute('data-fs', fs);
+      } catch (e) { }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- 畫布內容預覽模擬機器畫面（App 用 Material Icons），僅畫布使用 -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="admin-kit/css/tokens.css">
+  <link rel="stylesheet" href="admin-kit/css/shell.css">
+  <link rel="stylesheet" href="admin-kit/css/components.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 登入畫面 -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <!-- 登入（覆蓋整個殼層；登入成功後移除） -->
   <div id="loginView" class="login-wrap hidden">
-    <form id="loginForm" class="login-card">
-      <h1>Kiosk 管理後台</h1>
-      <input id="username" type="text" placeholder="帳號" autocomplete="username" required>
-      <input id="password" type="password" placeholder="密碼" autocomplete="current-password" required>
-      <button type="submit">登入</button>
-      <p id="loginError" class="error hidden">帳號或密碼錯誤</p>
+    <form id="loginForm" class="login-card b-card">
+      <div class="login-brand">Kiosk 管理後台</div>
+      <label class="b-label">帳號
+        <input id="username" type="text" class="b-input" autocomplete="username" required>
+      </label>
+      <label class="b-label">密碼
+        <input id="password" type="password" class="b-input" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="b-btn b-btn-primary login-submit">登入</button>
+      <p id="loginError" class="login-error hidden">帳號或密碼錯誤</p>
     </form>
   </div>
 
-  <!-- 主畫面：上 navbar（全局）＋左側邊欄（功能）＋中間內容 -->
   <div id="mainView" class="hidden">
-    <header class="topbar">
-      <h1>Kiosk 管理後台</h1>
-      <div class="topbar-global">
-        <label class="topbar-label" for="deviceSelect">機器</label>
-        <select id="deviceSelect" title="選擇要管理的機器"></select>
-        <span class="topbar-sep"></span>
-        <span id="whoami" class="whoami"></span>
-        <button id="logoutBtn" class="ghost">登出</button>
+    <header class="top-header" role="banner">
+      <div class="header-logo">
+        <button class="mobile-menu-btn" title="開啟選單"><i data-lucide="menu"></i><span class="sr-only">Open menu</span></button>
+        <span class="logo-text">Kiosk</span>
+        <span class="logo-env">管理後台</span>
+      </div>
+      <div class="header-right">
+        <label class="header-device-label" for="deviceSelect">機器</label>
+        <select id="deviceSelect" class="b-select header-device-select" title="選擇要管理的機器"></select>
+        <span class="header-sep" aria-hidden="true"></span>
+        <div class="header-fs-wrap">
+          <button type="button" class="header-icon-btn" title="字體大小" aria-label="字體大小" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="a-large-small"></i>
+          </button>
+          <div class="header-fs-panel" hidden>
+            <div class="header-fs-title">字體大小</div>
+            <input type="range" class="header-fs-range" min="0" max="2" step="1" value="1" aria-label="字體大小（中/大/特大）">
+            <div class="header-fs-marks"><span>中</span><span class="on">大</span><span>特大</span></div>
+          </div>
+        </div>
+        <button type="button" class="header-icon-btn header-mode-btn" title="切換深淺色" aria-label="切換深淺色">
+          <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
+          <span class="mode-ic mode-ic-sun"><i data-lucide="sun"></i></span>
+        </button>
+        <div class="header-user-wrap">
+          <button type="button" class="header-user-btn" aria-expanded="false" aria-haspopup="menu">
+            <span class="header-user-avatar" aria-hidden="true"><i data-lucide="user-round"></i></span>
+            <span class="header-user-name" id="whoami">—</span>
+            <i data-lucide="chevron-down" class="header-user-caret" aria-hidden="true"></i>
+          </button>
+          <div class="header-user-menu" role="menu" hidden>
+            <div class="header-user-head">
+              <div class="header-user-head-name" id="whoamiMenu">—</div>
+            </div>
+            <div class="header-user-sep"></div>
+            <button type="button" class="header-user-item is-logout" role="menuitem" id="logoutBtn">
+              <i data-lucide="log-out"></i><span>登出</span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
-    <div class="shell">
-      <aside class="sidebar">
-        <button class="nav-item active" data-view="editor">
-          <span class="material-icons">dashboard</span>版面上架
+    <nav class="sidebar" aria-label="後台選單">
+      <div class="sidebar-nav">
+        <button type="button" class="menu-item nav-item active" data-view="editor">
+          <i data-lucide="layout-dashboard"></i><span class="menu-text">版面上架</span>
         </button>
-        <button class="nav-item" data-view="devices">
-          <span class="material-icons">tv</span>機器管理
+        <button type="button" class="menu-item nav-item" data-view="devices">
+          <i data-lucide="monitor"></i><span class="menu-text">機器管理</span>
         </button>
-        <button class="nav-item hidden" data-view="users" id="usersNav">
-          <span class="material-icons">group</span>帳號管理
+        <button type="button" class="menu-item nav-item hidden" data-view="users" id="usersNav">
+          <i data-lucide="users"></i><span class="menu-text">帳號管理</span>
         </button>
-      </aside>
+      </div>
+      <div class="sidebar-toggle">
+        <button class="toggle-btn" title="收合側邊欄">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <rect class="panel-left-fill" x="3" y="3" width="6" height="18" rx="2" fill="currentColor" stroke="none"/>
+            <path d="M9 3v18"/>
+          </svg>
+          <span class="sr-only">Toggle sidebar</span>
+        </button>
+      </div>
+    </nav>
+    <div class="sidebar-overlay" aria-hidden="true"></div>
 
-      <main class="content">
-        <!-- 版面上架 -->
-        <div id="editorView">
-          <div class="content-toolbar">
-            <nav id="pageTabs" class="page-tabs"></nav>
-            <div class="toolbar-actions">
-              <button id="reloadBtn" class="ghost">重新載入</button>
-              <button id="saveBtn" disabled>儲存並發布</button>
-            </div>
-          </div>
-
-          <div id="emptyState" class="empty hidden">
-            <p>這台機器還沒有上傳過設定。</p>
-            <p class="hint">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
-          </div>
-
-          <div id="editor" class="editor hidden">
-            <div class="editor-body">
-              <div class="canvas-col">
-                <div id="canvas" class="canvas"></div>
-                <div class="canvas-actions">
-                  <button id="addBlockBtn" class="ghost">＋新增大區塊</button>
-                  <button id="showPageBtn" class="ghost">在機器上展示此頁</button>
-                </div>
-                <p class="hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
-              </div>
-              <aside id="cellPanel" class="cell-panel">
-                <p class="hint" style="padding:20px">← 點左邊版面上的格子開始編輯</p>
-              </aside>
-            </div>
+    <main id="main-content" class="main-content" tabindex="-1">
+      <!-- 版面上架 -->
+      <div id="editorView">
+        <div class="page-header">
+          <h1 class="page-title">版面上架</h1>
+          <div class="page-actions">
+            <button id="reloadBtn" class="b-btn"><i data-lucide="refresh-cw"></i>重新載入</button>
+            <button id="saveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
           </div>
         </div>
 
-        <!-- 機器管理 -->
-        <div id="devicesView" class="users-view hidden">
-          <section class="panel">
-            <h2>機器</h2>
-            <table id="deviceTable">
+        <nav id="pageTabs" class="page-tabs"></nav>
+
+        <div id="emptyState" class="b-card hidden">
+          <div class="b-empty">
+            <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
+            <p class="b-empty-title">這台機器還沒有上傳過設定</p>
+            <p class="b-empty-sub">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
+          </div>
+        </div>
+
+        <div id="editor" class="editor hidden">
+          <div class="editor-body">
+            <div class="canvas-col">
+              <div id="canvas" class="canvas"></div>
+              <div class="canvas-actions">
+                <button id="addBlockBtn" class="b-btn b-btn-sm"><i data-lucide="plus"></i>新增大區塊</button>
+                <button id="showPageBtn" class="b-btn b-btn-sm"><i data-lucide="monitor-play"></i>在機器上展示此頁</button>
+              </div>
+              <p class="canvas-hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
+            </div>
+            <aside id="cellPanel" class="cell-panel b-card">
+              <p class="panel-placeholder">← 點左邊版面上的格子開始編輯</p>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <!-- 機器管理 -->
+      <div id="devicesView" class="hidden">
+        <div class="page-header">
+          <h1 class="page-title">機器管理</h1>
+        </div>
+        <div class="b-card">
+          <div class="b-tbl-scroll">
+            <table class="b-tbl" id="deviceTable">
               <thead><tr><th>名稱</th><th>編號</th><th>版本</th><th>最後更新</th><th>屬於</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
-            <p class="hint">機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。
-              機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
-          </section>
+          </div>
+          <div class="b-card-body table-note">機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</div>
         </div>
+      </div>
 
-        <!-- 帳號管理（限管理員） -->
-        <div id="usersView" class="users-view hidden">
-          <section class="panel">
-            <h2>帳號</h2>
-            <table id="userTable">
-              <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th>機器數</th><th></th></tr></thead>
+      <!-- 帳號管理（限管理員） -->
+      <div id="usersView" class="hidden">
+        <div class="page-header">
+          <h1 class="page-title">帳號管理</h1>
+        </div>
+        <div class="b-card">
+          <div class="b-tbl-scroll">
+            <table class="b-tbl" id="userTable">
+              <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th class="num">機器數</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
-            <form id="addUserForm" class="row">
-              <input id="newUsername" type="text" placeholder="新帳號" required>
-              <input id="newPassword" type="password" placeholder="密碼" required>
-              <input id="newDisplayName" type="text" placeholder="名稱（例：XX專案）">
-              <button type="submit">新增帳號</button>
+          </div>
+          <div class="b-card-body">
+            <form id="addUserForm" class="adduser-row">
+              <input id="newUsername" type="text" class="b-input" placeholder="新帳號" required>
+              <input id="newPassword" type="password" class="b-input" placeholder="密碼" required>
+              <input id="newDisplayName" type="text" class="b-input" placeholder="名稱（例：XX專案）">
+              <button type="submit" class="b-btn b-btn-primary"><i data-lucide="user-plus"></i>新增帳號</button>
             </form>
-          </section>
+          </div>
         </div>
-      </main>
-    </div>
-
-    <p id="status" class="status"></p>
+      </div>
+    </main>
   </div>
 
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="admin-kit/js/kit.js"></script>
+  <script src="admin-kit/js/dropdown.js"></script>
+  <script src="admin-kit/js/dialogs.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

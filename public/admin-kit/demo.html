@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Kit — 後台模組展示</title>
+<script>
+  /* 深淺色＋字級偏好：首繪前套用，避免載入閃色/閃字級 */
+  (function () {
+    try {
+      if (localStorage.getItem('adminColorMode') === 'dark') document.documentElement.setAttribute('data-color-mode', 'dark');
+      var fs = localStorage.getItem('adminFontSize');
+      if (fs === 'sm' || fs === 'lg') document.documentElement.setAttribute('data-fs', fs);
+    } catch (e) { }
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/shell.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/themes/tiri.css" id="theme-tiri" disabled>
+<style>
+  /* demo 專用 */
+  .demo-sec { margin-bottom: 28px; }
+  .demo-sec > h2 { font-size: 16px; font-weight: 500; color: var(--text-heading); margin: 0 0 12px; }
+  .demo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .demo-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .demo-grid-2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <header class="top-header" role="banner">
+    <div class="header-logo">
+      <button class="mobile-menu-btn" title="開啟選單"><i data-lucide="menu"></i><span class="sr-only">Open menu</span></button>
+      <span class="logo-text">Admin Kit</span>
+      <span class="logo-env">後台</span>
+    </div>
+    <div class="header-right">
+      <div class="header-fs-wrap">
+        <button type="button" class="header-icon-btn" title="字體大小" aria-label="字體大小" aria-haspopup="true" aria-expanded="false">
+          <i data-lucide="a-large-small"></i>
+        </button>
+        <div class="header-fs-panel" hidden>
+          <div class="header-fs-title">字體大小</div>
+          <input type="range" class="header-fs-range" min="0" max="2" step="1" value="1" aria-label="字體大小（中/大/特大）">
+          <div class="header-fs-marks"><span>中</span><span class="on">大</span><span>特大</span></div>
+        </div>
+      </div>
+      <button type="button" class="header-icon-btn header-mode-btn" title="切換深淺色" aria-label="切換深淺色">
+        <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
+        <span class="mode-ic mode-ic-sun"><i data-lucide="sun"></i></span>
+      </button>
+      <span class="header-sep" aria-hidden="true"></span>
+      <button type="button" class="header-icon-btn" id="demo-theme-btn" title="套用/取消 TIRI 主題" aria-label="切換主題">
+        <i data-lucide="palette"></i>
+      </button>
+      <div class="header-user-wrap">
+        <button type="button" class="header-user-btn" aria-expanded="false" aria-haspopup="menu">
+          <span class="header-user-avatar" aria-hidden="true"><i data-lucide="user-round"></i></span>
+          <span class="header-user-name">管理者</span>
+          <i data-lucide="chevron-down" class="header-user-caret" aria-hidden="true"></i>
+        </button>
+        <div class="header-user-menu" role="menu" hidden>
+          <div class="header-user-head">
+            <div class="header-user-head-name">管理者</div>
+            <div class="header-user-head-email">admin@example.com</div>
+          </div>
+          <div class="header-user-sep"></div>
+          <button type="button" class="header-user-item is-logout" role="menuitem">
+            <i data-lucide="log-out"></i><span>登出</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="sidebar" aria-label="後台選單">
+    <div class="sidebar-nav">
+      <a class="menu-item active" href="#"><i data-lucide="layout-dashboard"></i><span class="menu-text">儀表板</span></a>
+      <a class="menu-item" href="#"><i data-lucide="inbox"></i><span class="menu-text">收件匣</span><span class="menu-count">128</span></a>
+      <button type="button" class="menu-item submenu-toggle">
+        <span class="menu-left"><i data-lucide="settings"></i><span class="menu-text">設定</span></span>
+        <i data-lucide="chevron-down" class="menu-caret"></i>
+      </button>
+      <div class="submenu">
+        <div class="submenu-inner">
+          <a class="menu-item submenu-item" href="#"><span class="menu-text">郵件設定</span></a>
+          <a class="menu-item submenu-item" href="#"><span class="menu-text">帳號設定</span></a>
+        </div>
+      </div>
+      <div class="menu-divider"></div>
+      <a class="menu-item" href="#"><i data-lucide="trash-2"></i><span class="menu-text">垃圾桶</span></a>
+    </div>
+    <div class="sidebar-toggle">
+      <button class="toggle-btn" title="收合側邊欄">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <rect class="panel-left-fill" x="3" y="3" width="6" height="18" rx="2" fill="currentColor" stroke="none"/>
+          <path d="M9 3v18"/>
+        </svg>
+        <span class="sr-only">Toggle sidebar</span>
+      </button>
+    </div>
+  </nav>
+  <div class="sidebar-overlay" aria-hidden="true"></div>
+
+  <main id="main-content" class="main-content" tabindex="-1">
+    <div class="page-header">
+      <h1 class="page-title">元件展示</h1>
+      <div class="page-actions">
+        <div class="b-pop">
+          <button type="button" class="b-btn b-btn-filter" data-pop>
+            <i data-lucide="filter"></i>篩選<i data-lucide="chevron-down" class="b-pop-caret"></i>
+          </button>
+          <div class="b-pop-panel">
+            <p class="b-pop-panel-title">篩選條件</p>
+            <label class="b-label">狀態
+              <select class="b-select"><option value="">全部</option><option>已寄出</option><option>失敗</option></select>
+            </label>
+            <label class="b-label" style="margin-top:12px">起始日<input type="date" class="b-input"></label>
+            <div class="b-pop-foot">
+              <button type="button" class="b-btn-reset">重置</button>
+              <button type="button" class="b-btn b-btn-primary b-btn-sm">套用</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="b-btn b-btn-primary" data-modal-open="#demo-modal"><i data-lucide="plus"></i>新增</button>
+      </div>
+    </div>
+
+    <section class="demo-sec">
+      <div class="b-kpi-grid">
+        <div class="b-kpi"><div class="b-kpi-head"><span class="b-kpi-label">累計收件</span><span class="b-kpi-icon"><i data-lucide="inbox"></i></span></div><div class="b-kpi-value num">1,284</div><div class="b-kpi-foot">全部表單</div></div>
+        <div class="b-kpi"><div class="b-kpi-head"><span class="b-kpi-label">今日</span><span class="b-kpi-icon"><i data-lucide="calendar"></i></span></div><div class="b-kpi-value num">6</div><div class="b-kpi-foot">近 24 小時</div></div>
+        <div class="b-kpi"><div class="b-kpi-head"><span class="b-kpi-label">近 7 日</span><span class="b-kpi-icon"><i data-lucide="chart-line"></i></span></div><div class="b-kpi-value num">42</div><div class="b-kpi-foot">週增 12%</div></div>
+        <div class="b-kpi"><div class="b-kpi-head"><span class="b-kpi-label">通知失敗</span><span class="b-kpi-icon"><i data-lucide="mail-x"></i></span></div><div class="b-kpi-value num">0</div><div class="b-kpi-foot">全部送達</div></div>
+      </div>
+    </section>
+
+    <section class="demo-sec">
+      <h2>Segment（滑塊）／Tabs</h2>
+      <div class="demo-row" style="margin-bottom:16px">
+        <div class="b-seg is-pill">
+          <button type="button" class="active" data-value="all" data-thumb-solid>全部</button>
+          <button type="button" data-value="join">入會申請</button>
+          <button type="button" data-value="course">課程報名</button>
+          <button type="button" data-value="contact">聯絡我們</button>
+        </div>
+      </div>
+      <div>
+        <div class="b-tabs">
+          <button type="button" class="b-tab b-tab-active" data-tab="a" aria-selected="true"><i data-lucide="table"></i>清單</button>
+          <button type="button" class="b-tab" data-tab="b" aria-selected="false"><i data-lucide="settings-2"></i>設定</button>
+        </div>
+        <div class="b-panel" data-panel="a" style="padding:14px 2px; color:var(--text-body-subtle)">underline tab 面板 A</div>
+        <div class="b-panel" data-panel="b" hidden style="padding:14px 2px; color:var(--text-body-subtle)">面板 B</div>
+      </div>
+    </section>
+
+    <section class="demo-sec">
+      <h2>表格（sticky thead 內滾）＋ Badge ＋ 列動作 context menu</h2>
+      <div class="b-tbl-scroll" style="max-height:260px">
+        <table class="b-tbl">
+          <thead><tr><th>填寫人</th><th>表單</th><th>狀態</th><th class="num">時間</th><th></th></tr></thead>
+          <tbody id="demo-rows"></tbody>
+        </table>
+      </div>
+      <div class="demo-row" style="margin-top:12px">
+        <span class="b-badge success"><span class="dot"></span>已寄出</span>
+        <span class="b-badge warning">待處理</span>
+        <span class="b-badge danger">失敗</span>
+        <span class="b-badge brand">精選</span>
+        <span class="b-badge neutral">草稿</span>
+        <nav class="b-pagination" style="margin-left:auto">
+          <a href="#demo-rows">‹</a><a href="#demo-rows" class="active">1</a><a href="#demo-rows">2</a><a href="#demo-rows">3</a><a href="#demo-rows">›</a>
+        </nav>
+      </div>
+    </section>
+
+    <section class="demo-sec">
+      <h2>按鈕階層</h2>
+      <div class="demo-row">
+        <button class="b-btn b-btn-primary">主要動作</button>
+        <button class="b-btn">次要動作</button>
+        <button class="b-btn b-btn-ghost">Ghost</button>
+        <button class="b-btn b-btn-quiet">Quiet</button>
+        <button class="b-btn b-btn-text">文字鈕</button>
+        <button class="b-btn b-btn-danger">刪除</button>
+        <button class="b-btn b-btn-danger-soft">停止</button>
+        <button class="b-btn b-btn-text b-btn-text-danger">放棄</button>
+        <button class="b-btn" disabled>停用</button>
+        <button class="b-btn b-btn-icon" title="編輯" aria-label="編輯"><i data-lucide="pencil"></i></button>
+        <button class="b-btn b-btn-primary"><i data-lucide="loader-circle" class="b-spin"></i>處理中</button>
+      </div>
+    </section>
+
+    <div class="demo-grid-2">
+      <section class="demo-sec">
+        <h2>表單欄位（--field-* 統一高度）＋自訂下拉</h2>
+        <div class="b-card"><div class="b-card-body" style="display:grid;gap:14px">
+          <label class="b-label">名稱<input type="text" class="b-input" placeholder="輸入名稱" style="margin-top:6px"></label>
+          <label class="b-label">類型
+            <select class="b-select" style="margin-top:6px"><option value="">請選擇</option><option>入會申請</option><option>課程報名</option><option>聯絡我們</option></select>
+          </label>
+          <label class="b-label">日期<input type="date" class="b-input" style="margin-top:6px"></label>
+          <label class="b-label">備註<textarea class="b-textarea" placeholder="focus＝accent 邊框＋1px 光圈" style="margin-top:6px"></textarea></label>
+        </div></div>
+      </section>
+
+      <section class="demo-sec">
+        <h2>對話框／Toast／進度</h2>
+        <div class="b-card">
+          <div class="b-card-head"><h3 class="b-card-title">BDialog ＋ BToast</h3></div>
+          <div class="b-card-body">
+            <div class="demo-row">
+              <button class="b-btn" id="demo-confirm">confirm</button>
+              <button class="b-btn" id="demo-alert">alert</button>
+              <button class="b-btn" id="demo-prompt">prompt</button>
+              <button class="b-btn b-btn-ghost" id="demo-toast-ok">toast ✓</button>
+              <button class="b-btn b-btn-ghost" id="demo-toast-err">toast ✕</button>
+            </div>
+          </div>
+          <div class="b-occ">
+            <div class="b-occ-row"><div class="b-occ-head"><span class="b-occ-name">入會申請</span><span class="b-occ-val num">64%</span></div><div class="b-occ-track"><div class="b-occ-fill" style="width:64%"></div></div></div>
+            <div class="b-occ-row"><div class="b-occ-head"><span class="b-occ-name">課程報名</span><span class="b-occ-val num">100%</span></div><div class="b-occ-track"><div class="b-occ-fill is-full" style="width:100%"></div></div></div>
+          </div>
+          <div class="b-todo"><span class="b-todo-label"><i data-lucide="mail-x"></i>通知失敗</span><span class="b-todo-num num">2</span></div>
+          <div class="b-todo is-zero"><span class="b-todo-label"><i data-lucide="trash-2"></i>垃圾桶待清</span><span class="b-todo-num num">0</span></div>
+          <div class="b-quick">
+            <a class="b-quick-btn" href="#main-content"><i data-lucide="download"></i>匯出 CSV</a>
+            <a class="b-quick-btn" href="#main-content"><i data-lucide="mail"></i>寄測試信</a>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="demo-sec">
+      <h2>空狀態</h2>
+      <div class="b-card"><div class="b-empty">
+        <span class="b-empty-icon"><i data-lucide="inbox"></i></span>
+        <p class="b-empty-title">還沒有收件</p>
+        <p class="b-empty-sub">有人在官網送出表單時，這裡會出現一筆收件並寄出通知信。</p>
+      </div></div>
+    </section>
+
+    <footer class="main-footer">Admin Kit · Demo（右上調色盤鈕可切 TIRI 主題）</footer>
+  </main>
+
+  <!-- 標準 modal（soft 表單款） -->
+  <div class="b-modal-overlay" id="demo-modal">
+    <div class="b-modal is-soft" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+      <div class="b-modal-head">
+        <div><h3 class="b-modal-title" id="demo-modal-title">新增項目</h3><p class="b-modal-sub">soft modal：淺灰底、白欄位、無頭尾分隔線。</p></div>
+        <button type="button" class="b-modal-close" data-modal-close aria-label="關閉"><i data-lucide="x"></i></button>
+      </div>
+      <div class="b-modal-body" style="display:grid;gap:14px">
+        <label class="b-label">名稱<input type="text" class="b-input" placeholder="輸入名稱"></label>
+        <label class="b-label">類型<select class="b-select"><option>入會申請</option><option>課程報名</option></select></label>
+      </div>
+      <div class="b-modal-foot">
+        <button type="button" class="b-btn b-btn-quiet" data-modal-close>取消</button>
+        <button type="button" class="b-btn b-btn-text" id="demo-modal-save">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="js/kit.js"></script>
+  <script src="js/dropdown.js"></script>
+  <script src="js/dialogs.js"></script>
+  <script src="js/context-menu.js"></script>
+  <script src="js/scroll-fade.js"></script>
+  <script>
+    /* demo 資料列＋列動作 context menu */
+    (function () {
+      var rows = [
+        ['王小明', '入會申請', ['success', '已寄出'], '09-02 14:20'],
+        ['陳雅婷', '課程報名', ['success', '已寄出'], '09-02 11:05'],
+        ['林志豪', '聯絡我們', ['danger', '失敗'], '09-01 18:44'],
+        ['張美玲', '入會申請', ['warning', '待處理'], '09-01 09:12'],
+        ['李承翰', '課程報名', ['success', '已寄出'], '08-31 16:30'],
+        ['吳佩珊', '聯絡我們', ['success', '已寄出'], '08-30 10:08']
+      ];
+      var tb = document.getElementById('demo-rows');
+      tb.innerHTML = rows.map(function (r) {
+        return '<tr><td class="b-th">' + r[0] + '</td><td>' + r[1] + '</td>' +
+          '<td><span class="b-badge ' + r[2][0] + '"><span class="dot"></span>' + r[2][1] + '</span></td>' +
+          '<td class="num">' + r[3] + '</td>' +
+          '<td style="text-align:right"><button type="button" class="b-btn b-btn-ghost b-btn-icon b-btn-sm demo-row-more" aria-label="更多"><i data-lucide="ellipsis"></i></button></td></tr>';
+      }).join('');
+      window.renderLucideIcons();
+
+      tb.addEventListener('click', function (e) {
+        var btn = e.target.closest('.demo-row-more');
+        if (!btn) return;
+        window.BContextMenu.open({
+          x: e.clientX, y: e.clientY, anchorEl: btn,
+          items: [
+            { id: 'view', icon: 'eye', label: '查看' },
+            { id: 'export', icon: 'download', label: '匯出' },
+            { id: 'del', icon: 'trash-2', label: '移至垃圾桶' }
+          ],
+          onSelect: function (id) { window.BToast.success('選了：' + id); }
+        });
+      });
+
+      /* 對話框/toast */
+      document.getElementById('demo-confirm').addEventListener('click', function () {
+        window.BDialog.confirm({ title: '要移至垃圾桶嗎？', desc: '收件會保留 7 天，隨時可以還原。', variant: 'danger', confirmText: '移至垃圾桶' })
+          .then(function (ok) { if (ok) window.BToast.success('已移至垃圾桶'); });
+      });
+      document.getElementById('demo-alert').addEventListener('click', function () {
+        window.BDialog.alert({ title: '設定已儲存', desc: '下次寄信時生效。' });
+      });
+      document.getElementById('demo-prompt').addEventListener('click', function () {
+        window.BDialog.prompt({ title: '輸入暱稱', placeholder: '例如：Judy' })
+          .then(function (v) { if (v != null) window.BToast.success('暱稱：' + (v || '(空)')); });
+      });
+      document.getElementById('demo-toast-ok').addEventListener('click', function () { window.BToast.success('儲存成功'); });
+      document.getElementById('demo-toast-err').addEventListener('click', function () { window.BToast.danger('寄送失敗，請檢查 SMTP 設定'); });
+      document.getElementById('demo-modal-save').addEventListener('click', function () {
+        window.BModal.close('#demo-modal');
+        window.BToast.success('已新增');
+      });
+
+      /* segment 事件示意 */
+      document.querySelector('.b-seg.is-pill').addEventListener('segment:change', function (e) {
+        window.BToast.show('分類：' + e.detail.value, 'success');
+      });
+
+      /* TIRI 主題切換 */
+      var themeLink = document.getElementById('theme-tiri');
+      var themeBtn = document.getElementById('demo-theme-btn');
+      try { themeLink.disabled = localStorage.getItem('demoTheme') !== 'tiri'; } catch (err) { }
+      themeBtn.addEventListener('click', function () {
+        window.softApply(function () {
+          themeLink.disabled = !themeLink.disabled;
+          try { localStorage.setItem('demoTheme', themeLink.disabled ? 'neutral' : 'tiri'); } catch (err) { }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

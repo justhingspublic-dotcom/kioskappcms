@@ -1,6 +1,15 @@
 # KioskAdmin 進度文件
 
-> 最後更新：2026-09-02｜狀態：**基礎功能完成，進入視覺設計調整階段**
+> 最後更新：2026-09-02 深夜｜狀態：**admin-kit 視覺改版 v1 已鋪上**
+
+## 最新：admin-kit 視覺改版 v1（2026-09-02 深夜）
+
+- 整站鋪上 admin-kit 後台設計系統（`public/admin-kit/`）：
+  - 殼層：kit top-header（左 logo、右機器下拉／字級三段／深淺色切換／帳號選單登出）＋可收合 sidebar（版面上架/機器管理/帳號管理）＋ main-content page-header
+  - 元件替換：按鈕 → b-btn 階層、欄位 → b-input/b-select/b-textarea（統一高度）、表格 → b-tbl（sticky thead）、空狀態 → b-empty、原生 confirm/prompt → BDialog、右下角狀態字 → BToast、所有下拉 → BDropdown（動態面板 render 後補 init）
+  - 主題：`--accent: #2E6A43` 品牌綠（style.css 開頭覆寫）；深淺色模式 token 級支援
+  - 畫布刻意不跟深淺色：黑底模擬機器螢幕；格內預覽仍用 Material Icons（對齊 App）
+- 尚未實測瀏覽器渲染（terminal 驗證：資源全 200、JS 語法通過）——開頁若有跑版，優先檢查：BDropdown 動態 init、page-tabs 自訂樣式、cell-panel sticky
 
 ## 這是什麼
 

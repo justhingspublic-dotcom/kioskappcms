@@ -1,0 +1,629 @@
+/* ==========================================================================
+   Admin Kit — Components（版型無關：不寫死外距/定位，排版交給內頁）
+   來源：TIRI 收件後台 b_admin.css ＋ b/dropdown.css 精選合併。
+   依賴 tokens.css；元件碼一律 var(--token)，不寫死 hex。
+   ========================================================================== */
+
+.num { font-variant-numeric: tabular-nums; }
+.lucide { width: 1em; height: 1em; stroke-width: 2.2; flex-shrink: 0; }
+
+/* --------------------------------------------------------------------------
+   1. 按鈕：圓角 10、shadow-xs＋glint、500 medium、hover=換底色（.15s）
+   -------------------------------------------------------------------------- */
+.b-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: var(--control-height); min-height: var(--control-height);
+  padding: 0 var(--control-pad-x); border-radius: var(--control-radius);
+  font-family: inherit; font-size: 14px; font-weight: 500; line-height: calc(var(--control-height) - 2px);
+  border: 1px solid var(--border-default); background: var(--neutral-primary-soft); color: var(--text-body);
+  box-shadow: var(--shadow-xs), var(--btn-glint);
+  cursor: pointer; white-space: nowrap; box-sizing: border-box; text-decoration: none;
+  transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.b-btn :where(i, .lucide) { font-size: 16px; }
+.b-btn:hover { background: var(--neutral-secondary-medium); color: var(--text-heading); }
+.b-btn:focus-visible { outline: none; box-shadow: var(--shadow-xs), var(--btn-glint), 0 0 0 4px var(--neutral-tertiary-medium); }
+.b-btn-xs { height: 28px; min-height: 28px; padding: 0 10px; font-size: 12px; line-height: 26px; }
+.b-btn-sm { height: 32px; min-height: 32px; padding: 0 12px; font-size: 14px; line-height: 30px; }
+.b-btn-lg { height: 40px; min-height: 40px; padding: 0 18px; font-size: 16px; line-height: 38px; }
+.b-btn-block { width: 100%; }
+/* icon-only：方形、icon 置中（表格列操作鈕用） */
+.b-btn-icon { width: var(--control-height); padding: 0; }
+.b-btn-icon.b-btn-sm { width: 32px; }
+.b-btn-icon.b-btn-xs { width: 28px; }
+.b-btn-icon.b-btn-lg { width: 40px; }
+
+.b-btn-primary { background: var(--brand); border-color: transparent; color: var(--b-on-primary, #fff); }
+.b-btn-primary:hover { background: var(--brand-strong); color: var(--b-on-primary, #fff); }
+.b-btn-primary:focus-visible { box-shadow: var(--shadow-xs), var(--btn-glint), 0 0 0 4px var(--brand-medium); }
+.b-btn-success { background: var(--success); border-color: transparent; color: #fff; }
+.b-btn-success:hover { background: var(--success-strong); color: #fff; }
+.b-btn-success:focus-visible { box-shadow: var(--shadow-xs), var(--btn-glint), 0 0 0 4px var(--success-medium); }
+.b-btn-danger { background: var(--danger); border-color: transparent; color: #fff; }
+.b-btn-danger:hover { background: var(--danger-strong); color: #fff; }
+.b-btn-danger:focus-visible { box-shadow: var(--shadow-xs), var(--btn-glint), 0 0 0 4px var(--danger-medium); }
+/* danger-soft：紅字＋淡紅底＋紅框（危險動作但不搶眼，如「停止」） */
+.b-btn-danger-soft { background: var(--danger-soft); border-color: var(--border-danger-subtle); color: var(--fg-danger-strong); box-shadow: none; }
+.b-btn-danger-soft :where(i, .lucide) { color: var(--fg-danger); }
+.b-btn-danger-soft:hover { background: var(--danger-medium); border-color: var(--border-danger); color: var(--fg-danger-strong); }
+.b-btn-danger-soft:focus-visible { box-shadow: 0 0 0 4px var(--danger-medium); }
+.b-btn-dark { background: var(--dark); border-color: transparent; color: #fff; }
+.b-btn-dark:hover { background: var(--dark-strong); color: #fff; }
+
+/* ghost：無陰影/無 glint */
+.b-btn-ghost { background: transparent; border-color: transparent; color: var(--text-heading); box-shadow: none; }
+.b-btn-ghost:hover { background: var(--neutral-secondary-medium); color: var(--text-heading); }
+.b-btn-ghost:focus-visible { box-shadow: 0 0 0 4px var(--neutral-tertiary-medium); }
+
+/* quiet：純文字鈕，平時淺灰，hover 才亮（次要動作，不與主動作競爭） */
+.b-btn-quiet { background: transparent; border-color: transparent; color: var(--text-body-subtle); box-shadow: none; }
+.b-btn-quiet:hover { background: var(--neutral-secondary-medium); color: var(--text-heading); }
+.b-btn-quiet:focus-visible { box-shadow: 0 0 0 4px var(--neutral-tertiary-medium); }
+
+/* filter：平時透明字灰；hover 黑 10% 底＋accent 字；開啟態（.b-pop.is-open）維持 hover 樣。
+   .is-active＝已套用篩選：無底、字 accent；hover 才出現黑 5% 底。 */
+.b-btn-filter { background: transparent; border-color: transparent; color: var(--text-body); box-shadow: none; border-radius: var(--radius-md); }
+.b-btn-filter:hover,
+.b-pop.is-open .b-btn-filter { background: rgba(0, 0, 0, .1); color: var(--fg-brand); }
+.b-btn-filter:focus-visible { box-shadow: 0 0 0 4px var(--neutral-tertiary-medium); }
+.b-btn-filter.is-active { background: transparent; color: var(--fg-brand); }
+.b-btn-filter.is-active:hover,
+.b-pop.is-open .b-btn-filter.is-active { background: rgba(0, 0, 0, .05); color: var(--fg-brand); }
+
+/* reset：純文字，平常淡（opacity .55）、hover 完整色 */
+.b-btn-reset {
+  background: transparent; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: var(--text-body); opacity: .55; text-decoration: none;
+  font-size: 14px; line-height: 1; transition: opacity .15s, color .15s;
+}
+.b-btn-reset:hover { opacity: 1; color: var(--text-heading); }
+
+.b-btn:disabled, .b-btn.is-disabled, .b-btn[aria-disabled="true"] {
+  background: var(--disabled); border-color: var(--border-default-medium); color: var(--fg-disabled);
+  box-shadow: none; cursor: not-allowed;
+}
+.b-btn:disabled:hover, .b-btn.is-disabled:hover { background: var(--disabled); color: var(--fg-disabled); }
+
+/* text：純文字按鈕（無底/框/陰影、accent 字）。modal 送出等「只要文字」的主動作。
+   ⚠️ 必須排在 .b-btn:disabled 之後（同特異度靠順序勝出）。 */
+.b-btn-text { background: transparent; border: 0; color: var(--fg-brand); box-shadow: none; font-weight: 600; }
+.b-btn-text:hover { background: var(--brand-softer); color: var(--fg-brand-strong); }
+.b-btn-text:focus-visible { box-shadow: 0 0 0 4px var(--brand-medium); }
+.b-btn-text-danger { color: var(--fg-danger); }
+.b-btn-text-danger:hover { background: var(--danger-soft); color: var(--fg-danger-strong, var(--fg-danger)); }
+.b-btn-text-danger:focus-visible { box-shadow: 0 0 0 4px var(--danger-medium); }
+.b-btn-text:disabled, .b-btn-text.is-disabled, .b-btn-text[aria-disabled="true"] {
+  background: transparent; border: 0; box-shadow: none; color: rgba(0, 0, 0, .1); cursor: not-allowed;
+}
+.b-btn-text:disabled:hover, .b-btn-text.is-disabled:hover { background: transparent; box-shadow: none; color: rgba(0, 0, 0, .1); }
+
+/* 載入 spinner */
+.b-spin { animation: b-spin 1s linear infinite; }
+@keyframes b-spin { to { transform: rotate(360deg); } }
+
+/* --------------------------------------------------------------------------
+   2. 輸入 / 下拉 / textarea（--field-* 統一參數：text/date/select 同高）
+   -------------------------------------------------------------------------- */
+.b-label { display: block; font-size: 14px; font-weight: 500; color: var(--text-heading); margin-bottom: 8px; }
+.b-input, .b-select, .b-textarea {
+  display: block; width: 100%; box-sizing: border-box;
+  height: var(--field-height); min-height: var(--field-height);
+  padding: 0 var(--field-pad-x); line-height: calc(var(--field-height) - 2px);
+  font-family: inherit; font-size: var(--field-font-size); color: var(--text-heading);
+  background: var(--neutral-secondary-medium); border: 1px solid var(--border-default-medium);
+  border-radius: var(--field-radius); box-shadow: var(--shadow-xs);
+  transition: border-color .2s, box-shadow .2s, background .2s;
+}
+.b-textarea { height: auto; min-height: 80px; padding: 8px var(--field-pad-x); line-height: 1.5; resize: vertical; }
+.b-input::placeholder, .b-textarea::placeholder { color: var(--text-body); }
+.b-input:hover, .b-select:hover, .b-textarea:hover { border-color: var(--border-default-strong); }
+.b-input:focus, .b-select:focus, .b-textarea:focus { outline: none; border-color: var(--border-brand); box-shadow: 0 0 0 1px var(--brand); }
+.b-input.is-error, .b-select.is-error, .b-textarea.is-error { border-color: var(--border-danger); }
+.b-input.is-error:focus, .b-textarea.is-error:focus { box-shadow: 0 0 0 1px var(--danger); }
+.b-input.is-success, .b-textarea.is-success { border-color: var(--border-success); }
+.b-input:disabled, .b-select:disabled, .b-textarea:disabled { background: var(--disabled); color: var(--fg-disabled); cursor: not-allowed; }
+
+/* --------------------------------------------------------------------------
+   3. 自訂下拉（BDropdown，js/dropdown.js 漸進增強原生 <select>）
+   -------------------------------------------------------------------------- */
+.b-dd { position: relative; display: block; }
+/* 防 FOUC：尚未增強的 select 先隱藏（保留版位），避免閃出原生下拉 */
+.main-content select:not([data-bdd]) { visibility: hidden; }
+.b-dd-native {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 0;
+  padding: 0; margin: 0; border: 0; opacity: 0; pointer-events: none;
+}
+.b-dd-trigger {
+  display: inline-flex; align-items: center; gap: 8px; width: 100%;
+  height: var(--field-height); min-height: var(--field-height);
+  padding: 0 10px 0 var(--field-pad-x);
+  background: var(--dd-surface, #fff); border: 1px solid var(--dd-border); border-radius: var(--dd-radius);
+  box-shadow: var(--dd-trigger-shadow, none);
+  font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
+  transition: border-color .15s, box-shadow .15s;
+}
+.b-dd-trigger:hover { border-color: var(--dd-border-hover); }
+.b-dd.open .b-dd-trigger {
+  border-color: var(--dd-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dd-accent) 18%, transparent);
+}
+.b-dd-value { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.b-dd-value.placeholder { color: var(--dd-placeholder); }
+.b-dd-caret { color: var(--dd-caret); font-size: 11px; transition: transform .18s ease; flex-shrink: 0; }
+.b-dd.open .b-dd-caret { transform: rotate(180deg); }
+/* 選單：position:fixed（JS 定位），逃離 overflow 裁切 */
+.b-dd-menu {
+  position: fixed; z-index: 1200; min-width: 140px;
+  background: var(--dd-surface); border: 1px solid var(--dd-border); border-radius: var(--dd-radius);
+  box-shadow: var(--dd-menu-shadow);
+  padding: 4px; max-height: 280px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 1px;
+  animation: bddIn .14s ease-out;
+}
+.b-dd-menu[hidden] { display: none; }
+@keyframes bddIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.b-dd-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: none; background: transparent; text-align: left;
+  border-radius: var(--radius-sm); font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
+}
+.b-dd-item:hover { background: var(--dd-item-hover); color: var(--dd-item-hover-text, inherit); }
+.b-dd-item.active { background: var(--dd-item-active-bg); color: var(--dd-item-active-text); font-weight: 600; }
+.b-dd-item:disabled { color: var(--dd-disabled); cursor: default; }
+.b-dd-sm .b-dd-trigger { min-height: 30px; height: 30px; padding: 0 8px; font-size: 12px; }
+.b-dd-sm .b-dd-item { padding: 5px 8px; font-size: 12px; }
+.b-dd-sm .b-dd-menu { min-width: 110px; }
+
+/* --------------------------------------------------------------------------
+   4. 表格
+   -------------------------------------------------------------------------- */
+.b-tbl-wrap { background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); overflow-x: auto; }
+.b-tbl-wrap .b-tbl { border: 0; }
+.b-tbl { width: 100%; border-collapse: collapse; font-size: 14px; color: var(--text-body); background: var(--neutral-primary-soft); }
+.b-tbl thead th {
+  text-align: left; font-weight: 500; color: var(--text-body); font-size: 13px;
+  background: var(--neutral-secondary-soft); padding: 12px 16px;
+  border-bottom: 1px solid var(--border-default); white-space: nowrap;
+}
+.b-tbl tbody td { padding: 14px 16px; border-bottom: 1px solid var(--border-default); color: var(--text-heading); vertical-align: middle; }
+.b-tbl tbody tr:last-child td { border-bottom: none; }
+.b-tbl tbody tr { transition: background .12s ease; }
+.b-tbl tbody tr:hover { background: var(--neutral-secondary-soft); }
+.b-tbl th[scope="row"], .b-tbl td.b-th { font-weight: 500; color: var(--text-heading); white-space: nowrap; }
+.b-tbl td.num, .b-tbl th.num { font-variant-numeric: tabular-nums; }
+
+/* --------------------------------------------------------------------------
+   5. Badge（pill）／Icon shape／Avatar
+   -------------------------------------------------------------------------- */
+.b-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: var(--radius-full); border: 1px solid transparent;
+  font-size: 12px; font-weight: 500; line-height: 1.4; white-space: nowrap;
+}
+.b-badge.lg { font-size: 14px; padding: 4px 8px; }
+.b-badge.square { border-radius: var(--radius-md); }
+.b-badge .dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: currentColor; }
+.b-badge.ok, .b-badge.success { background: var(--success-soft); border-color: var(--border-success-subtle); color: var(--fg-success-strong); }
+.b-badge.warn, .b-badge.warning { background: var(--warning-soft); border-color: var(--border-warning-subtle); color: var(--fg-warning); }
+.b-badge.bad, .b-badge.danger { background: var(--danger-soft); border-color: var(--border-danger-subtle); color: var(--fg-danger-strong); }
+.b-badge.brand { background: var(--brand-softer); border-color: var(--border-brand-subtle); color: var(--fg-brand-strong); }
+.b-badge.neutral { background: var(--neutral-secondary-medium); border-color: var(--border-default); color: var(--text-heading); }
+.b-badge.dark { background: var(--dark); border-color: transparent; color: #fff; }
+
+.b-ish { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; }
+.b-ish-circle { border-radius: var(--radius-full); }
+.b-ish-square { border-radius: var(--radius-md); }
+.b-ish-xs { width: 24px; height: 24px; font-size: 14px; }
+.b-ish-sm { width: 32px; height: 32px; font-size: 16px; }
+.b-ish-md { width: 40px; height: 40px; font-size: 20px; }
+.b-ish-lg { width: 48px; height: 48px; font-size: 24px; }
+.b-ish-xl { width: 56px; height: 56px; font-size: 28px; }
+.b-ish.brand { background: var(--brand-softer); color: var(--fg-brand-strong); }
+.b-ish.gray { background: var(--neutral-secondary-soft); color: var(--text-body); }
+.b-ish.danger { background: var(--danger-soft); color: var(--fg-danger-strong); }
+.b-ish.success { background: var(--success-soft); color: var(--fg-success-strong); }
+.b-ish.warning { background: var(--warning-soft); color: var(--fg-warning); }
+
+.b-avatar { display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: var(--radius-full); background: var(--neutral-tertiary); color: var(--text-body); font-weight: 500; width: 40px; height: 40px; font-size: 14px; flex-shrink: 0; }
+.b-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.b-avatar-square { border-radius: var(--radius-md); }
+.b-avatar-xs { width: 24px; height: 24px; font-size: 11px; }
+.b-avatar-sm { width: 32px; height: 32px; font-size: 12px; }
+.b-avatar-lg { width: 44px; height: 44px; font-size: 16px; }
+.b-avatar-xl { width: 56px; height: 56px; font-size: 18px; }
+
+/* --------------------------------------------------------------------------
+   6. Segmented control ＋ Tabs
+   -------------------------------------------------------------------------- */
+.b-seg { display: inline-flex; align-items: center; gap: 4px; padding: 3px; background: var(--neutral-secondary-soft); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
+.b-seg a, .b-seg button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
+  border: 0; background: transparent; border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 14px; font-weight: 500; color: var(--text-body);
+  cursor: pointer; text-decoration: none; transition: background .15s, color .15s, box-shadow .15s;
+}
+.b-seg a:hover, .b-seg button:hover { color: var(--text-heading); background: var(--neutral-tertiary-medium); }
+.b-seg .active, .b-seg [aria-selected="true"] { background: var(--brand); color: var(--b-on-primary, #fff); box-shadow: var(--shadow-sm); }
+.b-seg .active:hover, .b-seg [aria-selected="true"]:hover { background: var(--brand-strong); color: var(--b-on-primary, #fff); }
+
+/* 滑塊變體：.b-seg.is-pill 用滑動指示塊（.b-seg-thumb）表示 active。
+   滑塊寬度/位移由 JS（kit.js bSegThumb）量測選項實寬設 --thumb-w/--thumb-x
+   → 選項貼合文字寬度（不平分、不換行），滑塊仍精準對齊、顏色跟著補間。 */
+.b-seg.is-pill { position: relative; }
+.b-seg.is-pill .b-seg-thumb {
+  position: absolute; top: 3px; bottom: 3px; left: 3px;
+  width: var(--thumb-w, 0); transform: translateX(var(--thumb-x, 0));
+  border-radius: var(--radius-sm);
+  background: var(--brand); box-shadow: var(--shadow-sm);
+  transition: transform .28s cubic-bezier(.4,0,.2,1), width .28s cubic-bezier(.4,0,.2,1), background-color .28s ease;
+  z-index: 0; pointer-events: none;
+}
+.b-seg.is-pill.no-anim .b-seg-thumb { transition: none; }   /* 首次定位不要滑進來 */
+.b-seg.is-pill a, .b-seg.is-pill button {
+  position: relative; z-index: 1; justify-content: center; white-space: nowrap;
+  transition: color .2s ease;
+}
+.b-seg.is-pill a:hover, .b-seg.is-pill button:hover { background: transparent; color: var(--text-heading); }
+.b-seg.is-pill .active, .b-seg.is-pill [aria-selected="true"] { background: transparent; box-shadow: none; color: var(--b-on-primary, #fff); }
+.b-seg.is-pill .active:hover, .b-seg.is-pill [aria-selected="true"]:hover { background: transparent; color: var(--b-on-primary, #fff); }
+
+/* Tabs（underline 風） */
+.b-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); }
+.b-tab {
+  display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px;
+  border: 0; background: transparent; border-bottom: 2px solid transparent; border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-family: inherit; font-size: 14px; font-weight: 500; color: var(--text-body);
+  cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+}
+.b-tab:hover { color: var(--text-heading); border-bottom-color: var(--border-default-strong); }
+.b-tab.b-tab-active, .b-tab[aria-selected="true"] { color: var(--fg-brand); border-bottom-color: var(--border-brand); }
+.b-panel[hidden] { display: none; }
+
+/* --------------------------------------------------------------------------
+   7. 卡片／KPI／空狀態／Alert
+   -------------------------------------------------------------------------- */
+.b-card { background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); }
+.b-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border-default); }
+.b-card-title { font-size: 16px; font-weight: 500; color: var(--text-heading); margin: 0; }
+.b-card-body { padding: 20px; }
+.b-card-interactive { cursor: pointer; transition: background .15s, box-shadow .15s; }
+.b-card-interactive:hover { background: var(--neutral-secondary-medium); box-shadow: var(--shadow-sm); }
+
+.b-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+@media (max-width: 900px) { .b-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .b-kpi-grid { grid-template-columns: 1fr; } }
+.b-kpi { background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-xs); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.b-kpi-head { display: flex; align-items: center; justify-content: space-between; }
+.b-kpi-label { font-size: 14px; color: var(--text-body-subtle); font-weight: 500; }
+.b-kpi-icon { width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--neutral-secondary-soft); color: var(--text-body); display: inline-flex; align-items: center; justify-content: center; font-size: 16px; }
+.b-kpi-value { font-size: 30px; font-weight: 600; letter-spacing: 0; line-height: 1.1; color: var(--text-heading); font-variant-numeric: tabular-nums; }
+.b-kpi-foot { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-body-subtle); }
+.b-kpi.is-compact { padding: 14px 18px; gap: 6px; }
+
+.b-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 64px 24px; }
+.b-empty-icon { width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--neutral-secondary-soft); color: var(--text-body); display: inline-flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 16px; }
+.b-empty-title { font-size: 16px; font-weight: 500; color: var(--text-heading); margin: 0 0 4px; }
+.b-empty-sub { font-size: 14px; color: var(--text-body-subtle); margin: 0; max-width: 340px; line-height: 1.6; }
+
+.b-alert { display: flex; gap: 12px; padding: 16px; border: 1px solid transparent; border-radius: var(--radius-md); font-size: 14px; line-height: 1.6; }
+.b-alert-title { font-size: 16px; font-weight: 500; margin: 0 0 2px; }
+.b-alert.brand { background: var(--brand-softer); border-color: var(--border-brand-subtle); color: var(--fg-brand-strong); }
+.b-alert.success { background: var(--success-soft); border-color: var(--border-success-subtle); color: var(--fg-success-strong); }
+.b-alert.danger { background: var(--danger-soft); border-color: var(--border-danger-subtle); color: var(--fg-danger-strong); }
+.b-alert.warning { background: var(--warning-soft); border-color: var(--border-warning-subtle); color: var(--fg-warning); }
+
+.b-status-stack { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.b-alert-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  border-radius: var(--radius-full); padding: 2px 8px;
+  background: var(--danger-soft); border: 1px solid var(--border-danger-subtle); color: var(--fg-danger-strong);
+  font-size: 12px; font-weight: 500;
+}
+.b-alert-pill::before { content: "!"; font-weight: 700; }
+
+/* --------------------------------------------------------------------------
+   8. Pagination
+   -------------------------------------------------------------------------- */
+.b-pagination { display: inline-flex; font-size: 14px; }
+.b-pagination a, .b-pagination button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px; height: 36px; padding: 0 8px; margin-left: -1px;
+  border: 1px solid var(--border-default-medium); background: var(--neutral-secondary-medium);
+  color: var(--text-body); font-weight: 500; text-decoration: none; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.b-pagination > :first-child { margin-left: 0; border-top-left-radius: var(--radius-md); border-bottom-left-radius: var(--radius-md); }
+.b-pagination > :last-child { border-top-right-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md); }
+.b-pagination a:hover, .b-pagination button:hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
+.b-pagination .active { color: var(--fg-brand); background: var(--neutral-tertiary-medium); position: relative; z-index: 1; }
+
+/* --------------------------------------------------------------------------
+   9. 頁首動作下拉（.b-pop 面板）／動作菜單（.b-menu）／context menu
+   -------------------------------------------------------------------------- */
+.b-pop { position: relative; }
+.b-pop .b-pop-caret { transition: transform .2s ease; font-size: 11px; }
+.b-pop.is-open .b-pop-caret { transform: rotate(180deg); }
+.b-pop-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 1200;
+  min-width: 320px; padding: 16px;
+  background: var(--neutral-primary-soft);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0; visibility: hidden;
+  transform: translateY(-6px) scale(.98); transform-origin: top right;
+  transition: opacity .16s ease, transform .16s ease, visibility .16s;
+}
+/* ⚠️ is-open 必須 transform:none（不可留 scale(1)）：
+   transform 會建立 containing block，面板內 position:fixed 的下拉（.b-dd-menu）
+   會相對面板而非 viewport 定位 → 選單錯位。穩定態清掉 transform 才正常。 */
+.b-pop.is-open .b-pop-panel { opacity: 1; visibility: visible; transform: none; }
+.b-pop-panel-title { font-size: 14px; font-weight: 600; color: var(--text-heading); margin: 0 0 12px; }
+/* 面板底部動作列：重置靠左、套用靠右 */
+.b-pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-default); }
+
+/* 動作菜單（清單式選項，比 pop-panel 小巧）：放在 .b-pop 內 */
+.b-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 1200;
+  min-width: 180px; padding: 6px;
+  background: var(--neutral-primary-soft);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0; visibility: hidden;
+  transform: translateY(-6px) scale(.98); transform-origin: top left;
+  transition: opacity .16s ease, transform .16s ease, visibility .16s;
+}
+.b-menu.align-right { left: auto; right: 0; transform-origin: top right; }
+.b-pop.is-open > .b-menu { opacity: 1; visibility: visible; transform: none; }
+.b-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 10px; border: 0; background: none; border-radius: 8px;
+  font: inherit; font-size: 14px; color: var(--text-body); text-align: left;
+  cursor: pointer; transition: background .12s, color .12s;
+}
+.b-menu-item :where(i, .lucide) { width: 16px; font-size: 14px; color: var(--text-body-subtle); flex: 0 0 auto; }
+.b-menu-item:hover { background: var(--neutral-secondary-medium); color: var(--text-heading); }
+.b-menu-item:hover :where(i, .lucide) { color: var(--fg-brand); }
+.b-menu-item:focus-visible { outline: none; background: var(--neutral-secondary-medium); }
+.b-menu-item.is-danger { color: var(--fg-danger); }
+.b-menu-item.is-danger:hover { background: var(--danger-soft); }
+.b-menu-item.is-danger :where(i, .lucide) { color: var(--fg-danger); }
+.b-menu-sep { height: 1px; margin: 5px 6px; background: var(--border-default); }
+
+/* 指標旁 context menu（js/context-menu.js 動態注入）：手風琴 max-height 過渡 */
+.b-ctxmenu {
+  position: fixed; z-index: 1400; min-width: 168px; padding: 6px;
+  background: var(--neutral-primary-soft);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  max-height: 0; opacity: 0;
+  transition: max-height .18s ease, opacity .16s ease;
+}
+.b-ctxmenu.hidden { display: none; }
+.b-ctxmenu.is-open { opacity: 1; }
+.b-ctxmenu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; text-align: left; font-size: 14px; color: var(--text-heading);
+  background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.b-ctxmenu-item + .b-ctxmenu-item { border-top: 1px solid color-mix(in srgb, var(--border-default) 60%, transparent); }
+.b-ctxmenu-item:hover { background: var(--brand-softer); color: var(--fg-brand); }
+.b-ctxmenu-item:focus-visible { outline: none; background: var(--neutral-tertiary); }
+.b-ctxmenu-item:disabled { color: var(--fg-disabled); cursor: not-allowed; }
+.b-ctxmenu-item :where(i, .lucide) { width: 16px; height: 16px; flex: 0 0 auto; color: var(--text-body-subtle); }
+.b-ctxmenu-item:hover :where(i, .lucide) { color: var(--fg-brand); }
+.b-ctxmenu-item:disabled :where(i, .lucide) { color: var(--fg-disabled); }
+
+/* --------------------------------------------------------------------------
+   10. Modal（+soft/alert 變體）＋ BDialog 動畫
+   -------------------------------------------------------------------------- */
+.b-modal-overlay {
+  position: fixed; inset: 0; z-index: 1300;
+  background: rgba(0, 0, 0, .5);
+  display: none; align-items: center; justify-content: center; padding: 16px;
+  opacity: 0; transition: opacity .12s ease;
+}
+/* 兩段式：JS 先加 .is-visible（display:flex）→ reflow → .is-open（opacity→1）。
+   關閉：移除 .is-open → 淡出 → transition 結束再移除 .is-visible。只動 opacity。 */
+.b-modal-overlay.is-visible { display: flex; }
+.b-modal-overlay.is-open { opacity: 1; }
+.b-modal { background: var(--neutral-primary); border-radius: 24px; box-shadow: var(--shadow-xl); width: 100%; max-width: 520px; max-height: 90vh; overflow: auto; }
+.b-modal.is-wide { max-width: 640px; }
+/* 深色模式：深底上深卡與遮罩融在一起 → 補一圈淺外框 */
+:root[data-color-mode="dark"] .b-modal { border: 1px solid rgba(255, 255, 255, .12); }
+.b-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border-default); }
+.b-modal-title { font-size: 20px; font-weight: 500; color: var(--text-heading); margin: 0; }
+.b-modal-sub { margin: 2px 0 0; font-size: 13px; font-weight: 400; color: var(--text-body-subtle); }
+.b-modal-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 6px; border: 0; background: transparent;
+  border-radius: var(--radius-md); color: var(--text-body-subtle); cursor: pointer;
+  font-size: 16px; transition: background .15s, color .15s;
+}
+.b-modal-close:hover { background: var(--neutral-secondary-medium); color: var(--text-heading); }
+.b-modal-body { padding: 20px; color: var(--text-body); font-size: 16px; line-height: 1.625; }
+.b-modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 16px 20px; border-top: 1px solid var(--border-default); }
+body.b-modal-lock { overflow: hidden; }
+.b-modal-body .b-label { margin-bottom: 0; }
+.b-modal-body .b-label > .b-input,
+.b-modal-body .b-label > .b-select,
+.b-modal-body .b-label > .b-dd,
+.b-modal-body .b-label > .b-textarea { margin-top: 6px; }
+
+/* soft modal：淺灰底、無頭尾分隔線、輸入區白底細線無陰影（「填寫表單」modal） */
+.b-modal.is-soft { background: var(--neutral-secondary-soft); }
+.b-modal.is-soft .b-modal-head { border-bottom: 0; padding-bottom: 4px; }
+.b-modal.is-soft .b-modal-foot { border-top: 0; padding-top: 4px; }
+.b-modal.is-soft .b-input,
+.b-modal.is-soft .b-select,
+.b-modal.is-soft .b-textarea {
+  background: var(--neutral-primary-soft);
+  border: 1px solid var(--border-default);
+  border-radius: 10px; box-shadow: none;
+}
+.b-modal.is-soft .b-input:focus,
+.b-modal.is-soft .b-select:focus,
+.b-modal.is-soft .b-textarea:focus { border-color: var(--border-brand); box-shadow: none; }
+.b-modal.is-soft .b-dd-trigger {
+  background: var(--neutral-primary-soft);
+  border: 1px solid var(--border-default);
+  border-radius: 10px; box-shadow: none;
+}
+.b-modal.is-soft .b-dd.open .b-dd-trigger { border-color: var(--border-brand); box-shadow: none; }
+
+/* alert/確認 modal：精簡置中小框（取代原生 confirm） */
+.b-modal.is-alert { width: 100%; max-width: 340px; border-radius: 16px; }
+.b-modal.is-alert .b-alert-body { padding: 24px 24px 4px; text-align: center; }
+.b-modal.is-alert .b-alert-title { font-size: 17px; font-weight: 600; color: var(--text-heading); margin: 0 0 6px; }
+.b-modal.is-alert .b-alert-desc { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-body-subtle); }
+.b-modal.is-alert .b-alert-foot { display: flex; gap: 8px; padding: 16px; border-top: 0; }
+.b-modal.is-alert .b-alert-foot .b-btn { flex: 1; height: 38px; min-height: 38px; }
+.b-alert-icon { margin: 0 auto 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 30px; line-height: 1; }
+.b-alert-icon :where(.lucide, svg) { width: 30px; height: 30px; }
+.b-alert-icon-danger { color: var(--fg-danger); }
+.b-alert-icon-warn { color: var(--warning-strong, var(--warning)); }
+
+/* BDialog（js/dialogs.js 動態對話框）首開淡入：
+   兩段式 transition 在「節點剛 append、display 與 opacity 同幀」時會直接跳終態，
+   改用綁 display 切換自動播放的 @keyframes。不填 fill：跑完回歸 is-open 的 opacity:1，
+   關閉仍走 transition 淡出，兩頭都有動畫。
+   規格＝overlay .15s 淡入＋本體 .15s 淡入 + scale(.98→1)。
+   ⚠️ scale(.96) 曾因縮放幅度大、文字重柵格化「糊→利」跳一下被退；.98 為定案值。 */
+.b-modal-overlay[data-modal-vue].is-visible { animation: bdlg-overlay-in .15s ease-out; }
+.b-modal-overlay[data-modal-vue].is-visible .b-modal { animation: bdlg-modal-in .15s ease-out; }
+@keyframes bdlg-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bdlg-modal-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
+
+/* --------------------------------------------------------------------------
+   11. Toast（右下角：滑入→停留→滑出，純 CSS 自動播放；JS 只負責移除節點）
+   -------------------------------------------------------------------------- */
+.b-toast-wrap {
+  position: fixed; right: 20px; bottom: 20px; z-index: 2000;
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+  pointer-events: none;
+}
+.b-toast {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 240px; max-width: 360px;
+  padding: 12px 16px;
+  background: var(--neutral-primary-soft);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  color: var(--text-heading);
+  font-size: 14px; font-weight: 500; line-height: 1.45;
+  animation: b-toast-life 4.4s cubic-bezier(.22, 1, .36, 1) both;
+  will-change: transform, opacity;
+}
+@keyframes b-toast-life {
+  0%   { transform: translateX(calc(100% + 28px)); opacity: 0; }
+  8%   { transform: translateX(0); opacity: 1; }       /* 約 .35s 滑入完成 */
+  90%  { transform: translateX(0); opacity: 1; }       /* 停留 */
+  100% { transform: translateX(calc(100% + 28px)); opacity: 0; }
+}
+.b-toast-icon { flex-shrink: 0; display: inline-flex; }
+.b-toast-icon :where(i, .lucide, svg) { width: 20px; height: 20px; }
+.b-toast-msg { flex: 1; }
+/* 狀態只染 icon 顏色（卡片維持白底淺灰框） */
+.b-toast-success .b-toast-icon { color: var(--fg-success, #047857); }
+.b-toast-danger  .b-toast-icon { color: var(--fg-danger, #BE123C); }
+.b-toast-warning .b-toast-icon { color: #F97316; }   /* 亮橘（--fg-warning 偏深褐，toast 用亮橘較清楚） */
+@media (prefers-reduced-motion: reduce) {
+  .b-toast { animation: b-toast-fade 4.4s ease both; }
+  @keyframes b-toast-fade { 0%{opacity:0} 8%{opacity:1} 90%{opacity:1} 100%{opacity:0} }
+}
+
+/* --------------------------------------------------------------------------
+   12. 小型資料元件：待辦列／佔用率長條／快速動作
+   -------------------------------------------------------------------------- */
+.b-todo { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border-default); }
+.b-todo:last-child { border-bottom: none; }
+.b-todo-label { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-body); }
+.b-todo-label :where(i, .lucide) { width: 16px; height: 16px; color: var(--text-body-subtle); }
+.b-todo-num { font-size: 18px; font-weight: 600; color: var(--text-heading); font-variant-numeric: tabular-nums; }
+.b-todo.is-alert .b-todo-num { color: var(--fg-danger); }
+.b-todo.is-alert .b-todo-label :where(i, .lucide) { color: var(--fg-danger); }
+.b-todo.is-zero .b-todo-num { color: var(--text-body-subtle); font-weight: 500; }
+
+.b-occ { display: flex; flex-direction: column; gap: 14px; padding: 16px 20px; }
+.b-occ-row { display: flex; flex-direction: column; gap: 6px; }
+.b-occ-head { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+.b-occ-name { color: var(--text-heading); font-weight: 500; }
+.b-occ-val { color: var(--text-body-subtle); font-variant-numeric: tabular-nums; }
+.b-occ-track { height: 8px; border-radius: 9999px; background: var(--neutral-tertiary); overflow: hidden; }
+.b-occ-fill { height: 100%; border-radius: 9999px; background: var(--brand); transition: width .4s cubic-bezier(.22, 1, .36, 1); }
+.b-occ-fill.is-full { background: var(--fg-danger); }
+
+.b-quick { display: flex; gap: 10px; padding: 16px 20px; }
+.b-quick-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 6px; border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--neutral-primary-soft); color: var(--text-body);
+  font-size: 13px; font-weight: 500; text-decoration: none; text-align: center; white-space: nowrap;
+  transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.b-quick-btn :where(i, .lucide) { font-size: 14px; color: var(--text-body-subtle); transition: color .15s; }
+.b-quick-btn:hover { background: var(--brand-softer); border-color: var(--border-brand-subtle); color: var(--fg-brand-strong); box-shadow: var(--shadow-xs); }
+.b-quick-btn:hover :where(i, .lucide) { color: var(--fg-brand); }
+.b-quick-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* --------------------------------------------------------------------------
+   13. 捲動漸層淡出（js/scroll-fade.js：at-top / at-bottom 由 JS 切換）
+   -------------------------------------------------------------------------- */
+.is-scroll-faded {
+  --fade: 28px;
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+  scrollbar-width: none;
+}
+.is-scroll-faded::-webkit-scrollbar { display: none; }
+.is-scroll-faded.at-top {
+  -webkit-mask-image: linear-gradient(#000, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(#000, #000 calc(100% - var(--fade)), transparent);
+}
+.is-scroll-faded.at-bottom {
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--fade), #000);
+  mask-image: linear-gradient(transparent, #000 var(--fade), #000);
+}
+.is-scroll-faded.at-top.at-bottom { -webkit-mask-image: none; mask-image: none; }
+
+/* --------------------------------------------------------------------------
+   14. 字重階（後台要冷靜、可掃視：強調靠層級不靠粗細）
+   -------------------------------------------------------------------------- */
+.main-content {
+  --b-font-body: 400;
+  --b-font-emphasis: 400;
+  --b-font-section: 500;
+  --b-font-title: 500;
+  --b-font-metric: 600;
+  font-weight: var(--b-font-body);
+}
+.main-content strong, .main-content b { font-weight: var(--b-font-emphasis); }
+.main-content label, .main-content .b-label,
+.main-content th, .main-content .b-tbl thead th,
+.main-content .b-badge, .main-content .b-alert-pill,
+.main-content .b-btn, .main-content .b-tab,
+.main-content .b-seg a, .main-content .b-seg button,
+.main-content .b-pagination a, .main-content .b-pagination button { font-weight: var(--b-font-emphasis); }
+.main-content .b-card-title, .main-content .b-pop-panel-title,
+.main-content .b-empty-title, .main-content .b-modal-title { font-weight: var(--b-font-section); letter-spacing: 0; }
+.main-content .page-title { font-weight: var(--b-font-title); letter-spacing: 0; }
+.main-content .b-kpi-value, .main-content .b-todo-num { font-weight: var(--b-font-metric); }
+
+/* --------------------------------------------------------------------------
+   15. 字級三段 boost（寫死 px 的元件跟著 html[data-fs] 縮放）
+   -------------------------------------------------------------------------- */
+[data-fs] .sidebar .menu-item,
+[data-fs] .sidebar .submenu-toggle,
+[data-fs] .cms-flyout-item { font-size: calc(14px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-tbl { font-size: calc(14px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-tbl thead th { font-size: calc(13px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-btn:not(.b-btn-xs):not(.b-btn-lg) { font-size: calc(14px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-label { font-size: calc(14px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-card-title { font-size: calc(16px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-kpi-label { font-size: calc(14px + var(--b-fs-boost)); }
+[data-fs] .main-content .b-empty-sub { font-size: calc(14px + var(--b-fs-boost)); }

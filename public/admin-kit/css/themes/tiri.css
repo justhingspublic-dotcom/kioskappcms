@@ -1,0 +1,87 @@
+/* ==========================================================================
+   Theme — TIRI 收件後台皮膚（茄紫＋扁平化）
+   在 tokens.css / shell.css / components.css 之後載入即套用。
+   這是「主題檔」範例：新後台複製此檔改 --accent（＋深色家族），其餘按需取捨。
+   ========================================================================== */
+
+/* ── 品牌色 ── */
+:root {
+  --accent: #7e3268;        /* 茄紫 */
+  --on-accent: #ffffff;
+}
+
+/* ── 扁平化（V2 定調＝無陰影）：蓋掉 elevation token；
+      focus 光圈與表頭分隔線是另寫的 box-shadow，不受影響 ── */
+:root, :root[data-color-mode="dark"] {
+  --shadow-2xs: none; --shadow-xs: none; --shadow-sm: none;
+  --shadow-md: none; --shadow-lg: none; --shadow-xl: none; --shadow-2xl: none;
+  --btn-glint: none;
+}
+/* 例外：浮層（面板/下拉/菜單）帶一點點陰影撐出前後關係；卡片/按鈕維持全平 */
+:root { --float-shadow: 0 6px 20px rgba(23, 20, 31, .08), 0 1px 4px rgba(23, 20, 31, .05); }
+:root[data-color-mode="dark"] { --float-shadow: 0 6px 20px rgba(0, 0, 0, .40), 0 1px 4px rgba(0, 0, 0, .30); }
+.b-pop-panel, .b-menu, .b-dd-menu, .b-ctxmenu,
+.header-user-menu, .header-fs-panel, .cms-flyout {
+  box-shadow: var(--float-shadow) !important;
+}
+
+/* ── 文字類按鈕 hover＝文字亮起主題色、不加底色（全後台統一）──
+      danger 文字鈕（確認框）例外：hover＝半透明紅底＋紅字。 ── */
+.b-btn.b-btn-text:hover { background: transparent; color: var(--fg-brand-strong); }
+.b-btn.b-btn-text.b-btn-text-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--fg-danger-strong, var(--fg-danger));
+}
+.b-btn.b-btn-ghost:hover { background: transparent; color: var(--fg-brand); }
+.b-btn.b-btn-ghost:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+.b-btn.b-btn-quiet:hover { background: transparent; color: var(--fg-brand); }
+.b-btn.b-btn-quiet:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+
+/* ── 側欄 hover 比照文字鈕：不加底、文字/icon 亮 brand ── */
+.sidebar .menu-item:not(.active):hover,
+.sidebar .submenu-toggle:not(.active):hover { background: transparent; color: var(--fg-brand); }
+.sidebar .menu-item:not(.active):hover :where(i, .lucide, svg),
+.sidebar .submenu-toggle:not(.active):hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+.cms-flyout .cms-flyout-item:not(.active):hover { background: transparent; color: var(--fg-brand); }
+
+/* ── 對比調整：輸入框白底（與頁面灰底、hover 灰區隔開）、列 hover 加深一階 ── */
+.b-input, .b-select, .b-textarea { background: var(--neutral-primary-soft); }
+.b-tbl tbody tr:hover td, .main-content tbody tr:hover { background: var(--neutral-tertiary); }
+
+/* ── segment 造型：白底圓角矩形（後台用膠囊太軟——使用者裁決），容器 8px、滑塊 6px。
+      一般小項＝淡紫滑塊＋紫字；「全部」類主項（.is-thumb-solid，由 kit.js 依
+      active 選項的 data-thumb-solid 切換）＝實色茄紫＋白字。 ── */
+.b-seg.is-pill {
+  background: var(--neutral-primary-soft); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: 5px;
+}
+.b-seg.is-pill a, .b-seg.is-pill button { border-radius: 6px; padding: 7px 18px; }
+.b-seg.is-pill .b-seg-thumb { border-radius: 6px; top: 5px; bottom: 5px; left: 5px; background: var(--brand-softer); }
+.b-seg.is-pill.is-thumb-solid .b-seg-thumb { background: var(--brand); }
+.b-seg.is-pill .active, .b-seg.is-pill .active:hover { color: var(--fg-brand); }
+.b-seg.is-pill.is-thumb-solid .active, .b-seg.is-pill.is-thumb-solid .active:hover { color: var(--b-on-primary); }
+
+/* ── 深色模式收斂 ──
+      kit 預設的深色 brand 家族把彩度 ×1.5（只適合低彩度色），茄紫乘完會螢光刺眼
+      → 改「降彩度/收亮度」的相對色。錨點＝定案暗梅 #5e3a52，全家族帶灰調。
+      ⚠️ 寫死 hex 而非 oklch 相對色：Safari 支援不全，無效值會整段跌回原始飽和紫。
+      值由公式預算：oklch(from #7e3268 L calc(c*倍率) h)，改品牌色時重算。 ── */
+html:root[data-color-mode="dark"] {
+  --brand: #5e3a52;                 /* L .40  c*.50 */
+  --brand-strong: #6d4760;          /* L .45  c*.50  hover 亮一階 */
+  --brand-medium: #472f3f;          /* L .34  c*.35 */
+  --brand-soft: #35212f;            /* L .28  c*.30 */
+  --brand-softer: #291a24;          /* L .24  c*.24  淡底：近中性帶紫味 */
+  --fg-brand: #bfa5b5;              /* L .75  c*.30  灰紫、不粉 */
+  --fg-brand-strong: #d1beca;       /* L .82  c*.22 */
+  --border-brand: #694f60;          /* L .46  c*.35 */
+  --border-brand-subtle: #3e2c38;   /* L .32  c*.26 */
+}
+/* 深色：segment 選中統一實色＋白字（不分主項/小項）；側欄 active 與 brand 徽章同 */
+[data-color-mode="dark"] .b-seg.is-pill .b-seg-thumb { background: var(--brand); }
+[data-color-mode="dark"] .b-seg.is-pill .active,
+[data-color-mode="dark"] .b-seg.is-pill .active:hover { color: var(--b-on-primary); }
+[data-color-mode="dark"] .sidebar .menu-item.active,
+[data-color-mode="dark"] .cms-flyout-item.active { background: var(--brand); color: var(--b-on-primary); }
+[data-color-mode="dark"] .sidebar .menu-item.active :where(i, .lucide, svg) { color: var(--b-on-primary); }
+[data-color-mode="dark"] .b-badge.brand { background: var(--brand); border-color: transparent; color: var(--b-on-primary); }

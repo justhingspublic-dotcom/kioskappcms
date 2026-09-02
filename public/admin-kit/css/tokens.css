@@ -1,0 +1,224 @@
+/* ==========================================================================
+   Admin Kit — Design Tokens（typeui「Dashboard Design System」落地層）
+   來源：TIRI 收件後台（server/static/css/cms/b_tokens.css + b_admin.css），已去品牌化。
+
+   規則：
+   - 元件碼一律 var(--token)，「絕不手動寫死 hex」。
+   - 每個顏色 token 都有 light + dark 兩值；dark 由 <html data-color-mode="dark">
+     明確啟用（存 localStorage、首繪前 inline script 套用，見 README），
+     不走 prefers-color-scheme 自動跟隨。
+   - ★ 無預設品牌色：唯一強調色源是 --accent（預設中性深灰）。
+     整個 brand token 家族由 --accent 以 color-mix / oklch 衍生，
+     專案只覆寫 --accent（+--on-accent）即完成換皮；themes/tiri.css 是範例。
+   ========================================================================== */
+:root {
+  color-scheme: light;
+
+  /* ── 強調色源（專案覆寫這兩個） ── */
+  --accent: #3f3f46;
+  --on-accent: #ffffff;
+  /* 相容別名（元件碼 var(--b-on-primary, #fff) 引用） */
+  --b-primary: var(--accent);
+  --b-chrome: var(--accent);
+  --b-on-primary: var(--on-accent);
+
+  /* ── 背景：中性 ── */
+  --neutral-primary-soft: #FFFFFF;
+  --neutral-primary: #FFFFFF;
+  --neutral-primary-medium: #FFFFFF;
+  --neutral-secondary-soft: #F9FAFB;
+  --neutral-secondary-medium: #F9FAFB;
+  --neutral-secondary-strong: #F9FAFB;
+  --neutral-tertiary-soft: #F3F4F6;
+  --neutral-tertiary: #F3F4F6;
+  --neutral-tertiary-medium: #F3F4F6;
+  --neutral-quaternary: #E5E7EB;
+  --gray: #D1D5DC;
+
+  /* ── 背景：brand 家族（由 --accent 衍生，light＝往白調） ── */
+  --brand: var(--accent);
+  --brand-strong: color-mix(in srgb, var(--accent) 84%, #000);
+  --brand-medium: color-mix(in srgb, var(--accent) 36%, #fff);
+  --brand-soft: color-mix(in srgb, var(--accent) 18%, #fff);
+  --brand-softer: color-mix(in srgb, var(--accent) 10%, #fff);
+  --fg-brand: var(--accent);
+  --fg-brand-strong: color-mix(in srgb, var(--accent) 88%, #000);
+  --border-brand: var(--accent);
+  --border-brand-subtle: color-mix(in srgb, var(--accent) 32%, #fff);
+
+  /* ── 背景：狀態 ── */
+  --success-soft: #ECFDF5;
+  --success: #007A55;
+  --success-medium: #D0FAE5;
+  --success-strong: #006045;
+  --danger-soft: #FEF0F2;
+  --danger: #C70036;
+  --danger-medium: #FFE4E6;
+  --danger-strong: #A50036;
+  --warning-soft: #FFF7ED;
+  --warning: #F97316;
+  --warning-medium: #FFEDD5;
+  --warning-strong: #C2410C;
+
+  /* ── 背景：工具 ── */
+  --dark: #1F2937;
+  --dark-strong: #111827;
+  --disabled: #F3F4F6;
+
+  /* ── 文字 ── */
+  --text-heading: #111827;
+  --text-body: #4B5563;
+  --text-body-subtle: #6B7280;
+  --fg-success: #047857;
+  --fg-success-strong: #065F46;
+  --fg-danger: #BE123C;
+  --fg-danger-strong: #881337;
+  --fg-warning: #7C2D12;
+  --fg-warning-subtle: #EA580C;
+  --fg-disabled: #9CA3AF;
+
+  /* ── 邊框 ── */
+  --border-default: #E5E7EB;
+  --border-default-medium: #E5E7EB;
+  --border-default-strong: #E5E7EB;
+  --border-success: #047857;
+  --border-success-subtle: #A7F3D0;
+  --border-danger: #BE123C;
+  --border-danger-subtle: #FECDD3;
+  --border-warning: #EA580C;
+  --border-warning-subtle: #FED7AA;
+  --border-buffer: #FFFFFF;
+
+  /* ── 圓角（4 / 10 / full）＋ iOS 平滑圓角（漸進增強，見 shell.css） ── */
+  --radius-sm: 4px;
+  --radius-md: 10px;
+  --radius-full: 9999px;
+  --corner-shape: squircle;
+
+  /* ── 陰影 / elevation ── */
+  --shadow-2xs: 0 1px rgb(0 0 0 / 0.05);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+
+  /* ── 按鈕 glint（inset 高光＋外緣微光） ── */
+  --color-1-400: rgba(255, 255, 255, 0.25);
+  --color-1-700: rgba(0, 0, 0, 0.12);
+  --btn-glint: inset var(--color-1-400) 0 6px 0 -5px, var(--color-1-700) 0 4px 10px -5px;
+
+  /* ── 版面 ── */
+  --header-height: 64px;
+  --sidebar-width: 256px;
+
+  /* ── 字型（Noto Sans TC webfont：各平台一致，Windows 不退微軟正黑） ── */
+  --font-admin: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+
+  /* ── ★ 表單欄位統一參數（全站輸入/下拉/選擇器共用，改一處全站一致）
+        杜絕「某欄 41、某欄 36」對不齊。 ── */
+  --field-height: 36px;
+  --field-pad-x: 12px;
+  --field-radius: 10px;
+  --field-font-size: 14px;
+  --control-height: var(--field-height);
+  --control-pad-x: 14px;
+  --control-radius: var(--field-radius);
+
+  /* ── 共用下拉（dropdown.css）token 映射 ── */
+  --dd-surface: var(--neutral-primary-soft);
+  --dd-text: var(--text-heading);
+  --dd-placeholder: var(--text-body);
+  --dd-caret: var(--text-body);
+  --dd-border: var(--border-default-medium);
+  --dd-border-hover: var(--border-default-strong);
+  --dd-radius: var(--field-radius);
+  --dd-accent: var(--brand);
+  --dd-trigger-shadow: var(--shadow-xs);
+  --dd-menu-shadow: var(--shadow-lg);
+  --dd-item-hover: var(--neutral-tertiary-medium);
+  --dd-item-hover-text: var(--text-heading);
+  --dd-item-active-bg: var(--brand-softer);
+  --dd-item-active-text: var(--fg-brand-strong);
+  --dd-disabled: var(--fg-disabled);
+}
+
+/* ── Dark 值：<html data-color-mode="dark"> 明確啟用。中性色走純灰黑（不偏藍）。 ── */
+:root[data-color-mode="dark"] {
+  color-scheme: dark;
+
+  --neutral-primary-soft: #1C1C1C;
+  --neutral-primary: #0F0F0F;
+  --neutral-primary-medium: #262626;
+  --neutral-secondary-soft: #141414;
+  --neutral-secondary-medium: #232323;
+  --neutral-secondary-strong: #2E2E2E;
+  --neutral-tertiary-soft: #171717;
+  --neutral-tertiary: #262626;
+  --neutral-tertiary-medium: #303030;
+  --neutral-quaternary: #363636;
+  --gray: #4D4D4D;
+
+  /* brand 家族：oklch 相對色從 --accent 取色相、拉亮度。
+     ⚠️ 彩度倍率 ×1.5 只適合低彩度 accent（中性灰無感）；高彩度品牌色乘完會螢光刺眼
+     → 主題檔應改寫死「降彩度」hex（見 themes/tiri.css 與 GUIDELINES §深色模式）。
+     ⚠️ Safari 對 oklch(from … calc()) 支援不全：正式專案建議把算出的值寫死 hex。 */
+  --brand: oklch(from var(--accent) 0.52 calc(c * 1.5) h);
+  --brand-strong: oklch(from var(--accent) 0.58 calc(c * 1.5) h);
+  --brand-medium: oklch(from var(--accent) 0.42 calc(c * 1.3) h);
+  --brand-soft: oklch(from var(--accent) 0.33 calc(c * 1.1) h);
+  --brand-softer: oklch(from var(--accent) 0.27 c h);
+  --fg-brand: oklch(from var(--accent) 0.82 calc(c * 1.6) h);
+  --fg-brand-strong: oklch(from var(--accent) 0.9 calc(c * 1.3) h);
+  --border-brand: oklch(from var(--accent) 0.64 calc(c * 1.5) h);
+  --border-brand-subtle: oklch(from var(--accent) 0.4 calc(c * 1.1) h);
+
+  --success-soft: #002C22;
+  --success: #009966;
+  --success-medium: #004F3B;
+  --success-strong: #007A55;
+  --danger-soft: #4D0218;
+  --danger: #C70036;
+  --danger-medium: #8B0836;
+  --danger-strong: #A50036;
+  --warning-soft: #7C2D12;
+  --warning: #F97316;
+  --warning-medium: #7C2D12;
+  --warning-strong: #C2410C;
+
+  --dark: #262626;
+  --dark-strong: #3A3A3A;
+  --disabled: #262626;
+
+  --text-heading: #FFFFFF;
+  --text-body: #A6A6A6;
+  --text-body-subtle: #8C8C8C;
+  --fg-success: #065F46;
+  --fg-success-strong: #10B981;
+  --fg-danger: #F43F5E;
+  --fg-danger-strong: #F87171;
+  --fg-warning: #FBBF24;
+  --fg-warning-subtle: #F97316;
+  --fg-disabled: #6B7280;
+
+  --border-default: #2B2B2B;
+  --border-default-medium: #3A3A3A;
+  --border-default-strong: #4A4A4A;
+  --border-success: #065F46;
+  --border-success-subtle: #064E3B;
+  --border-danger: #BE123C;
+  --border-danger-subtle: #881337;
+  --border-warning: #F97316;
+  --border-warning-subtle: #7C2D12;
+  --border-buffer: #0F0F0F;
+
+  --color-1-400: rgba(255, 255, 255, 0.12);
+  --color-1-700: rgba(0, 0, 0, 0.25);
+}
+
+/* ── 字級三段（中 −1px／大＝預設／特大 +2px）：html[data-fs] 由 navbar 滑桿控制、存 localStorage。
+      1) 根字級 15/16/18px → rem/繼承文字整包縮放；
+      2) --b-fs-boost → 寫死 px 的 .b-* 元件（components.css 檔尾那組覆寫）。 ── */
+:root[data-fs="sm"] { font-size: 15px; --b-fs-boost: -1px; --field-font-size: 13px; }
+:root[data-fs="lg"] { font-size: 18px; --b-fs-boost: 2px; --field-font-size: 16px; }
