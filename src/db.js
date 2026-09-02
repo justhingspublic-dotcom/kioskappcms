@@ -55,6 +55,8 @@ async function init() {
     );
     IF COL_LENGTH('dbo.KioskConfig', 'OwnerUserId') IS NULL
       ALTER TABLE dbo.KioskConfig ADD OwnerUserId NVARCHAR(64) NULL;
+    IF COL_LENGTH('dbo.KioskConfig', 'DeviceName') IS NULL
+      ALTER TABLE dbo.KioskConfig ADD DeviceName NVARCHAR(128) NULL;
   `);
   return pool;
 }

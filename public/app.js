@@ -11,6 +11,7 @@ let pageIndex = 0;
 let selected = null;      // { bi, sub: null|'a'|'b' }
 let dirty = false;
 let activePageTouched = false; // 只有按過「在機器上展示此頁」才隨儲存送出 activePage
+let meIsAdmin = false;
 
 const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片' };
@@ -70,24 +71,35 @@ async function enterMain() {
   showMain();
   const me = await api('GET', '/api/me');
   $('whoami').textContent = me.username;
-  $('usersNav').classList.toggle('hidden', !me.isAdmin);
+  meIsAdmin = !!me.isAdmin;
+  $('usersNav').classList.toggle('hidden', !meIsAdmin);
+  const devices = await refreshDeviceSelect();
+  if (!devices.length) {
+    $('editor').classList.add('hidden');
+    $('emptyState').classList.remove('hidden');
+    return;
+  }
+  deviceId = devices[0].DeviceId;
+  await loadConfig();
+}
+
+/** 重抓機器清單並重建下拉選單（顯示名稱，沒名稱顯示編號）；保留目前選擇。 */
+async function refreshDeviceSelect() {
   const devices = await api('GET', '/api/devices');
   const sel = $('deviceSelect');
   sel.innerHTML = '';
   if (!devices.length) {
     sel.innerHTML = '<option>（尚無機器）</option>';
-    $('editor').classList.add('hidden');
-    $('emptyState').classList.remove('hidden');
-    return;
+    return devices;
   }
   for (const d of devices) {
     const o = document.createElement('option');
-    const owner = d.OwnerName ? `｜${d.OwnerName}` : '';
-    o.value = d.DeviceId; o.textContent = `${d.DeviceId}（第 ${d.Version} 版${owner}）`;
+    o.value = d.DeviceId;
+    o.textContent = `${d.DeviceName || d.DeviceId}（第 ${d.Version} 版）`;
     sel.appendChild(o);
   }
-  deviceId = devices[0].DeviceId;
-  await loadConfig();
+  if (devices.some((d) => d.DeviceId === deviceId)) sel.value = deviceId;
+  return devices;
 }
 
 async function loadConfig() {
@@ -993,15 +1005,79 @@ function switchView(view) {
     b.classList.toggle('active', b.dataset.view === view);
   });
   $('editorView').classList.toggle('hidden', view !== 'editor');
+  $('devicesView').classList.toggle('hidden', view !== 'devices');
   $('usersView').classList.toggle('hidden', view !== 'users');
+  if (view === 'devices') renderDevicesView();
   if (view === 'users') renderUsersView();
 }
 document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
   b.addEventListener('click', () => switchView(b.dataset.view));
 });
 
+// ---------- 機器管理 ----------
+async function renderDevicesView() {
+  const devices = await api('GET', '/api/devices');
+  const users = meIsAdmin ? await api('GET', '/api/users') : [];
+
+  const tb = $('deviceTable').querySelector('tbody');
+  tb.innerHTML = '';
+  for (const d of devices) {
+    const tr = document.createElement('tr');
+    const updated = d.UpdatedAt ? new Date(d.UpdatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
+    tr.innerHTML =
+      `<td><strong>${d.DeviceName || d.DeviceId}</strong></td>` +
+      `<td style="color:#6c757b">${d.DeviceId}</td>` +
+      `<td>第 ${d.Version} 版</td><td>${updated}</td>`;
+
+    const ownerTd = document.createElement('td');
+    if (meIsAdmin) {
+      const sel = document.createElement('select');
+      sel.innerHTML = '<option value="">（未分配）</option>';
+      for (const u of users) {
+        const o = document.createElement('option');
+        o.value = u.UserId; o.textContent = u.DisplayName ? `${u.Username}（${u.DisplayName}）` : u.Username;
+        if (u.UserId === d.OwnerUserId) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = async () => {
+        try {
+          await api('PUT', `/api/devices/${encodeURIComponent(d.DeviceId)}/owner`, { userId: sel.value || null });
+          setStatus('已更新機器分配');
+        } catch (e) { setStatus(e.message, true); }
+      };
+      ownerTd.appendChild(sel);
+    } else {
+      ownerTd.textContent = d.OwnerName || '';
+    }
+    tr.appendChild(ownerTd);
+
+    const opTd = document.createElement('td');
+    if (meIsAdmin) {
+      const del = document.createElement('button');
+      del.className = 'danger'; del.textContent = '刪除';
+      del.onclick = async () => {
+        if (!confirm(`刪除機器「${d.DeviceName || d.DeviceId}」的雲端資料？\n（機器本身不受影響，重新開啟雲端同步會再上傳）`)) return;
+        try {
+          await api('DELETE', `/api/devices/${encodeURIComponent(d.DeviceId)}`);
+          setStatus('已刪除');
+          const rest = await refreshDeviceSelect();
+          if (deviceId === d.DeviceId) {
+            deviceId = rest[0]?.DeviceId || '';
+            if (deviceId) loadConfig();
+          }
+          renderDevicesView();
+        } catch (e) { setStatus(e.message, true); }
+      };
+      opTd.appendChild(del);
+    }
+    tr.appendChild(opTd);
+    tb.appendChild(tr);
+  }
+}
+
+// ---------- 帳號管理 ----------
 async function renderUsersView() {
-  const [users, devices] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/devices')]);
+  const users = await api('GET', '/api/users');
 
   const utb = $('userTable').querySelector('tbody');
   utb.innerHTML = '';
@@ -1022,31 +1098,6 @@ async function renderUsersView() {
     }
     tr.appendChild(td);
     utb.appendChild(tr);
-  }
-
-  const dtb = $('deviceTable').querySelector('tbody');
-  dtb.innerHTML = '';
-  for (const d of devices) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${d.DeviceId}</td><td>第 ${d.Version} 版</td>`;
-    const td = document.createElement('td');
-    const sel = document.createElement('select');
-    sel.innerHTML = '<option value="">（未分配）</option>';
-    for (const u of users) {
-      const o = document.createElement('option');
-      o.value = u.UserId; o.textContent = u.DisplayName ? `${u.Username}（${u.DisplayName}）` : u.Username;
-      if (u.UserId === d.OwnerUserId) o.selected = true;
-      sel.appendChild(o);
-    }
-    sel.onchange = async () => {
-      try {
-        await api('PUT', `/api/devices/${encodeURIComponent(d.DeviceId)}/owner`, { userId: sel.value || null });
-        setStatus('已更新機器分配');
-      } catch (e) { setStatus(e.message, true); }
-    };
-    td.appendChild(sel);
-    tr.appendChild(td);
-    dtb.appendChild(tr);
   }
 }
 

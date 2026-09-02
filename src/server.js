@@ -156,11 +156,20 @@ app.put('/api/devices/:deviceId/owner', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- 刪除機器（限管理員；移除測試機或報廢機的資料）----
+app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
+  await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.params.deviceId)
+    .query('DELETE FROM dbo.KioskConfig WHERE DeviceId = @id');
+  notifyWaiters(req.params.deviceId, 0);
+  res.json({ ok: true });
+});
+
 // ---- 機器清單（管理員看全部；一般帳號只看自己的）----
 app.get('/api/devices', requireUser, async (req, res) => {
   const q = db.getPool().request();
   let sqlText = `
-    SELECT c.DeviceId, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName
+    SELECT c.DeviceId, c.DeviceName, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName
     FROM dbo.KioskConfig c LEFT JOIN dbo.KioskUser u ON u.UserId = c.OwnerUserId`;
   if (!req.user.isAdmin) {
     q.input('me', db.sql.NVarChar(64), req.user.userId);
@@ -240,23 +249,28 @@ app.put('/api/config/:deviceId', async (req, res) => {
     return res.status(400).json({ error: 'body must be { config: {...} }' });
   }
   // 網頁「儲存並發布」不帶 activePage（只改內容不搶頁面）；沿用機器目前顯示的頁面。
-  // 只有「在機器上展示此頁」或機器自己上傳時才會帶 activePage。
-  if (config.activePage === undefined) {
+  // 只有「在機器上展示此頁」或機器自己上傳時才會帶 activePage。deviceName 同理：
+  // 沒帶就沿用舊值，避免舊版網頁存檔把名稱洗掉。
+  if (config.activePage === undefined || config.deviceName === undefined) {
     const prev = await db.getPool().request()
       .input('id', db.sql.NVarChar(64), req.params.deviceId)
       .query('SELECT ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
-    const prevJson = prev.recordset[0]?.ConfigJson;
-    config.activePage = prevJson ? (JSON.parse(prevJson).activePage ?? 0) : 0;
+    const prevParsed = prev.recordset[0] ? JSON.parse(prev.recordset[0].ConfigJson) : null;
+    if (config.activePage === undefined) config.activePage = prevParsed?.activePage ?? 0;
+    if (config.deviceName === undefined && prevParsed?.deviceName) config.deviceName = prevParsed.deviceName;
   }
+  const deviceName =
+    typeof config.deviceName === 'string' && config.deviceName.trim() ? config.deviceName.trim().slice(0, 128) : null;
   const json = JSON.stringify(config);
   const r = await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.deviceId)
     .input('json', db.sql.NVarChar(db.sql.MAX), json)
+    .input('name', db.sql.NVarChar(128), deviceName)
     .query(`
       MERGE dbo.KioskConfig AS t
       USING (SELECT @id AS DeviceId) AS s ON t.DeviceId = s.DeviceId
-      WHEN MATCHED THEN UPDATE SET Version = t.Version + 1, ConfigJson = @json, UpdatedAt = SYSUTCDATETIME()
-      WHEN NOT MATCHED THEN INSERT (DeviceId, Version, ConfigJson) VALUES (@id, 1, @json)
+      WHEN MATCHED THEN UPDATE SET Version = t.Version + 1, ConfigJson = @json, DeviceName = @name, UpdatedAt = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (DeviceId, Version, ConfigJson, DeviceName) VALUES (@id, 1, @json, @name)
       OUTPUT inserted.Version AS Version;
     `);
   const version = r.recordset[0].Version;
