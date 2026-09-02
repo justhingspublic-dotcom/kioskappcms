@@ -1,0 +1,316 @@
+require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const express = require('express');
+const multer = require('multer');
+const db = require('./db');
+
+const PORT = Number(process.env.PORT || 3000);
+const DEVICE_KEY = process.env.DEVICE_KEY;
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const app = express();
+app.use(express.json({ limit: '10mb' }));
+
+// 簡易請求日誌（除錯用）：長輪詢 /wait 不印，避免洗版
+app.use((req, res, next) => {
+  if (!req.path.endsWith('/wait')) {
+    res.on('finish', () => console.log(`${new Date().toISOString().slice(11, 19)} ${req.method} ${req.path} → ${res.statusCode}`));
+  }
+  next();
+});
+
+// ---- 密碼雜湊（scrypt + 隨機 salt，格式 "salt:hash"）----
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex');
+}
+function verifyPassword(pw, stored) {
+  const [salt, hash] = String(stored).split(':');
+  if (!salt || !hash) return false;
+  const calc = crypto.scryptSync(pw, salt, 32);
+  const want = Buffer.from(hash, 'hex');
+  return calc.length === want.length && crypto.timingSafeEqual(calc, want);
+}
+
+// ---- 登入權杖（記憶體保存，重啟後需重新登入）----
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const tokens = new Map(); // token -> { userId, username, isAdmin, expiry }
+
+function currentUser(req) {
+  const auth = req.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const s = tokens.get(token);
+  if (!s) return null;
+  if (Date.now() > s.expiry) { tokens.delete(token); return null; }
+  return s;
+}
+function isDevice(req) {
+  return DEVICE_KEY && req.get('X-Device-Key') === DEVICE_KEY;
+}
+function requireUser(req, res, next) {
+  req.user = currentUser(req);
+  if (req.user) return next();
+  res.status(401).json({ error: 'unauthorized' });
+}
+function requireAdmin(req, res, next) {
+  req.user = currentUser(req);
+  if (req.user?.isAdmin) return next();
+  res.status(403).json({ error: 'admin only' });
+}
+
+/** 該登入者能否操作這台機器（管理員全可；一般帳號只能碰分配給自己的）。 */
+async function canAccessDevice(user, deviceId) {
+  if (user.isAdmin) return true;
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), deviceId)
+    .query('SELECT OwnerUserId FROM dbo.KioskConfig WHERE DeviceId = @id');
+  return r.recordset[0]?.OwnerUserId === user.userId;
+}
+
+// ---- 首次啟動：沒有任何帳號時，自動建立管理員 ----
+async function seedAdmin() {
+  const r = await db.getPool().request().query('SELECT COUNT(*) AS n FROM dbo.KioskUser');
+  if (r.recordset[0].n > 0) return;
+  const username = process.env.ADMIN_USERNAME || 'admin';
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) throw new Error('.env 缺 ADMIN_PASSWORD，無法建立初始管理員');
+  await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), crypto.randomUUID().replace(/-/g, ''))
+    .input('u', db.sql.NVarChar(64), username)
+    .input('h', db.sql.NVarChar(256), hashPassword(password))
+    .input('n', db.sql.NVarChar(128), '系統管理員')
+    .query(`INSERT INTO dbo.KioskUser (UserId, Username, PasswordHash, DisplayName, IsAdmin)
+            VALUES (@id, @u, @h, @n, 1)`);
+  console.log(`已建立初始管理員帳號：${username}`);
+}
+
+// ---- 登入 ----
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  const r = await db.getPool().request()
+    .input('u', db.sql.NVarChar(64), String(username || ''))
+    .query('SELECT UserId, Username, PasswordHash, DisplayName, IsAdmin FROM dbo.KioskUser WHERE Username = @u');
+  const row = r.recordset[0];
+  if (!row || !verifyPassword(String(password || ''), row.PasswordHash)) {
+    return res.status(401).json({ error: '帳號或密碼錯誤' });
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  tokens.set(token, {
+    userId: row.UserId, username: row.Username, isAdmin: !!row.IsAdmin,
+    expiry: Date.now() + TOKEN_TTL_MS,
+  });
+  res.json({ token, user: { username: row.Username, displayName: row.DisplayName, isAdmin: !!row.IsAdmin } });
+});
+
+app.get('/api/me', requireUser, (req, res) => {
+  res.json({ username: req.user.username, isAdmin: req.user.isAdmin });
+});
+
+// ---- 帳號管理（限管理員）----
+app.get('/api/users', requireAdmin, async (_req, res) => {
+  const r = await db.getPool().request().query(`
+    SELECT u.UserId, u.Username, u.DisplayName, u.IsAdmin, u.CreatedAt,
+           (SELECT COUNT(*) FROM dbo.KioskConfig c WHERE c.OwnerUserId = u.UserId) AS DeviceCount
+    FROM dbo.KioskUser u ORDER BY u.CreatedAt`);
+  res.json(r.recordset);
+});
+
+app.post('/api/users', requireAdmin, async (req, res) => {
+  const { username, password, displayName, isAdmin } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: '帳號與密碼必填' });
+  try {
+    const id = crypto.randomUUID().replace(/-/g, '');
+    await db.getPool().request()
+      .input('id', db.sql.NVarChar(64), id)
+      .input('u', db.sql.NVarChar(64), String(username))
+      .input('h', db.sql.NVarChar(256), hashPassword(String(password)))
+      .input('n', db.sql.NVarChar(128), displayName || null)
+      .input('a', db.sql.Bit, isAdmin ? 1 : 0)
+      .query(`INSERT INTO dbo.KioskUser (UserId, Username, PasswordHash, DisplayName, IsAdmin)
+              VALUES (@id, @u, @h, @n, @a)`);
+    res.json({ userId: id });
+  } catch (e) {
+    if (/UNIQUE|duplicate/i.test(e.message)) return res.status(409).json({ error: '帳號名稱已存在' });
+    throw e;
+  }
+});
+
+app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
+  if (req.params.userId === req.user.userId) return res.status(400).json({ error: '不能刪除自己' });
+  await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.params.userId)
+    .query(`UPDATE dbo.KioskConfig SET OwnerUserId = NULL WHERE OwnerUserId = @id;
+            DELETE FROM dbo.KioskUser WHERE UserId = @id;`);
+  res.json({ ok: true });
+});
+
+// 把機器分配給某個帳號（userId 傳 null = 收回為未分配）
+app.put('/api/devices/:deviceId/owner', requireAdmin, async (req, res) => {
+  await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.params.deviceId)
+    .input('owner', db.sql.NVarChar(64), req.body?.userId || null)
+    .query('UPDATE dbo.KioskConfig SET OwnerUserId = @owner WHERE DeviceId = @id');
+  res.json({ ok: true });
+});
+
+// ---- 機器清單（管理員看全部；一般帳號只看自己的）----
+app.get('/api/devices', requireUser, async (req, res) => {
+  const q = db.getPool().request();
+  let sqlText = `
+    SELECT c.DeviceId, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName
+    FROM dbo.KioskConfig c LEFT JOIN dbo.KioskUser u ON u.UserId = c.OwnerUserId`;
+  if (!req.user.isAdmin) {
+    q.input('me', db.sql.NVarChar(64), req.user.userId);
+    sqlText += ' WHERE c.OwnerUserId = @me';
+  }
+  const r = await q.query(sqlText + ' ORDER BY c.DeviceId');
+  res.json(r.recordset);
+});
+
+// ---- 版本號 ----
+async function readVersion(deviceId) {
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), deviceId)
+    .query('SELECT Version FROM dbo.KioskConfig WHERE DeviceId = @id');
+  return r.recordset[0]?.Version ?? 0;
+}
+
+app.get('/api/config/:deviceId/version', async (req, res) => {
+  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: 'unauthorized' });
+  res.json({ version: await readVersion(req.params.deviceId) });
+});
+
+// ---- 長輪詢：kiosk 掛在這支等新版本，網頁一發布立刻回應（最多掛 25 秒）----
+const WAIT_HOLD_MS = 25_000;
+const waiters = new Map(); // deviceId -> Set<{res, timer}>
+
+function notifyWaiters(deviceId, version) {
+  const set = waiters.get(deviceId);
+  if (!set) return;
+  waiters.delete(deviceId);
+  for (const w of set) {
+    clearTimeout(w.timer);
+    try { w.res.json({ version }); } catch { /* client gone */ }
+  }
+}
+
+app.get('/api/config/:deviceId/wait', async (req, res) => {
+  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: 'unauthorized' });
+  const deviceId = req.params.deviceId;
+  const since = Number(req.query.version || 0);
+  const current = await readVersion(deviceId);
+  if (current !== since) return res.json({ version: current });
+
+  const entry = { res };
+  const set = waiters.get(deviceId) || new Set();
+  set.add(entry);
+  waiters.set(deviceId, set);
+  const drop = () => { set.delete(entry); if (!set.size) waiters.delete(deviceId); };
+  entry.timer = setTimeout(() => { drop(); try { res.json({ version: current }); } catch { /* gone */ } }, WAIT_HOLD_MS);
+  req.on('close', () => { clearTimeout(entry.timer); drop(); });
+});
+
+// ---- 讀整份設定 ----
+app.get('/api/config/:deviceId', async (req, res) => {
+  const user = currentUser(req);
+  if (!isDevice(req)) {
+    if (!user) return res.status(401).json({ error: 'unauthorized' });
+    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: 'not your device' });
+  }
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.params.deviceId)
+    .query('SELECT Version, ConfigJson, UpdatedAt FROM dbo.KioskConfig WHERE DeviceId = @id');
+  const row = r.recordset[0];
+  if (!row) return res.status(404).json({ error: 'no config for this device' });
+  res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson) });
+});
+
+// ---- 存整份設定（網頁存檔，或 kiosk 第一次連線時上傳本機設定當初始值）----
+app.put('/api/config/:deviceId', async (req, res) => {
+  const user = currentUser(req);
+  if (!isDevice(req)) {
+    if (!user) return res.status(401).json({ error: 'unauthorized' });
+    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: 'not your device' });
+  }
+  const config = req.body?.config;
+  if (!config || typeof config !== 'object') {
+    return res.status(400).json({ error: 'body must be { config: {...} }' });
+  }
+  // 網頁「儲存並發布」不帶 activePage（只改內容不搶頁面）；沿用機器目前顯示的頁面。
+  // 只有「在機器上展示此頁」或機器自己上傳時才會帶 activePage。
+  if (config.activePage === undefined) {
+    const prev = await db.getPool().request()
+      .input('id', db.sql.NVarChar(64), req.params.deviceId)
+      .query('SELECT ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
+    const prevJson = prev.recordset[0]?.ConfigJson;
+    config.activePage = prevJson ? (JSON.parse(prevJson).activePage ?? 0) : 0;
+  }
+  const json = JSON.stringify(config);
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.params.deviceId)
+    .input('json', db.sql.NVarChar(db.sql.MAX), json)
+    .query(`
+      MERGE dbo.KioskConfig AS t
+      USING (SELECT @id AS DeviceId) AS s ON t.DeviceId = s.DeviceId
+      WHEN MATCHED THEN UPDATE SET Version = t.Version + 1, ConfigJson = @json, UpdatedAt = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (DeviceId, Version, ConfigJson) VALUES (@id, 1, @json)
+      OUTPUT inserted.Version AS Version;
+    `);
+  const version = r.recordset[0].Version;
+  notifyWaiters(req.params.deviceId, version); // 立刻叫醒掛在 /wait 的機器
+  res.json({ version });
+});
+
+// ---- 圖片/影片上傳（任何登入帳號皆可；檔名隨機 UUID）----
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase().slice(0, 10);
+      cb(null, crypto.randomUUID().replace(/-/g, '') + ext);
+    },
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 },
+});
+
+// 網頁登入者或 kiosk 機器（帶 Device Key）都可上傳：機器會把現場選的圖自動傳上來
+function requireUserOrDevice(req, res, next) {
+  req.user = currentUser(req);
+  if (req.user || isDevice(req)) return next();
+  res.status(401).json({ error: 'unauthorized' });
+}
+
+app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'no file' });
+  const id = path.parse(req.file.filename).name;
+  await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), id)
+    .input('name', db.sql.NVarChar(256), req.file.originalname || null)
+    .input('path', db.sql.NVarChar(512), req.file.filename)
+    .input('mime', db.sql.NVarChar(128), req.file.mimetype || null)
+    .input('size', db.sql.BigInt, req.file.size)
+    .query(`INSERT INTO dbo.KioskFile (FileId, OriginalName, StoredPath, MimeType, SizeBytes)
+            VALUES (@id, @name, @path, @mime, @size)`);
+  res.json({ id, url: `/files/${req.file.filename}` });
+});
+
+app.use('/files', express.static(UPLOAD_DIR, { maxAge: '365d', immutable: true }));
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: String(err.message || err) });
+});
+
+db.init()
+  .then(seedAdmin)
+  .then(() => {
+    app.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${PORT}`));
+  })
+  .catch((e) => {
+    console.error('啟動失敗：', e.message);
+    process.exit(1);
+  });

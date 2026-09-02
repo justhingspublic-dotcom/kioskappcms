@@ -1,0 +1,197 @@
+* { box-sizing: border-box; margin: 0; }
+body {
+  font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+  background: #14181b; color: #e4e7e9; min-height: 100vh;
+}
+.hidden { display: none !important; }
+button {
+  background: #2e6a43; color: #fff; border: 0; border-radius: 8px;
+  padding: 9px 18px; font-size: 14px; cursor: pointer;
+}
+button:disabled { opacity: .45; cursor: default; }
+button.ghost { background: transparent; border: 1px solid #3c4449; color: #aeb6ba; }
+button.danger { background: transparent; border: 0; color: #e57373; padding: 2px 6px; }
+button.seg { background: #1d2327; border: 1px solid #3c4449; color: #aeb6ba; padding: 7px 14px; }
+button.seg.active { background: #2e6a43; border-color: #2e6a43; color: #fff; }
+input, select, textarea {
+  background: #1d2327; color: #e4e7e9; border: 1px solid #3c4449;
+  border-radius: 8px; padding: 8px 10px; font-size: 14px; font-family: inherit;
+}
+input:focus, select:focus, textarea:focus { outline: 1px solid #2e6a43; }
+.hint { font-size: 12px; color: #6c757b; }
+.error { color: #e57373; font-size: 13px; text-align: center; }
+
+/* 登入 */
+.login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card {
+  background: #1d2327; padding: 36px; border-radius: 16px; width: 320px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.login-card h1 { font-size: 20px; text-align: center; margin-bottom: 8px; }
+
+/* 主畫面 */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 22px; background: #1d2327; border-bottom: 1px solid #2a3136;
+  position: sticky; top: 0; z-index: 10; flex-wrap: wrap; gap: 10px;
+}
+header h1 { font-size: 17px; }
+.header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.whoami { font-size: 13px; color: #aeb6ba; margin-right: 4px; }
+
+.empty { text-align: center; padding: 80px 20px; color: #aeb6ba; }
+.empty .hint { margin-top: 8px; font-size: 13px; }
+
+/* 頁面分頁籤 */
+.page-tabs { display: flex; gap: 6px; padding: 14px 22px 0; flex-wrap: wrap; align-items: center; }
+.page-tabs .tab {
+  display: flex; align-items: center; gap: 6px; background: #1d2327;
+  border: 1px solid #3c4449; border-radius: 8px; padding: 6px 6px 6px 14px; cursor: pointer;
+  color: #aeb6ba; font-size: 14px;
+}
+.page-tabs .tab.active { background: #2e6a43; border-color: #2e6a43; color: #fff; }
+.page-tabs .tab .badge {
+  font-size: 11px; background: rgba(255,255,255,.18); border-radius: 5px; padding: 1px 6px;
+}
+.page-tabs .tab button { background: none; border: 0; color: inherit; opacity: .7; padding: 2px 5px; font-size: 13px; }
+.page-tabs .tab button:hover { opacity: 1; }
+
+/* 編輯器主體 */
+.editor-body { display: flex; gap: 22px; padding: 18px 22px 60px; align-items: flex-start; }
+.canvas-col { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
+.canvas-actions { display: flex; gap: 8px; }
+
+/* 版面畫布：9:16 直向，跟機器一樣 */
+.canvas {
+  width: min(38vh, 420px); aspect-ratio: 9 / 16;
+  background: #000; border-radius: 12px; padding: 4px;
+  display: flex; flex-direction: column; user-select: none; touch-action: none;
+  container-type: inline-size; /* 預覽字級以畫布寬度為基準，比例感貼近實機 */
+}
+.canvas .block { display: flex; min-height: 0; position: relative; }
+.canvas .cell {
+  flex: 1; min-height: 0; min-width: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; position: relative;
+  background-size: cover; background-position: center;
+  border: 2px solid transparent; color: #fff; font-size: 13px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
+}
+.canvas .cell:hover { border-color: rgba(105,240,174,.55); }
+.canvas .cell.selected { border-color: #69f0ae; }
+.canvas .cell > div { pointer-events: none; }
+
+/* 內容真實預覽：字級由 fitPreview() 依格子實際大小套用（規則同 App） */
+.pv-img-layer {
+  position: absolute; inset: 0; z-index: 0;
+  background-position: center; background-repeat: no-repeat;
+  transition: opacity .6s;
+}
+.pv-text, .pv-marquee, .pv-weather2, .pv-icon, .pv-badge, .pv-chip { z-index: 1; }
+.pv-text { position: relative; text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; text-shadow: none; }
+.pv-marquee { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; }
+.pv-marquee span { white-space: nowrap; font-weight: 600; will-change: transform; }
+.pv-weather2 { position: absolute; inset: 0; display: flex; align-items: center; }
+.pv-weather2 .pvw-left { flex: 1; min-width: 0; }
+.pv-weather2 .pvw-loc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-weather2 .pvw-info { white-space: nowrap; overflow: hidden; }
+.pv-weather2 .pvw-right { display: flex; align-items: center; gap: 4px; }
+.pv-weather2 .pvw-temp { font-weight: 700; }
+.pv-weather2 .pvw-hint { width: 100%; text-align: center; opacity: .72; }
+.pv-size-badge {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  background: rgba(29,35,39,.78); color: #e4e7e9;
+  border-radius: 5px; padding: 2px 7px; font-size: 10px;
+  display: flex; align-items: center; gap: 3px; white-space: nowrap;
+}
+.pv-size-badge .material-icons { font-size: 12px; }
+.pv-icon { font-size: 5cqw; display: flex; align-items: center; gap: 4px; }
+.material-icons { font-size: inherit; line-height: 1; vertical-align: middle; }
+.pv-weather2 .pvw-info { display: flex; align-items: center; }
+.pv-badge {
+  position: absolute; right: 4px; bottom: 4px; font-size: 10px;
+  background: rgba(0,0,0,.5); color: #fff; padding: 1px 7px; border-radius: 5px;
+}
+
+/* 拖曳把手：樣式對齊 App 的 Divider（大區塊間 48×2.5 粗桿、分割內 28×1.5 細桿） */
+.canvas .h-divider {
+  height: 12px; flex: none; cursor: row-resize; position: relative; touch-action: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.canvas .v-divider {
+  width: 12px; flex: none; cursor: col-resize; position: relative; touch-action: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.canvas .h-divider::after, .canvas .v-divider::after {
+  content: ""; background: rgba(174,182,186,.55); border-radius: 2px;
+  transition: background .12s, transform .12s;
+}
+.canvas .h-divider.major::after { width: 48px; height: 2.5px; }
+.canvas .h-divider.minor::after { width: 28px; height: 1.5px; }
+.canvas .v-divider.major::after { width: 2.5px; height: 48px; }
+.canvas .v-divider.minor::after { width: 1.5px; height: 28px; }
+.canvas .h-divider:hover::after, .canvas .h-divider.dragging::after { background: #69f0ae; transform: scale(1.2, 2); }
+.canvas .v-divider:hover::after, .canvas .v-divider.dragging::after { background: #69f0ae; transform: scale(2, 1.2); }
+
+/* 右側：單格設定面板 */
+.cell-panel {
+  flex: 1; min-width: 320px; max-width: 560px; background: #1d2327;
+  border-radius: 12px; align-self: stretch; max-height: calc(100vh - 160px);
+  overflow-y: auto; position: sticky; top: 78px;
+}
+.cell-panel .panel-head {
+  padding: 16px 20px 10px; border-bottom: 1px solid #2a3136;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.cell-panel .panel-head h3 { font-size: 15px; color: #69f0ae; }
+.cell-panel .body { padding: 14px 20px 24px; display: flex; flex-direction: column; gap: 18px; }
+.group { display: flex; flex-direction: column; gap: 10px; }
+.group > h4 { font-size: 12px; color: #6c757b; font-weight: normal; letter-spacing: .1em; }
+.group .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.group label { font-size: 13px; color: #aeb6ba; }
+.group textarea { width: 100%; min-height: 64px; resize: vertical; }
+.group input[type=text], .group input[type=url] { flex: 1; min-width: 160px; }
+.group input[type=number] { width: 84px; }
+.group input[type=range] { flex: 1; }
+.seg-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* 色票 */
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch {
+  width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+  border: 2px solid #3c4449; padding: 0;
+}
+.swatch.active { border-color: #69f0ae; box-shadow: 0 0 0 2px rgba(105,240,174,.35); }
+.swatch.auto { background: #1d2327; color: #aeb6ba; font-size: 11px; width: auto; padding: 0 10px; }
+
+/* 圖片縮圖 */
+.thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.thumb { position: relative; width: 84px; height: 84px; border-radius: 8px; overflow: hidden; background: #14181b; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb .local { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #6c757b; text-align: center; padding: 4px; }
+.thumb button {
+  position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.65); color: #fff;
+  border-radius: 6px; padding: 1px 7px; font-size: 12px;
+}
+.add-thumb {
+  width: 84px; height: 84px; border-radius: 8px; border: 1px dashed #3c4449; background: none;
+  color: #6c757b; font-size: 26px;
+}
+
+/* 帳號管理 */
+.users-view { padding: 18px 22px 60px; display: flex; flex-direction: column; gap: 18px; max-width: 860px; }
+.panel { background: #1d2327; border-radius: 12px; padding: 18px; }
+.panel h2 { font-size: 15px; margin-bottom: 12px; color: #69f0ae; }
+.panel table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+.panel th, .panel td { text-align: left; padding: 8px 10px; font-size: 13px; border-bottom: 1px solid #2a3136; }
+.panel th { color: #6c757b; font-weight: normal; }
+.panel .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.status { position: fixed; bottom: 16px; right: 22px; font-size: 13px; color: #69f0ae; z-index: 20; }
+.status.err { color: #e57373; }
+
+@media (max-width: 900px) {
+  .editor-body { flex-direction: column; }
+  .cell-panel { position: static; max-height: none; width: 100%; max-width: none; }
+  .canvas { width: min(60vw, 340px); }
+}

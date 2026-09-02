@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiosk 管理後台</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 登入畫面 -->
+  <div id="loginView" class="login-wrap hidden">
+    <form id="loginForm" class="login-card">
+      <h1>Kiosk 管理後台</h1>
+      <input id="username" type="text" placeholder="帳號" autocomplete="username" required>
+      <input id="password" type="password" placeholder="密碼" autocomplete="current-password" required>
+      <button type="submit">登入</button>
+      <p id="loginError" class="error hidden">帳號或密碼錯誤</p>
+    </form>
+  </div>
+
+  <!-- 主畫面 -->
+  <div id="mainView" class="hidden">
+    <header>
+      <h1>Kiosk 管理後台</h1>
+      <div class="header-actions">
+        <span id="whoami" class="whoami"></span>
+        <select id="deviceSelect" title="選擇機器"></select>
+        <button id="reloadBtn" class="ghost">重新載入</button>
+        <button id="saveBtn" disabled>儲存並發布</button>
+        <button id="usersBtn" class="ghost hidden">帳號管理</button>
+        <button id="logoutBtn" class="ghost">登出</button>
+      </div>
+    </header>
+
+    <!-- 帳號管理（限管理員） -->
+    <div id="usersView" class="users-view hidden">
+      <section class="panel">
+        <h2>帳號</h2>
+        <table id="userTable">
+          <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th>機器數</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <form id="addUserForm" class="row">
+          <input id="newUsername" type="text" placeholder="新帳號" required>
+          <input id="newPassword" type="password" placeholder="密碼" required>
+          <input id="newDisplayName" type="text" placeholder="名稱（例：XX專案）">
+          <button type="submit">新增帳號</button>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>機器分配</h2>
+        <table id="deviceTable">
+          <thead><tr><th>機器</th><th>版本</th><th>屬於</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="hint">機器第一次連上來時是「未分配」，在這裡指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
+      </section>
+    </div>
+
+    <div id="emptyState" class="empty hidden">
+      <p>這台機器還沒有上傳過設定。</p>
+      <p class="hint">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
+    </div>
+
+    <!-- 版面編輯器 -->
+    <div id="editor" class="editor hidden">
+      <nav id="pageTabs" class="page-tabs"></nav>
+      <div class="editor-body">
+        <div class="canvas-col">
+          <div id="canvas" class="canvas"></div>
+          <div class="canvas-actions">
+            <button id="addBlockBtn" class="ghost">＋新增大區塊</button>
+            <button id="showPageBtn" class="ghost">在機器上展示此頁</button>
+          </div>
+          <p class="hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
+        </div>
+        <aside id="cellPanel" class="cell-panel">
+          <p class="hint" style="padding:20px">← 點左邊版面上的格子開始編輯</p>
+        </aside>
+      </div>
+    </div>
+
+    <p id="status" class="status"></p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
