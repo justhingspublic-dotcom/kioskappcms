@@ -1499,11 +1499,7 @@ $('editSharedLayoutBtn').addEventListener('click', enterSharedLayoutEditor);
 $('applySharedLayoutBtn').addEventListener('click', () => applySharedLayout());
 $('applySharedSettingsBtn').addEventListener('click', () => applySharedSettings());
 
-// 側欄「共用設定」群組開闔（kit shell.css 的 submenu 手風琴）
-$('sharedGroupToggle').addEventListener('click', () => {
-  $('sharedGroupToggle').classList.toggle('open');
-  $('sharedSubmenu').classList.toggle('show');
-});
+// 側欄「共用設定」群組開闔由 kit.js 的 submenu 手風琴接管（這裡不能再綁，會互相抵銷）
 
 async function ensureSharedLoaded() {
   if (shared !== null) return true;
