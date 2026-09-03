@@ -65,7 +65,7 @@ $('loginForm').addEventListener('submit', async (e) => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: $('username').value, password: $('password').value }),
     });
-    if (!r.ok) throw new Error();
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼錯誤');
     token = (await r.json()).token;
     sessionStorage.setItem('token', token);
     btn.classList.remove('is-loading');
@@ -73,9 +73,9 @@ $('loginForm').addEventListener('submit', async (e) => {
     await new Promise((res) => setTimeout(res, 320));   // 等填滿（.3s）再切主畫面
     await enterMain();
     btn.classList.remove('is-success');                 // 還原，登出再進來是乾淨狀態
-  } catch {
+  } catch (e) {
     btn.classList.remove('is-loading');
-    BToast.danger('帳號或密碼錯誤');   // tiri 同款右下角 toast，取代頁內紅字
+    BToast.danger(e.message || '帳號或密碼錯誤');   // tiri 同款右下角 toast，取代頁內紅字
   }
 });
 

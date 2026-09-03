@@ -74,4 +74,9 @@ function getPool() {
   return pool;
 }
 
-module.exports = { sql, init, getPool };
+/** DB 連上了沒（伺服器現在是「先開站、背景連 DB」，API 靠這個判斷要不要回 503）。 */
+function isReady() {
+  return !!pool;
+}
+
+module.exports = { sql, init, getPool, isReady };

@@ -14,6 +14,12 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+// DB 還沒連上（啟動中或公司 DB 斷線）：API 一律回 503＋中文訊息，網頁照常載入。
+app.use('/api', (_req, res, next) => {
+  if (!db.isReady()) return res.status(503).json({ error: '資料庫連線中（公司 DB 未回應），請稍候再試' });
+  next();
+});
+
 // 簡易請求日誌（除錯用）：長輪詢 /wait 不印，避免洗版
 app.use((req, res, next) => {
   if (!req.path.endsWith('/wait')) {
@@ -400,12 +406,19 @@ app.use((err, _req, res, _next) => {
 // 記 log 撐住行程，別讓一次 DB 逾時弄死整個後台。
 process.on('unhandledRejection', (e) => console.error('unhandledRejection：', e && e.message ? e.message : e));
 
-db.init()
-  .then(seedAdmin)
-  .then(() => {
-    app.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${PORT}`));
-  })
-  .catch((e) => {
-    console.error('啟動失敗：', e.message);
-    process.exit(1);
-  });
+// 先開站（DB 斷線時網頁仍載得進、看得到明確錯誤），DB 在背景重試連線，連上自動恢復。
+app.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${PORT}`));
+
+(async function initDbWithRetry() {
+  for (;;) {
+    try {
+      await db.init();
+      await seedAdmin();
+      console.log('資料庫連線成功');
+      return;
+    } catch (e) {
+      console.error('資料庫連線失敗，15 秒後重試：', e.message);
+      await new Promise((r) => setTimeout(r, 15_000));
+    }
+  }
+})();
