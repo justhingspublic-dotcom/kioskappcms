@@ -419,21 +419,6 @@ html:root[data-color-mode="dark"] {
 .ws-head-info { min-width: 0; }
 .ws-head-actions { display: flex; align-items: center; gap: 10px; flex: none; }
 
-/* 共用設定：折疊卡（chevron 旋轉；內容開著才渲染） */
-.collapse-card { margin-bottom: 14px; }
-.collapse-head {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 14px 18px; border: 0; background: transparent; cursor: pointer;
-  text-align: left; color: var(--text-body);
-}
-.collapse-title { font-size: 15px; font-weight: 700; flex: none; }
-.collapse-sub { font-size: 12.5px; color: var(--text-body-subtle); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.collapse-caret { flex: none; color: var(--text-body-subtle); transition: transform .15s ease; }
-.collapse-card.open .collapse-caret { transform: rotate(180deg); }
-.collapse-body { padding: 4px 18px 18px; animation: collapse-in .15s ease-out; }
-@keyframes collapse-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.collapse-body .apply-row { margin-top: 14px; }
-
 /* 複製版面對話框：kit modal 樣式＋勾選清單 */
 .copy-modal { width: min(420px, calc(100vw - 48px)); }
 .copy-modal .b-alert-title { text-align: left; }

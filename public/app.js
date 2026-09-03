@@ -129,6 +129,7 @@ async function enterWorkspace(d) {
 
 /** 從共用設定開啟共用版面編輯：同一套畫布編輯器，掛在虛擬 state 上。 */
 function enterSharedLayoutEditor() {
+  if (shared === null) shared = {}; // 正常從版面設定頁進來已載入；保底
   wsMode = 'shared';
   deviceId = '';
   $('wsDeviceName').textContent = '共用版面';
@@ -171,7 +172,7 @@ async function exitWorkspace() {
     closed = true;
     m.classList.remove('is-visible', 'is-closing');
     document.body.classList.remove('b-modal-lock');
-    if (wsMode === 'shared') renderSharedView(); // 範本狀態行要更新
+    if (wsMode === 'shared') renderSharedLayoutView(); // 範本狀態行要更新
     else renderDevicesView(); // 版本/狀態可能變了，回列表重整
   };
   m.addEventListener('animationend', function h(e) {
@@ -1479,10 +1480,9 @@ function updateSleepTime(ctx, day, isStart, minutes, applyToAll) {
   ctx.markDirty(); ctx.rerender();
 }
 
-// ---------- 共用設定（折疊分區：版面設定／機器設定；「套用」＝逐台發布部分 config） ----------
+// ---------- 共用設定（側欄子選單兩頁：版面設定／機器設定；「套用」＝逐台發布部分 config） ----------
 let shared = null;        // /api/shared-settings 的 settings 物件（登入帳號各一份）
 let sharedDirty = false;
-const sharedOpen = { layout: false, settings: false }; // 折疊開闔：預設全收，一次只開一區
 
 function setSharedDirty(v) { sharedDirty = v; $('sharedSaveBtn').disabled = !v; }
 
@@ -1495,68 +1495,34 @@ async function saveShared() {
   } catch (e) { setStatus('儲存失敗：' + e.message, true); return false; }
 }
 $('sharedSaveBtn').addEventListener('click', saveShared);
+$('editSharedLayoutBtn').addEventListener('click', enterSharedLayoutEditor);
+$('applySharedLayoutBtn').addEventListener('click', () => applySharedLayout());
+$('applySharedSettingsBtn').addEventListener('click', () => applySharedSettings());
 
-/** 折疊卡：標題列點了開闔（chevron 旋轉），開著才渲染內容。 */
-function collapseSection(key, title, subtitle, build) {
-  const card = document.createElement('div');
-  card.className = 'b-card collapse-card' + (sharedOpen[key] ? ' open' : '');
-  const head = document.createElement('button');
-  head.type = 'button';
-  head.className = 'collapse-head';
-  const t = document.createElement('span');
-  t.className = 'collapse-title';
-  t.textContent = title;
-  const s = document.createElement('span');
-  s.className = 'collapse-sub';
-  s.textContent = subtitle || '';
-  const caret = document.createElement('i');
-  caret.setAttribute('data-lucide', 'chevron-down');
-  caret.className = 'collapse-caret';
-  head.append(t, s, caret);
-  head.onclick = () => {
-    const willOpen = !sharedOpen[key];
-    Object.keys(sharedOpen).forEach((k) => { sharedOpen[k] = false; }); // 手風琴：開一區收其他
-    sharedOpen[key] = willOpen;
-    renderSharedView();
-  };
-  card.appendChild(head);
-  if (sharedOpen[key]) {
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'collapse-body';
-    build(bodyEl);
-    card.appendChild(bodyEl);
-  }
-  return card;
+// 側欄「共用設定」群組開闔（kit shell.css 的 submenu 手風琴）
+$('sharedGroupToggle').addEventListener('click', () => {
+  $('sharedGroupToggle').classList.toggle('open');
+  $('sharedSubmenu').classList.toggle('show');
+});
+
+async function ensureSharedLoaded() {
+  if (shared !== null) return true;
+  try {
+    shared = (await api('GET', '/api/shared-settings')).settings || {};
+    return true;
+  } catch (e) { setStatus(String(e.message), true); return false; }
 }
 
-async function renderSharedView() {
-  const body = $('sharedBody');
-  if (shared === null) {
-    try { shared = (await api('GET', '/api/shared-settings')).settings || {}; }
-    catch (e) { return setStatus(String(e.message), true); }
-  }
-  body.innerHTML = '';
-  body.appendChild(collapseSection('layout', '版面設定', '共用版面：從一台機器匯入，再套用到多台', buildSharedLayout));
-  body.appendChild(collapseSection('settings', '機器設定', '客服帳號與休眠時段的共用範本', buildSharedSettings));
-  if (window.BDropdown) BDropdown.init(body);
-  if (window.lucide) lucide.createIcons();
-}
-
-function buildSharedLayout(el) {
-  const g = document.createElement('div');
-  g.className = 'group';
-  const info = hint(shared.pages
+/** 共用設定 › 版面設定頁：狀態說明＋（header 上的）編輯與套用鈕。 */
+async function renderSharedLayoutView() {
+  if (!(await ensureSharedLoaded())) return;
+  const g = $('sharedLayoutInfo');
+  g.innerHTML = '';
+  g.appendChild(hint(shared.pages
     ? `共用版面：${shared.pages.length} 頁` +
-      (shared.layoutUpdatedAt ? `（${new Date(shared.layoutUpdatedAt).toLocaleString('zh-TW', { hour12: false })} 更新）` : '') +
-      '。機器上的現場修改不會影響這份版面。'
-    : '還沒有共用版面，點「編輯共用版面」開始設計。');
-  g.appendChild(info);
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.appendChild(btn('編輯共用版面', enterSharedLayoutEditor));
-  if (shared.pages) row.appendChild(btn('套用版面到機器', applySharedLayout));
-  g.appendChild(row);
-  el.appendChild(g);
+      (shared.layoutUpdatedAt ? `（${new Date(shared.layoutUpdatedAt).toLocaleString('zh-TW', { hour12: false })} 更新）` : '') + '。'
+    : '還沒有共用版面，點右上角「編輯共用版面」開始設計。'));
+  $('applySharedLayoutBtn').disabled = !shared.pages;
 }
 
 async function applySharedLayout() {
@@ -1581,17 +1547,15 @@ async function applySharedLayout() {
   await publishToDevices(picked, { pages: shared.pages }, '套用');
 }
 
-function buildSharedSettings(el) {
-  const wrap = document.createElement('div');
-  wrap.className = 'settings-body';
-  const ctx = { cfg: shared, markDirty: () => setSharedDirty(true), rerender: renderSharedView };
-  wrap.appendChild(chatApiCard(ctx));
-  wrap.appendChild(sleepCard(ctx));
-  el.appendChild(wrap);
-  const row = document.createElement('div');
-  row.className = 'row apply-row';
-  row.appendChild(btn('套用設定到機器', applySharedSettings));
-  el.appendChild(row);
+/** 共用設定 › 機器設定頁：共用的客服帳號＋休眠卡片。 */
+async function renderSharedSettingsView() {
+  if (!(await ensureSharedLoaded())) return;
+  const body = $('sharedBody');
+  body.innerHTML = '';
+  const ctx = { cfg: shared, markDirty: () => setSharedDirty(true), rerender: renderSharedSettingsView };
+  body.appendChild(chatApiCard(ctx));
+  body.appendChild(sleepCard(ctx));
+  if (window.BDropdown) BDropdown.init(body);
 }
 
 async function applySharedSettings() {
@@ -1619,11 +1583,13 @@ function switchView(view) {
     b.classList.toggle('active', b.dataset.view === view);
   });
   $('devicesView').classList.toggle('hidden', view !== 'devices');
-  $('sharedView').classList.toggle('hidden', view !== 'shared');
+  $('sharedLayoutView').classList.toggle('hidden', view !== 'sharedLayout');
+  $('sharedSettingsView').classList.toggle('hidden', view !== 'sharedSettings');
   $('usersView').classList.toggle('hidden', view !== 'users');
   spaFade();
   if (view === 'devices') renderDevicesView();
-  if (view === 'shared') renderSharedView();
+  if (view === 'sharedLayout') renderSharedLayoutView();
+  if (view === 'sharedSettings') renderSharedSettingsView();
   if (view === 'users') renderUsersView();
 }
 document.querySelectorAll('.sidebar .nav-item').forEach((b) => {

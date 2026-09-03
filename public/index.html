@@ -93,9 +93,21 @@
         <button type="button" class="menu-item nav-item active" data-view="devices">
           <i data-lucide="monitor"></i><span class="menu-text">機器總覽</span>
         </button>
-        <button type="button" class="menu-item nav-item" data-view="shared">
-          <i data-lucide="layers"></i><span class="menu-text">共用設定</span>
+        <!-- 共用設定＝tiri 側欄子選單群組（submenu-toggle＋submenu 手風琴，樣式在 kit shell.css） -->
+        <button type="button" class="menu-item submenu-toggle" id="sharedGroupToggle">
+          <span class="menu-left"><i data-lucide="layers"></i><span class="menu-text">共用設定</span></span>
+          <i data-lucide="chevron-down" class="menu-caret" aria-hidden="true"></i>
         </button>
+        <div class="submenu" id="sharedSubmenu">
+          <div class="submenu-inner">
+            <button type="button" class="menu-item submenu-item nav-item" data-view="sharedLayout">
+              <span class="menu-text">版面設定</span>
+            </button>
+            <button type="button" class="menu-item submenu-item nav-item" data-view="sharedSettings">
+              <span class="menu-text">機器設定</span>
+            </button>
+          </div>
+        </div>
         <button type="button" class="menu-item nav-item hidden" data-view="users" id="usersNav">
           <i data-lucide="users"></i><span class="menu-text">帳號管理</span>
         </button>
@@ -129,16 +141,30 @@
         <p class="table-note">點一列進入該機器的版面與設定。機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
       </div>
 
-      <!-- 共用設定：折疊分區（版面設定／機器設定），各自可套用到多台機器 -->
-      <div id="sharedView" class="hidden">
+      <!-- 共用設定 › 版面設定：共用版面（網頁上直接編輯，套用＝複製給勾選機器並發布） -->
+      <div id="sharedLayoutView" class="hidden">
         <div class="page-header">
-          <h1 class="page-title">共用設定</h1>
+          <h1 class="page-title">版面設定</h1>
           <div class="page-actions">
-            <button id="sharedSaveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="save"></i>儲存共用設定</button>
+            <button id="editSharedLayoutBtn" class="b-btn"><i data-lucide="pencil-ruler"></i>編輯共用版面</button>
+            <button id="applySharedLayoutBtn" class="b-btn b-btn-primary" disabled><i data-lucide="send"></i>套用到機器</button>
           </div>
         </div>
-        <div id="sharedBody"></div>
-        <p class="table-note">大部分機器用同一套版面或同一組設定時，在這裡維護一份、按各區的「套用到機器」勾選要更新的機器。個別機器要不同設定，到該機器工作區單獨調整——之後再套用共用設定會覆蓋回來。</p>
+        <div class="b-card"><div class="b-card-body"><div class="group" id="sharedLayoutInfo"></div></div></div>
+        <p class="table-note">共用版面在這裡設計與維護（跟機器工作區同一套編輯器）。「套用到機器」＝把版面複製給勾選的機器並立即發布；機器上的現場修改只影響那一台，不會改動共用版面。</p>
+      </div>
+
+      <!-- 共用設定 › 機器設定：客服帳號＋休眠時段的共用範本 -->
+      <div id="sharedSettingsView" class="hidden">
+        <div class="page-header">
+          <h1 class="page-title">機器設定</h1>
+          <div class="page-actions">
+            <button id="sharedSaveBtn" class="b-btn" disabled><i data-lucide="save"></i>儲存</button>
+            <button id="applySharedSettingsBtn" class="b-btn b-btn-primary"><i data-lucide="send"></i>套用到機器</button>
+          </div>
+        </div>
+        <div id="sharedBody" class="settings-body"></div>
+        <p class="table-note">大部分機器共用的客服帳號與休眠時段在這裡維護。個別機器要不同設定，到該機器的工作區單獨調整——之後再套用共用設定會覆蓋回來。</p>
       </div>
 
       <!-- 帳號管理（限管理員） -->
