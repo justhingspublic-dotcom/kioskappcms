@@ -71,14 +71,28 @@ function check(name, ok, extra) {
     check('子項 active 樣式', await page.evaluate(() => document.querySelector('[data-view="sharedLayout"]').classList.contains('active')));
     await shot('04-shared-layout');
 
-    // 編輯共用版面 → modal（shared 模式）
-    await page.click('#editSharedLayoutBtn');
-    await sleep(500);
-    check('共用版面編輯 modal 開啟', await page.evaluate(() => document.querySelector('#wsModal').classList.contains('is-visible')));
+    // 新增版面 → 取名 prompt → 編輯器 modal（shared 模式）
+    check('版面清單表格顯示', await visible('#sharedLayoutTable'));
+    check('清單列有小縮圖', await visible('#sharedLayoutTable .layout-thumb'));
+    await page.click('#addSharedLayoutBtn');
+    await sleep(400);
+    check('取名 prompt 開啟', await visible('.b-modal.is-alert .b-input'));
+    await page.type('.b-modal.is-alert .b-input', 'uitest 版面');
+    await page.evaluate(() => {
+      const foot = document.querySelector('.b-modal.is-alert .b-alert-foot');
+      foot.querySelector('.b-btn:last-child').click(); // 建立
+    });
+    await sleep(600);
+    check('版面編輯 modal 開啟', await page.evaluate(() => document.querySelector('#wsModal').classList.contains('is-visible')));
     check('shared 模式藏頁籤', !(await visible('.ws-tabs')));
     check('shared 模式藏「展示此頁」', !(await visible('#showPageBtn')));
+    check('shared 模式藏頁面 tabs（單頁制）', !(await visible('#pageTabs')));
+    check('shared 模式藏「重新載入」', !(await visible('#reloadBtn')));
+    check('儲存鈕在固定底部欄', await page.evaluate(() =>
+      document.querySelector('#saveBtn').closest('#wsFooter') !== null));
+    check('底部欄可見', await visible('#wsFooter'));
     const saveLabel = await page.evaluate(() => document.querySelector('#saveBtn').textContent.trim());
-    check('儲存鈕文案＝儲存共用版面', saveLabel.includes('共用版面'), saveLabel);
+    check('儲存鈕文案＝儲存版面', saveLabel.includes('儲存版面'), saveLabel);
     check('畫布渲染', await visible('#canvas .cell'));
     await shot('05-shared-editor');
 
@@ -88,10 +102,28 @@ function check(name, ok, extra) {
     check('點格子出現右側面板', await page.evaluate(() => !!document.querySelector('#cellPanel .panel-head')));
     await shot('06-shared-editor-panel');
 
-    // 關閉（✕）
-    await page.click('#wsCloseBtn');
+    // 儲存版面 → 自動關閉 modal（✕/Esc 關閉另在機器工作區段驗）
+    await page.evaluate(() => setDirty(true)); // 模擬有修改讓儲存鈕亮起
+    await page.click('#saveBtn');
+    await sleep(800);
+    check('儲存版面後自動關閉 modal', await page.evaluate(() => !document.querySelector('#wsModal').classList.contains('is-visible')));
+
+    // 清單出現剛建立的版面 → 刪除（清掉測試資料）
+    const rowFound = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('#sharedLayoutTable tbody tr')];
+      const row = rows.find((r) => r.querySelector('.b-th')?.textContent === 'uitest 版面');
+      if (!row) return false;
+      row.querySelector('.b-btn-danger-soft').click();
+      return true;
+    });
+    check('清單出現新建版面', rowFound);
+    await sleep(400);
+    await page.evaluate(() => {
+      document.querySelector('.b-modal.is-alert .b-alert-foot .b-btn:last-child')?.click(); // 確認刪除
+    });
     await sleep(500);
-    check('✕ 關閉 modal', await page.evaluate(() => !document.querySelector('#wsModal').classList.contains('is-visible')));
+    check('刪除後清單移除該列', await page.evaluate(() =>
+      ![...document.querySelectorAll('#sharedLayoutTable tbody .b-th')].some((td) => td.textContent === 'uitest 版面')));
 
     // ── 機器設定子頁 ──
     await page.click('[data-view="sharedSettings"]');
@@ -108,10 +140,13 @@ function check(name, ok, extra) {
     // ── 回機器總覽 → 開機器工作區 modal ──
     await page.click('[data-view="devices"]');
     await sleep(400);
-    await page.click('#deviceTable tbody tr');
+    await page.click('#deviceTable .device-ops button');   // 2026-09-03 起整列不可點，入口＝內容管理鈕
     await sleep(700);
-    check('點列開機器工作區 modal', await page.evaluate(() => document.querySelector('#wsModal').classList.contains('is-visible')));
+    check('內容管理鈕開機器工作區 modal', await page.evaluate(() => document.querySelector('#wsModal').classList.contains('is-visible')));
     check('device 模式頁籤可見', await visible('.ws-tabs'));
+    check('device 模式儲存鈕搬回 header', await page.evaluate(() =>
+      document.querySelector('#saveBtn').closest('.ws-head-actions') !== null));
+    check('device 模式底部欄隱藏', !(await visible('#wsFooter')));
     const devSaveLabel = await page.evaluate(() => document.querySelector('#saveBtn').textContent.trim());
     check('儲存鈕文案＝儲存並發布', devSaveLabel.includes('發布'), devSaveLabel);
     await shot('08-device-workspace');

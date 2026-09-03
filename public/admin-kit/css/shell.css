@@ -30,7 +30,7 @@ body { animation: cms-page-in .18s ease-out; }
   .header-user-btn, .header-icon-btn,
   .b-badge:not(.square), .b-alert-pill, .b-ish-circle,
   .b-avatar:not(.b-avatar-square), .b-occ-track, .b-occ-fill,
-  .rounded-full { corner-shape: round; }
+  .rounded-full, .logo-env { corner-shape: round; }   /* logo-env 是 radius-full 膠囊，必須排除 squircle */
 }
 
 /* ── 無障礙 ── */
@@ -140,16 +140,24 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   min-width: 248px; padding: 6px;
   background: var(--neutral-primary-soft);
   border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--float-shadow);
   transform-origin: top right;
 }
 @keyframes hdrUserIn {
   from { opacity: 0; transform: translateY(-6px) scale(.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-/* 進場／退場（收起也有動畫）：退場＝同 keyframe 反向播放 */
+/* 進場／退場（收起也有動畫）。⚠️ 退場不能寫「hdrUserIn reverse」：同名動畫進場已播完，
+   換 direction 不會重播 → 獨立 out keyframes。這兩個 class 是通用浮層動畫（帳號下拉、字級面板共用）。 */
+@keyframes hdrUserOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-6px) scale(.98); }
+}
 .hdr-user-enter-active { animation: hdrUserIn .16s ease-out; }
-.hdr-user-leave-active { animation: hdrUserIn .14s ease-in reverse; }
+.hdr-user-leave-active { animation: hdrUserOut .14s ease-in both; }
+@media (prefers-reduced-motion: reduce) {
+  .hdr-user-enter-active, .hdr-user-leave-active { animation: none; }
+}
 .header-user-head { padding: 10px 12px 8px; }
 .header-user-head-name { font-size: 14px; font-weight: 600; color: var(--text-heading); line-height: 1.3; }
 .header-user-head-email { font-size: 13px; color: var(--text-body-subtle); margin-top: 2px; overflow-wrap: anywhere; }
@@ -172,10 +180,33 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .header-fs-panel {
   position: absolute; left: 0; top: calc(100% + 8px); z-index: 1300; width: 200px;
   padding: 12px 14px; background: var(--neutral-primary-soft);
-  border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--float-shadow);
+  transform-origin: top left;   /* 開收動畫從觸發鈕那角長出來（帳號下拉是 top right） */
 }
 .header-fs-title { margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--text-body-subtle); }
-.header-fs-range { display: block; width: 100%; margin: 0; accent-color: var(--brand); cursor: pointer; }
+/* 滑桿自畫（token 化）：原生 accent-color 的軌道色由瀏覽器依 color-scheme 亂猜，
+   Windows Chromium 淺色下會畫出深灰軌道（看起來像深淺色反了）→ 不用原生渲染。 */
+.header-fs-range {
+  display: block; width: 100%; margin: 0; cursor: pointer;
+  -webkit-appearance: none; appearance: none; height: 16px; background: transparent;
+}
+.header-fs-range::-webkit-slider-runnable-track {
+  height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
+}
+.header-fs-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5px;
+  border: 0; border-radius: var(--radius-full); background: var(--brand);
+}
+.header-fs-range::-moz-range-track {
+  height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
+}
+.header-fs-range::-moz-range-thumb {
+  width: 14px; height: 14px; border: 0; border-radius: var(--radius-full); background: var(--brand);
+}
+.header-fs-range:focus-visible { outline: none; }
+.header-fs-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
+.header-fs-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
 .header-fs-marks { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-body-subtle); }
 .header-fs-marks .on { color: var(--fg-brand); font-weight: 600; }
 [data-fs] .header-right .header-user-btn .header-user-name { font-size: calc(14px + var(--b-fs-boost)); }
@@ -292,7 +323,7 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   background: var(--neutral-primary-soft);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--float-shadow);
   padding: 8px;
 }
 /* 展開動畫：乾淨淡入＋輕微上移（不橫移、不縮放，避免「歪斜」感） */

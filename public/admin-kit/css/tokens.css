@@ -103,6 +103,9 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  /* 浮層專用陰影（下拉/菜單/pop 面板）：字面值、不掛 shadow-* token。
+     扁平化風格把上面的 shadow token 全設 none 時，浮在內容上的層仍保有這組深度。 */
+  --float-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
   /* ── 按鈕 glint（inset 高光＋外緣微光） ── */
   --color-1-400: rgba(255, 255, 255, 0.25);
@@ -136,7 +139,7 @@
   --dd-radius: var(--field-radius);
   --dd-accent: var(--brand);
   --dd-trigger-shadow: var(--shadow-xs);
-  --dd-menu-shadow: var(--shadow-lg);
+  --dd-menu-shadow: var(--float-shadow);
   --dd-item-hover: var(--neutral-tertiary-medium);
   --dd-item-hover-text: var(--text-heading);
   --dd-item-active-bg: var(--brand-softer);

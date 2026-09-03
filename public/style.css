@@ -29,16 +29,25 @@
 :root { --float-shadow: 0 6px 20px rgba(23, 20, 31, .08), 0 1px 4px rgba(23, 20, 31, .05); }
 :root[data-color-mode="dark"] { --float-shadow: 0 6px 20px rgba(0, 0, 0, .40), 0 1px 4px rgba(0, 0, 0, .30); }
 
-/* 文字類按鈕 hover＝文字亮 brand、不加底色；danger 文字鈕例外（半透明紅底） */
-.b-btn.b-btn-text:hover { background: transparent; color: var(--fg-brand-strong); }
+/* 文字類按鈕 hover（2026-09-03 指示）＝字保持主題色＋「透明主題色」底（半透明 brand pill）；
+   danger 文字鈕同型但紅系；quiet（取消）維持灰系不變主題色（半透明灰 pill）。 */
+.b-btn.b-btn-text:hover {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--fg-brand-strong);
+}
 .b-btn.b-btn-text.b-btn-text-danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--fg-danger-strong, var(--fg-danger));
 }
 .b-btn.b-btn-ghost:hover { background: transparent; color: var(--fg-brand); }
 .b-btn.b-btn-ghost:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
-.b-btn.b-btn-quiet:hover { background: transparent; color: var(--fg-brand); }
-.b-btn.b-btn-quiet:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+.b-btn.b-btn-quiet:hover {
+  background: color-mix(in srgb, var(--text-body) 10%, transparent);
+  color: var(--text-heading);
+}
+.b-btn.b-btn-quiet:hover :where(i, .lucide, svg) { color: var(--text-heading); }
+/* modal ✕：hover 不加底色、只亮字（2026-09-03 指示；不可用主題色） */
+.b-modal-close:hover { background: transparent; color: var(--text-heading); }
 
 /* 側欄／flyout hover 比照文字鈕：不加底、文字/icon 亮 brand */
 .sidebar .menu-item:not(.active):hover,
@@ -197,18 +206,34 @@ html:root[data-color-mode="dark"] {
 }
 .page-tabs .add-page:hover { color: var(--fg-brand); }
 
-.editor-body { display: flex; gap: 24px; align-items: flex-start; }
-.canvas-col { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
-.canvas-actions { display: flex; gap: 8px; }
-.canvas-hint { font-size: 12px; color: var(--text-body-subtle); margin: 0; }
+/* 編輯器垂直填滿 modal 內容區（2026-09-03 指示：上下留白一致＝body padding）：
+   ws-body → layoutTab → editor 一路 flex 傳高，畫布以「高度」定尺寸。 */
+.b-modal.is-ws .ws-body { display: flex; flex-direction: column; }
+#layoutTab { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#layoutTab > .editor { flex: 1; min-height: 0; }
+.editor-body { display: flex; gap: 24px; height: 100%; }
+/* 左欄＝畫布（flex:1 吃高度）＋其下操作鈕（寬度跟畫布同欄自然對齊） */
+.canvas-col { flex-shrink: 0; height: 100%; display: flex; flex-direction: column; gap: 10px; }
+/* 右欄＝格子面板（滿高：底部對齊畫布欄；2026-09-03 指示） */
+.panel-col {
+  flex: 1; min-width: 320px; max-width: 560px; height: 100%;
+  display: flex; flex-direction: column;
+}
+.canvas-actions { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.canvas-actions .b-btn { width: 100%; }
 
 /* ── 畫布：模擬機器螢幕，永遠黑底（不跟深淺色） ── */
 .canvas {
-  width: min(38vh, 420px); aspect-ratio: 9 / 16;
+  /* 高度＝欄高減下方操作鈕列（flex:1 會讓 aspect-ratio 的寬算不出來→塌成細條，不能用）。
+     shared 模式 1 顆鈕（32+10gap）；device 模式 2 顆（32+8+32+10） */
+  height: calc(100% - 42px); width: auto; max-width: 420px; aspect-ratio: 9 / 16;
   background: #000; border-radius: 12px; padding: 4px;
   display: flex; flex-direction: column; user-select: none; touch-action: none;
   container-type: inline-size;
 }
+#wsModal:not(.is-shared-mode) .canvas { height: calc(100% - 82px); }
+/* 橫式螢幕的機器（renderCanvas 依上報比例加 class）：改以寬度定尺寸，避免高度撐滿把比例拉爆 */
+.canvas.is-landscape { height: auto; width: 100%; min-width: 480px; max-width: 560px; }
 .canvas .block { display: flex; min-height: 0; position: relative; }
 .canvas .cell {
   flex: 1; min-height: 0; min-width: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
@@ -270,19 +295,25 @@ html:root[data-color-mode="dark"] {
 
 /* ── 右側：單格設定面板 ── */
 .cell-panel {
-  flex: 1; min-width: 320px; max-width: 560px; align-self: stretch;
-  max-height: calc(100vh - var(--header-height) - 140px);
-  overflow-y: auto; position: sticky; top: calc(var(--header-height) + 16px);
+  /* 寬度由 .panel-col 決定；高度撐滿＝底部對齊左邊畫布，內容多時自己內部捲動。
+     卡框於 2026-09-03 尾聲加回（user 指示）：內容裁切線＝卡框本身 */
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--neutral-primary-soft);
 }
-.panel-placeholder { padding: 24px 20px; color: var(--text-body-subtle); font-size: 13.5px; margin: 0; }
-/* 標題規格＝kit b-card-head/b-card-title（tiri 不用 brand 色染卡片標題） */
+/* 未選格子＝滿高空狀態（同卡框置中）；內容抽換＝輕量淡入（每次 renderPanel 重播） */
+.cell-panel.is-empty { display: flex; align-items: center; justify-content: center; }
+.cell-panel.is-faded { animation: panel-fade .14s ease-out; }
+@keyframes panel-fade { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cell-panel.is-faded { animation: none; } }
 .cell-panel .panel-head {
-  padding: 16px 20px; border-bottom: 1px solid var(--border-default);
+  padding: 14px 16px; border-bottom: 1px solid var(--border-default);
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  position: sticky; top: 0; background: inherit; z-index: 3;
+  position: sticky; top: 0; background: var(--neutral-primary-soft); z-index: 3;
 }
 .cell-panel .panel-head h3 { font-size: 16px; font-weight: 500; color: var(--text-heading); margin: 0; }
-.cell-panel .body { padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+.cell-panel .body { padding: 16px 2px 24px; display: flex; flex-direction: column; gap: 20px; }
 .group { display: flex; flex-direction: column; gap: 10px; }
 /* 小群組標題規格＝tiri .b-pop-panel-title：12px/600、letter-spacing 0（tiri 全站禁字距） */
 .group > h4 { font-size: 12px; color: var(--text-body-subtle); font-weight: 600; letter-spacing: 0; margin: 0; }
@@ -291,37 +322,80 @@ html:root[data-color-mode="dark"] {
 .group .b-textarea { width: 100%; min-height: 64px; }
 .group input[type=text].b-input, .group input[type=url].b-input { flex: 1; min-width: 160px; }
 .group input[type=number].b-input { width: 90px; flex: none; }
-/* 滑桿自畫（同 kit .header-fs-range 的理由：原生軌道色不可控） */
-.group input[type=range] {
-  flex: 1; cursor: pointer;
+/* 滑桿自畫（同 kit .header-fs-range 的理由：原生軌道色不可控）；inspector 檢查器共用 */
+:is(.group, .ins-ctrl) input[type=range] {
+  flex: 1; cursor: pointer; min-width: 120px;
   -webkit-appearance: none; appearance: none; height: 16px; background: transparent;
 }
-.group input[type=range]::-webkit-slider-runnable-track {
+:is(.group, .ins-ctrl) input[type=range]::-webkit-slider-runnable-track {
   height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
 }
-.group input[type=range]::-webkit-slider-thumb {
+:is(.group, .ins-ctrl) input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 14px; height: 14px; margin-top: -5px;
   border: 0; border-radius: var(--radius-full); background: var(--brand);
 }
-.group input[type=range]::-moz-range-track {
+:is(.group, .ins-ctrl) input[type=range]::-moz-range-track {
   height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
 }
-.group input[type=range]::-moz-range-thumb {
+:is(.group, .ins-ctrl) input[type=range]::-moz-range-thumb {
   width: 14px; height: 14px; border: 0; border-radius: var(--radius-full); background: var(--brand);
 }
-.group input[type=range]:focus-visible { outline: none; }
-.group input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
-.group input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
-.group .field-label { font-size: 13px; color: var(--text-body-subtle); flex: none; }
-.group .hint { font-size: 12px; color: var(--text-body-subtle); margin: 0; }
+:is(.group, .ins-ctrl) input[type=range]:focus-visible { outline: none; }
+:is(.group, .ins-ctrl) input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
+:is(.group, .ins-ctrl) input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+:is(.group, .ins-ctrl) .field-label { font-size: 13px; color: var(--text-body-subtle); flex: none; }
+:is(.group, .ins-ctrl) .hint { font-size: 12px; color: var(--text-body-subtle); margin: 0; }
 
-/* segment（純色/圖片/天氣背景 等）：造型＝kit .b-seg（容器＋無框子項、active 實色） */
+/* ── inspector 兩欄列（單格設定面板 2026-09-03 定版）：label 左（固定欄寬）、控件右；
+   sub＝主欄位展開的附屬列。展開不再＝捲動：密度調到桌面規格。 ── */
+.cell-panel .body.inspector { gap: 0; padding: 6px 16px 16px; }
+/* 區段標題＝小標＋hairline（第一段不畫線）：版面/背景/內容/點擊動作的視覺區隔 */
+.ins-sec {
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-default);
+  font-size: 12px; font-weight: 600; color: var(--text-body-subtle);
+}
+.body.inspector > .ins-sec:first-child { margin-top: 0; padding-top: 4px; border-top: 0; }
+/* 區段主控件列：不帶 label、佔滿整行；按鈕組（上下分割/左右分割/刪除整個區塊）均分寬度 */
+.ins-full { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 0 2px; }
+.ins-full :is(.b-select, .b-dd, .thumbs, .swatches, .hint) { flex: 1 1 100%; }
+.ins-full > .b-btn { flex: 1 1 0; min-width: 0; }
+.ins-row {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr);
+  gap: 6px 12px; align-items: start; padding: 4px 0;
+}
+.ins-label { font-size: 13px; font-weight: 500; color: var(--text-body-subtle); line-height: 1.35; padding-top: 9px; }
+.ins-row.sub .ins-label { font-weight: 400; }
+.ins-ctrl { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; }
+/* 縮圖列/色票/說明在控件欄裡一律獨占整行（圖片縮圖放 seg「下面」不是右邊） */
+.ins-ctrl :is(.thumbs, .swatches, .hint) { flex: 1 1 100%; }
+.ins-ctrl .b-select, .ins-ctrl .b-dd { flex: 1 1 100%; }
+.ins-ctrl .b-input { flex: 1; min-width: 140px; }
+.ins-ctrl .b-textarea { width: 100%; min-height: 44px; }
+.ins-ctrl label.row { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
+/* 檢查器內控件縮到桌面密度：色票 24px、seg 較窄 */
+.inspector .swatch { width: 24px; height: 24px; border-radius: var(--radius-sm); }
+.inspector .swatch.auto { width: auto; padding: 0 8px; font-size: 11px; }
+.inspector .seg-row .seg { padding: 5px 12px; font-size: 13px; }
+
+/* segment（純色/圖片/天氣背景 等）：造型＝kit .b-seg（容器＋無框子項、active 實色）。
+   .has-ind（segRow() 動態版）＝active 底色改由 .seg-ind 滑動指示塊畫，切換有滑動動畫；
+   ws-tabs 等靜態 seg 不掛 has-ind、維持原樣。 */
 .seg-row {
   display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;
   padding: 3px; background: var(--neutral-secondary-soft);
   border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  position: relative;
 }
+.seg-row .seg { position: relative; z-index: 1; }
+.seg-ind {
+  position: absolute; z-index: 0; opacity: 0;
+  border-radius: var(--radius-sm); background: var(--brand);
+  transition: left .17s cubic-bezier(.22, 1, .36, 1), width .17s cubic-bezier(.22, 1, .36, 1),
+    top .17s cubic-bezier(.22, 1, .36, 1), height .17s cubic-bezier(.22, 1, .36, 1), opacity .1s;
+}
+.seg-row.has-ind .seg.active, .seg-row.has-ind .seg.active:hover { background: transparent; color: var(--b-on-primary, #fff); }
+[data-color-mode="dark"] .seg-row.has-ind .seg.active { background: transparent; }
 .seg-row .seg {
   border: 0; background: transparent; border-radius: var(--radius-sm);
   color: var(--text-body); padding: 6px 14px; font-size: 14px; font-weight: 500;
@@ -345,7 +419,7 @@ html:root[data-color-mode="dark"] {
 /* 圖片縮圖（tiri 不用虛線框 → 新增鈕改實線） */
 .thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
 .thumb {
-  position: relative; width: 84px; height: 84px; border-radius: var(--radius-sm);
+  position: relative; width: 84px; height: 84px; border-radius: var(--radius-md);
   overflow: hidden; background: var(--neutral-tertiary-soft);
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -358,7 +432,7 @@ html:root[data-color-mode="dark"] {
   border: 0; border-radius: 6px; padding: 1px 7px; font-size: 12px; cursor: pointer;
 }
 .add-thumb {
-  width: 84px; height: 84px; border-radius: var(--radius-sm);
+  width: 84px; height: 84px; border-radius: var(--radius-md);
   border: 1px solid var(--border-default-medium); background: var(--neutral-primary-soft);
   color: var(--text-body-subtle); font-size: 26px; cursor: pointer;
   transition: color .15s, border-color .15s;
@@ -368,9 +442,49 @@ html:root[data-color-mode="dark"] {
 /* ── 表格頁小配件 ── */
 /* 表格下方說明：12px/1.6（tiri 說明文字規格，如 figcaption） */
 .table-note { font-size: 12px; color: var(--text-body-subtle); line-height: 1.6; margin: 12px 2px 0; max-width: 720px; }
-.adduser-card { margin-top: 16px; }
-.adduser-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.adduser-row .b-input { width: 180px; }
+
+/* ── 標題旁小問號說明（kit .b-pop 變體）：hover/focus 展開、點擊（data-pop）可釘住。
+   面板規格全沿用 kit .b-pop-panel（tiri b_admin.css 同款），只改錨定方向：
+   標題在頁面左側 → 面板向右開（left:0），transform-origin 跟著換角。 ── */
+.page-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.page-help { display: inline-flex; }
+.page-help-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-full);
+  background: transparent; color: var(--text-body-subtle); cursor: pointer;
+  transition: color .15s ease;
+}
+.page-help-btn :where(i, .lucide, svg) { width: 17px; height: 17px; }
+/* hover 比照側欄/文字鈕裁決：不加底色、亮 brand */
+.page-help-btn:hover, .page-help.is-open .page-help-btn { color: var(--fg-brand); }
+.page-help-btn:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--brand-medium); }
+@supports (corner-shape: squircle) { .page-help-btn { corner-shape: round; } } /* radius-full 圓鈕，照例排除 squircle */
+.page-help .b-pop-panel {
+  left: 0; right: auto; transform-origin: top left;
+  width: max-content; min-width: 260px; max-width: min(420px, calc(100vw - 48px));
+  font-size: 13.5px; line-height: 1.7; color: var(--text-body);
+}
+.page-help .b-pop-panel p { margin: 0; }
+.page-help .b-pop-panel p + p { margin-top: 8px; }
+.page-help .b-pop-panel .b-pop-panel-title { margin-bottom: 8px; }
+/* 錨距 8px 的 hover 橋：滑鼠從問號移進面板途中不斷線 */
+.page-help .b-pop-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -10px; height: 10px; }
+/* hover 展開（is-open 的視覺等價；只在真的有 hover 的裝置啟用，觸控靠點擊）。
+   .is-dismissed＝Esc 暫時關閉（app.js 設；重新 hover 或焦點離開時清）——
+   沒有它，kit 的 Esc handler 會把焦點還給觸發鈕，:focus-within 又把面板撐回來。 */
+@media (hover: hover) {
+  .page-help:hover:not(.is-dismissed) .b-pop-panel,
+  .page-help:focus-within:not(.is-dismissed) .b-pop-panel { opacity: 1; visibility: visible; transform: none; }
+}
+/* 字級三段跟著放大（kit boost 清單沒涵蓋專案元件，這裡自己補） */
+[data-fs] .page-help .b-pop-panel { font-size: calc(13.5px + var(--b-fs-boost)); }
+/* 新增帳號 modal：兩欄表單格（名稱佔整列），窄幕退單欄；
+   頭尾分隔線拿掉（欄位貼著標題、送出鈕貼著欄位，畫面更輕） */
+.adduser-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+.adduser-grid .adduser-span { grid-column: 1 / -1; }
+@media (max-width: 520px) { .adduser-grid { grid-template-columns: 1fr; } }
+#addUserModal .b-modal-head { border-bottom: 0; padding-bottom: 4px; }
+#addUserModal .b-modal-foot { border-top: 0; padding-top: 0; }
 .device-id-dim { color: var(--text-body-subtle); }
 
 /* ══════════════════ 機器設定頁 ══════════════════ */
@@ -383,11 +497,23 @@ html:root[data-color-mode="dark"] {
 .group input[type=time].b-input.sleep-time { width: 112px; flex: none; }
 
 /* ══════════════════ 機器總覽列表＋工作區 ══════════════════ */
-/* 列表整列可點進工作區 */
-.device-row { cursor: pointer; }
-.device-row:hover { background: var(--neutral-secondary-soft); }
+/* 列＝純資訊（2026-09-03 指示）：不可點、不給 hover 反饋，入口只有「內容管理」鈕。
+   下面的 transparent 蓋掉 kit 的 tr hover 與上方「對比調整」的 td hover。 */
+#deviceTable tbody tr:hover, #deviceTable tbody tr:hover td,
+#sharedLayoutTable tbody tr:hover, #sharedLayoutTable tbody tr:hover td { background: transparent; }
 .device-row .device-ops { text-align: right; white-space: nowrap; }
 .device-row .device-ops .b-btn + .b-btn { margin-left: 8px; }
+/* 版面清單：名稱左側的小縮圖（照版面結構縮排；區塊/分割間 1px 細縫當分隔線） */
+.layout-name-wrap { display: flex; align-items: center; gap: 12px; }
+.layout-thumb {
+  height: 56px; flex: none; display: flex; flex-direction: column; gap: 1px;
+  border: 1px solid var(--border-default); border-radius: 6px;
+  overflow: hidden; background: var(--border-default);
+}
+.layout-thumb.is-blank { background: var(--neutral-tertiary); border-style: dashed; }
+.layout-thumb .lt-cell { background-position: center; background-repeat: no-repeat; min-width: 0; min-height: 0; }
+.layout-thumb .lt-split { display: flex; flex-direction: column; gap: 1px; min-width: 0; min-height: 0; }
+.layout-thumb .lt-split.lt-vert { flex-direction: row; }
 /* 在線狀態小圓點 */
 .dev-dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-full); margin-right: 7px; vertical-align: 1px; }
 .dev-dot.on { background: var(--success, #2e9e5b); }
@@ -409,13 +535,52 @@ html:root[data-color-mode="dark"] {
 .sidebar.collapsed .submenu-toggle:has(+ .submenu .submenu-item.active) :where(i, .lucide, svg) { color: var(--fg-brand); }
 
 /* 工作區 modal（tiri 開啟信件同款：kit 最寬 is-wide=640，這裡拉寬裝下畫布編輯器）。
-   開闔動畫照 tiri inbox modal 用 @keyframes 綁 display 切換瞬間（transition 版首開會跳終態）。 */
-.b-modal.is-ws { max-width: 1240px; width: calc(100vw - 48px); }
-/* 共用版面編輯模式：沒有「展示此頁／複製到機器／機器設定／展示中」的概念，全部藏起來 */
+   開闔動畫照 tiri inbox modal 用 @keyframes 綁 display 切換瞬間（transition 版首開會跳終態）。
+   尺寸固定 90vh＋flex 直排（2026-09-03 指示）：切〔版面｜機器設定〕大小不跳；
+   捲動全交給 .b-modal-body → 標題列（機器名＋儲存/關閉）永遠釘在頂端。 */
+.b-modal.is-ws {
+  /* 寬度貼合內容、右側不留大片空白（2026-09-03 指示）：
+     畫布寬＝畫布高×9/16，畫布高＝90vh−head/footer/padding−操作鈕列≈90vh−208px
+     → 寬度＝畫布寬＋24 欄間距＋右欄上限 560＋body padding 40。短視窗以 min-width 保底。 */
+  width: calc((90vh - 208px) * 9 / 16 + 626px);
+  min-width: 880px; max-width: calc(100vw - 48px);
+  height: 90vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;   /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
+}
+.b-modal.is-ws .b-modal-head { flex: none; border-bottom: 0; } /* 內容不捲動 → 頂部分隔線拿掉 */
+.b-modal.is-ws .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+/* modal 內一律不畫捲軸（2026-09-03 指示）：body、右側面板、設定頁、對話框清單全包；
+   捲動功能不受影響（滾輪/觸控照捲）。:where 壓零特異度，之後要單點恢復好蓋回。 */
+.b-modal-overlay :where(div, aside, nav, ul, textarea, .b-modal) { scrollbar-width: none; }
+.b-modal-overlay :where(div, aside, nav, ul, textarea, .b-modal)::-webkit-scrollbar { display: none; }
+/* 共用版面編輯模式：沒有「複製到機器／機器設定／展示中／多頁／重新載入」的概念，全部藏起來
+   （展示此頁鈕已整個移除，不用再列）。一個版面＝一頁，頁籤列整條不出現。 */
 #wsModal.is-shared-mode .ws-tabs,
-#wsModal.is-shared-mode #showPageBtn,
 #wsModal.is-shared-mode #copyLayoutBtn,
-#wsModal.is-shared-mode .page-tabs .badge { display: none; }
+#wsModal.is-shared-mode #reloadBtn,
+#wsModal.is-shared-mode #pageTabs { display: none; }
+/* 固定底部欄：只在共用版面模式出現（儲存鈕由 openWsModal 搬進來）。
+   modal 是 flex column（head／body 捲動區／footer），footer flex:none 就固定在底。 */
+.ws-footer { display: none; }
+#wsModal.is-shared-mode .ws-footer {
+  display: flex; flex: none; justify-content: flex-end; align-items: center;
+  padding: 12px 24px; /* 分隔線拿掉（2026-09-03：內容不捲動，不需要頂/底分界） */
+}
+/* 儲存版面鈕（footer 版）＝文字鈕：disabled 灰字、亮起用主題色、
+   hover＝字保持主題色＋透明主題色底（2026-09-03 指示，同對話框「建立」） */
+.ws-footer .b-btn {
+  background: transparent; border-color: transparent; box-shadow: 0 0 transparent;
+  color: var(--accent);
+}
+.ws-footer .b-btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--fg-brand-strong, var(--accent));
+}
+.ws-footer .b-btn:disabled {
+  background: transparent; border-color: transparent;
+  color: var(--text-body-subtle); opacity: 1;
+}
 #wsModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
 /* ⚠ box 動畫不填 fill（tiri brand.css 同款裁決）：both 會殘留 transform，
    modal 變成 fixed 子元素的 containing block → 下拉選單全部偏位 */
@@ -450,3 +615,35 @@ html:root[data-color-mode="dark"] {
   .editor-body { flex-direction: column; }
   .cell-panel { position: static; max-height: none; width: 100%; max-width: none; }
 }
+
+/* ══════════════════ 表格頁內滾（kit「固定高模型」規範，落地到 SPA 多視圖結構）══════════════════ */
+/* 機器總覽／版面設定／帳號管理＝「上方固定＋下方單表內滾」→ :has 依可見視圖自動 opt-in；
+   機器設定是內容卡片頁，照 GUIDELINES 維持整頁捲。
+   kit 的 is-fixed-h 規則吃 main-content「直下層」，這裡把視圖包裝層轉接成同樣的 flex 鏈：
+   外殼鎖視窗剩餘高 → 視圖層 flex:1 → 表格容器（kit .b-tbl-scroll 自帶 flex:0 1 auto + 內滾 + thead sticky）。 */
+.main-content:has(> #devicesView:not(.hidden)),
+.main-content:has(> #sharedLayoutView:not(.hidden)),
+.main-content:has(> #usersView:not(.hidden)) {
+  height: calc(100vh - var(--header-height));
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.main-content:has(> #devicesView:not(.hidden)) > #devicesView,
+.main-content:has(> #sharedLayoutView:not(.hidden)) > #sharedLayoutView,
+.main-content:has(> #usersView:not(.hidden)) > #usersView {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; align-items: stretch;
+}
+/* 視圖內：表格容器以外（標題列、帳號頁的新增卡）不縮，剩餘高度全給表格內滾 */
+#devicesView > :not(.b-tbl-scroll),
+#sharedLayoutView > :not(.b-tbl-scroll),
+#usersView > :not(.b-tbl-scroll) { flex: 0 0 auto; }
+/* 鎖一屏：文件層完全不捲（比照 kit is-fixed-h 的 html 鎖，桌面限定） */
+@media (min-width: 1025px) {
+  html:has(#mainView:not(.hidden) #devicesView:not(.hidden)),
+  html:has(#mainView:not(.hidden) #sharedLayoutView:not(.hidden)),
+  html:has(#mainView:not(.hidden) #usersView:not(.hidden)) { overflow: hidden; overscroll-behavior: none; }
+}
+/* 內滾捲軸拿掉（2026-09-03 指示，比照 modal）：滾輪/觸控照捲，不畫 bar */
+.b-tbl-scroll { scrollbar-width: none; }
+.b-tbl-scroll::-webkit-scrollbar { display: none; }

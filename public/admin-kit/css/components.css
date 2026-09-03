@@ -136,7 +136,7 @@
 .b-dd-trigger {
   display: inline-flex; align-items: center; gap: 8px; width: 100%;
   height: var(--field-height); min-height: var(--field-height);
-  padding: 0 10px 0 var(--field-pad-x);
+  padding: 0 var(--field-pad-x);   /* 左右對稱：文字與箭頭距邊同為 field-pad-x */
   background: var(--dd-surface, #fff); border: 1px solid var(--dd-border); border-radius: var(--dd-radius);
   box-shadow: var(--dd-trigger-shadow, none);
   font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
@@ -156,16 +156,23 @@
   position: fixed; z-index: 1200; min-width: 140px;
   background: var(--dd-surface); border: 1px solid var(--dd-border); border-radius: var(--dd-radius);
   box-shadow: var(--dd-menu-shadow);
-  padding: 4px; max-height: 280px; overflow-y: auto;
+  padding: 6px; max-height: 320px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 1px;
   animation: bddIn .14s ease-out;
 }
 .b-dd-menu[hidden] { display: none; }
 @keyframes bddIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+/* 收起動畫 .14s。⚠️ 不能寫「bddIn reverse」：同名動畫已在進場時跑完，
+   換 direction 不會重播（動畫只認 animation-name 是否更換）→ 必須用獨立的 out keyframes。 */
+@keyframes bddOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px); } }
+.b-dd-menu.leaving { animation: bddOut .14s ease-in both; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .b-dd-menu, .b-dd-menu.leaving { animation: none; }
+}
 .b-dd-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 8px 10px; border: none; background: transparent; text-align: left;
-  border-radius: var(--radius-sm); font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
+  padding: 10px 12px; border: none; background: transparent; text-align: left;
+  border-radius: var(--dd-radius); font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
 }
 .b-dd-item:hover { background: var(--dd-item-hover); color: var(--dd-item-hover-text, inherit); }
 .b-dd-item.active { background: var(--dd-item-active-bg); color: var(--dd-item-active-text); font-weight: 600; }
@@ -349,7 +356,7 @@
   background: var(--neutral-primary-soft);
   border: 1px solid var(--border-default);
   border-radius: 16px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--float-shadow);
   opacity: 0; visibility: hidden;
   transform: translateY(-6px) scale(.98); transform-origin: top right;
   transition: opacity .16s ease, transform .16s ease, visibility .16s;
@@ -369,7 +376,7 @@
   background: var(--neutral-primary-soft);
   border: 1px solid var(--border-default);
   border-radius: 12px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--float-shadow);
   opacity: 0; visibility: hidden;
   transform: translateY(-6px) scale(.98); transform-origin: top left;
   transition: opacity .16s ease, transform .16s ease, visibility .16s;
@@ -397,7 +404,7 @@
   background: var(--neutral-primary-soft);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--float-shadow);
   overflow: hidden;
   max-height: 0; opacity: 0;
   transition: max-height .18s ease, opacity .16s ease;
@@ -436,7 +443,7 @@
 /* 深色模式：深底上深卡與遮罩融在一起 → 補一圈淺外框 */
 :root[data-color-mode="dark"] .b-modal { border: 1px solid rgba(255, 255, 255, .12); }
 .b-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border-default); }
-.b-modal-title { font-size: 20px; font-weight: 500; color: var(--text-heading); margin: 0; }
+.b-modal-title { font-size: 20px; font-weight: 600; color: var(--text-heading); margin: 0; }   /* body 層級 modal＝600；.main-content 內由字重表降 500 */
 .b-modal-sub { margin: 2px 0 0; font-size: 13px; font-weight: 400; color: var(--text-body-subtle); }
 .b-modal-close {
   display: inline-flex; align-items: center; justify-content: center;

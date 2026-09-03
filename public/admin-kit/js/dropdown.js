@@ -45,13 +45,14 @@
     var r = trigger.getBoundingClientRect();
     menu.style.minWidth = r.width + 'px';
     menu.style.left = r.left + 'px';
+    // 與觸發鈕的垂直距離 8px：對齊帳號選單/字級面板的 top: calc(100% + 8px)
     var spaceBelow = window.innerHeight - r.bottom;
     if (spaceBelow < 260 && r.top > spaceBelow) {
       menu.style.top = 'auto';
-      menu.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+      menu.style.bottom = (window.innerHeight - r.top + 8) + 'px';
     } else {
       menu.style.bottom = 'auto';
-      menu.style.top = (r.bottom + 4) + 'px';
+      menu.style.top = (r.bottom + 8) + 'px';
     }
   }
 
@@ -66,16 +67,37 @@
     if (select) { buildMenu(dd, select); syncLabel(dd, select); }
     dd.classList.add('open');
     var menu = dd.querySelector('.b-dd-menu');
+    // 若正在播放收起動畫（快速重開同一顆），取消收起、直接重新進場
+    if (menu._bddCancelLeave) menu._bddCancelLeave();
     menu.hidden = false;
     positionMenu(dd);
     openDD = dd;
   }
   function closeDD() {
     if (!openDD) return;
-    openDD.classList.remove('open');
-    var m = openDD.querySelector('.b-dd-menu');
-    if (m) m.hidden = true;
+    var dd = openDD;
     openDD = null;
+    dd.classList.remove('open');
+    var m = dd.querySelector('.b-dd-menu');
+    if (!m || m.hidden) return;
+    // 收起動畫：.leaving 反向播放後才真正 hidden。
+    // reduced-motion 下動畫被 CSS 關掉不會發 animationend → setTimeout 兜底。
+    m.classList.add('leaving');
+    var done = function () {
+      clearTimeout(timer);
+      m.removeEventListener('animationend', done);
+      m.classList.remove('leaving');
+      m.hidden = true;
+      m._bddCancelLeave = null;
+    };
+    var timer = setTimeout(done, 180);
+    m.addEventListener('animationend', done);
+    m._bddCancelLeave = function () {
+      clearTimeout(timer);
+      m.removeEventListener('animationend', done);
+      m.classList.remove('leaving');
+      m._bddCancelLeave = null;
+    };
   }
 
   function enhance(select) {

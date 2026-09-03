@@ -130,65 +130,97 @@
       <!-- 機器總覽（首頁）：列表選機器，點一列進入該機器的工作區 -->
       <div id="devicesView">
         <div class="page-header">
-          <h1 class="page-title">機器總覽</h1>
+          <!-- 標題旁小問號＝hover 展開使用說明（b-pop 變體：hover/focus 開、點擊釘住） -->
+          <div class="page-title-wrap">
+            <h1 class="page-title">機器總覽</h1>
+            <div class="b-pop page-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="使用說明">
+                <i data-lucide="circle-help"></i>
+              </button>
+              <div class="b-pop-panel page-help-panel">
+                <p class="b-pop-panel-title">使用說明</p>
+                <p>點「內容管理」進入該機器的版面與設定。</p>
+                <p>機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。</p>
+              </div>
+            </div>
+          </div>
         </div>
         <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="deviceTable">
-            <thead><tr><th>名稱</th><th>編號</th><th>版本</th><th>最後更新</th><th>狀態</th><th>屬於</th><th></th></tr></thead>
+            <thead><tr><th>名稱</th><th>編號</th><th>最後更新</th><th>狀態</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
-        <p class="table-note">點一列進入該機器的版面與設定。機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
       </div>
 
-      <!-- 共用設定 › 版面設定：共用版面（網頁上直接編輯，套用＝複製給勾選機器並發布） -->
+      <!-- 共用設定 › 版面設定：具名版面清單（網頁上直接編輯，套用＝把頁面「加到」勾選機器並發布） -->
       <div id="sharedLayoutView" class="hidden">
         <div class="page-header">
-          <h1 class="page-title">版面設定</h1>
+          <div class="page-title-wrap">
+            <h1 class="page-title">版面設定</h1>
+            <div class="b-pop page-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="使用說明">
+                <i data-lucide="circle-help"></i>
+              </button>
+              <div class="b-pop-panel page-help-panel">
+                <p class="b-pop-panel-title">使用說明</p>
+                <p>在這裡建立與維護多個版面（跟機器工作區同一套編輯器）。</p>
+                <p>「加入機器」＝把該版面的頁面加到勾選機器現有頁面的後面並立即發布，不會覆蓋機器原本的頁面。</p>
+                <p>機器上的現場修改只影響那一台，不會改動這裡的版面。</p>
+              </div>
+            </div>
+          </div>
           <div class="page-actions">
-            <button id="editSharedLayoutBtn" class="b-btn"><i data-lucide="pencil-ruler"></i>編輯共用版面</button>
-            <button id="applySharedLayoutBtn" class="b-btn b-btn-primary" disabled><i data-lucide="send"></i>套用到機器</button>
+            <button id="addSharedLayoutBtn" class="b-btn b-btn-primary">新增版面</button>
           </div>
         </div>
-        <div class="b-card"><div class="b-card-body"><div class="group" id="sharedLayoutInfo"></div></div></div>
-        <p class="table-note">共用版面在這裡設計與維護（跟機器工作區同一套編輯器）。「套用到機器」＝把版面複製給勾選的機器並立即發布；機器上的現場修改只影響那一台，不會改動共用版面。</p>
+        <div class="b-tbl-scroll">
+          <table class="b-tbl" id="sharedLayoutTable">
+            <thead><tr><th>名稱</th><th>更新時間</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 共用設定 › 機器設定：客服帳號＋休眠時段的共用範本 -->
       <div id="sharedSettingsView" class="hidden">
         <div class="page-header">
-          <h1 class="page-title">機器設定</h1>
+          <div class="page-title-wrap">
+            <h1 class="page-title">機器設定</h1>
+            <div class="b-pop page-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="使用說明">
+                <i data-lucide="circle-help"></i>
+              </button>
+              <div class="b-pop-panel page-help-panel">
+                <p class="b-pop-panel-title">使用說明</p>
+                <p>大部分機器共用的客服帳號與休眠時段在這裡維護。</p>
+                <p>個別機器要不同設定，到該機器的工作區單獨調整——之後再套用共用設定會覆蓋回來。</p>
+              </div>
+            </div>
+          </div>
           <div class="page-actions">
-            <button id="sharedSaveBtn" class="b-btn" disabled><i data-lucide="save"></i>儲存</button>
-            <button id="applySharedSettingsBtn" class="b-btn b-btn-primary"><i data-lucide="send"></i>套用到機器</button>
+            <button id="sharedSaveBtn" class="b-btn" disabled>儲存</button>
+            <button id="applySharedSettingsBtn" class="b-btn b-btn-primary">套用到機器</button>
           </div>
         </div>
         <div id="sharedBody" class="settings-body"></div>
-        <p class="table-note">大部分機器共用的客服帳號與休眠時段在這裡維護。個別機器要不同設定，到該機器的工作區單獨調整——之後再套用共用設定會覆蓋回來。</p>
       </div>
 
-      <!-- 帳號管理（限管理員） -->
+      <!-- 帳號管理（限管理員）：新增改 modal 流程（頁首右上入口鈕＋置中表單），
+           取代原本頁尾的橫排表單卡（2026-09-03 指示，UI/UX 比照高爾夫後台的新增桿弟） -->
       <div id="usersView" class="hidden">
         <div class="page-header">
           <h1 class="page-title">帳號管理</h1>
+          <div class="page-actions">
+            <button id="addUserBtn" class="b-btn b-btn-primary"><i data-lucide="plus"></i>新增帳號</button>
+          </div>
         </div>
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="userTable">
             <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th class="num">機器數</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
-        </div>
-        <!-- 新增帳號自成一張卡（表格框不再兼作表單容器） -->
-        <div class="b-card adduser-card">
-          <div class="b-card-body">
-            <form id="addUserForm" class="adduser-row">
-              <input id="newUsername" type="text" class="b-input" placeholder="新帳號" required>
-              <input id="newPassword" type="password" class="b-input" placeholder="密碼" required>
-              <input id="newDisplayName" type="text" class="b-input" placeholder="名稱（例：XX專案）">
-              <button type="submit" class="b-btn b-btn-primary"><i data-lucide="user-plus"></i>新增帳號</button>
-            </form>
-          </div>
         </div>
       </div>
     </main>
@@ -203,8 +235,8 @@
             <p class="b-modal-sub" id="wsDeviceSub"></p>
           </div>
           <div class="ws-head-actions">
-            <button id="reloadBtn" class="b-btn"><i data-lucide="refresh-cw"></i>重新載入</button>
-            <button id="saveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
+            <button id="reloadBtn" class="b-btn">重新載入</button>
+            <button id="saveBtn" class="b-btn b-btn-primary" disabled>儲存並發布</button>
             <button type="button" class="b-modal-close" id="wsCloseBtn" aria-label="關閉"><i data-lucide="x"></i></button>
           </div>
         </div>
@@ -228,18 +260,17 @@
 
             <div id="editor" class="editor hidden">
               <div class="editor-body">
+                <!-- 左欄＝畫布＋其下的區塊操作鈕（寬度對齊畫布，2026-09-03 指示） -->
                 <div class="canvas-col">
                   <div id="canvas" class="canvas"></div>
                   <div class="canvas-actions">
-                    <button id="addBlockBtn" class="b-btn b-btn-sm"><i data-lucide="plus"></i>新增大區塊</button>
-                    <button id="showPageBtn" class="b-btn b-btn-sm"><i data-lucide="monitor-play"></i>在機器上展示此頁</button>
-                    <button id="copyLayoutBtn" class="b-btn b-btn-sm"><i data-lucide="copy"></i>複製版面到其他機器</button>
+                    <button id="addBlockBtn" class="b-btn b-btn-sm">新增大區塊</button>
+                    <button id="copyLayoutBtn" class="b-btn b-btn-sm">複製版面到其他機器</button>
                   </div>
-                  <p class="canvas-hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
                 </div>
-                <aside id="cellPanel" class="cell-panel b-card">
-                  <p class="panel-placeholder">← 點左邊版面上的格子開始編輯</p>
-                </aside>
+                <div class="panel-col">
+                  <aside id="cellPanel" class="cell-panel hidden"></aside>
+                </div>
               </div>
             </div>
           </div>
@@ -249,6 +280,36 @@
             <div id="settingsBody" class="settings-body"></div>
           </div>
         </div>
+        <!-- 共用版面模式的固定底部欄：儲存鈕由 openWsModal 依模式搬進來（device 模式搬回 header） -->
+        <div class="ws-footer" id="wsFooter"></div>
+      </div>
+    </div>
+
+    <!-- 新增帳號 modal：無頭尾分隔線、標籤在上、右下角文字主動作（未填必填時 disabled）。
+         data-modal-vue＝自管開闔（同 wsModal）：已輸入內容時 Esc/點遮罩/✕ 要先過捨棄確認，
+         不能讓 kit 的全域 handler 直接關掉 -->
+    <div class="b-modal-overlay" id="addUserModal" data-modal-vue>
+      <div class="b-modal is-wide" role="dialog" aria-modal="true" aria-labelledby="addUserTitle">
+        <div class="b-modal-head">
+          <h3 class="b-modal-title" id="addUserTitle">新增帳號</h3>
+          <button type="button" class="b-modal-close" id="addUserCloseBtn" aria-label="關閉"><i data-lucide="x"></i></button>
+        </div>
+        <form id="addUserForm">
+          <div class="b-modal-body adduser-grid">
+            <label class="b-label">帳號 *
+              <input id="newUsername" type="text" class="b-input" placeholder="輸入帳號" autocomplete="off" required>
+            </label>
+            <label class="b-label">密碼 *
+              <input id="newPassword" type="password" class="b-input" placeholder="輸入密碼" autocomplete="new-password" required>
+            </label>
+            <label class="b-label adduser-span">名稱
+              <input id="newDisplayName" type="text" class="b-input" placeholder="選填（例：XX專案）">
+            </label>
+          </div>
+          <div class="b-modal-foot">
+            <button type="submit" id="addUserSubmit" class="b-btn b-btn-text" disabled>新增</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

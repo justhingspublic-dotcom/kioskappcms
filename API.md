@@ -33,10 +33,13 @@ Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一
 `pages`、「套用共用設定」只帶 `chatApi`+`sleep`、網頁存檔不帶 `activePage`（機器不跳頁）。
 
 ### GET / PUT /api/shared-settings（限管理網頁，每個登入帳號一份）
-共用範本（版面＋客服帳號＋休眠排程）。GET → `{ "settings": {...}|null, "updatedAt" }`；
-PUT Body：`{ "settings": { "pages": [...], "layoutScreen": {...}, "layoutFrom": "...",
-"layoutImportedAt": "...", "chatApi": {...}, "sleep": {...} } }`（欄位皆可省略）。
-「套用到機器」不經伺服器特別處理——網頁端逐台 `PUT /api/config/{id}` 帶部分欄位即可。
+共用範本（版面清單＋客服帳號＋休眠排程）。GET → `{ "settings": {...}|null, "updatedAt" }`；
+PUT Body：`{ "settings": { "layouts": [ { "id": 1, "name": "...", "pages": [...],
+"screen": {...}, "updatedAt": "..." } ], "chatApi": {...}, "sleep": {...} } }`（欄位皆可省略）。
+**一個版面＝一頁**（`pages` 長度 1；沿用陣列格式是為了與 config 的頁面格式一致）。
+（舊格式單一版面存 `pages`/`layoutScreen`/`layoutUpdatedAt`；網頁載入時自動把每頁拆成一個版面搬進 `layouts`。）
+「加入機器／套用」不經伺服器特別處理——網頁端逐台 `PUT /api/config/{id}` 帶部分欄位即可；
+「把版面加入機器」＝抓該機現有 `pages`、把版面頁面重新編號後附加在後面再整包 PUT（不覆蓋原頁面，上限 8 頁）。
 
 ### POST /api/upload（限管理網頁；multipart，欄位名 `file`，上限 500MB）
 → `{ "id": "...", "url": "/files/<檔名>" }`

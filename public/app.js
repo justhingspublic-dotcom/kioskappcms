@@ -13,6 +13,7 @@ let dirty = false;
 let activePageTouched = false; // 只有按過「在機器上展示此頁」才隨儲存送出 activePage
 let meIsAdmin = false;
 let wsMode = 'device';    // 工作區 modal 模式：'device'＝編輯某台機器；'shared'＝編輯共用版面
+let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡哪一個版面（id）
 
 const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片' };
@@ -47,7 +48,7 @@ function logout() {
   sessionStorage.removeItem('token');
   // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
   state = null; deviceId = ''; selected = null; setDirty(false);
-  shared = null; setSharedDirty(false);
+  shared = null; sharedLayoutId = 0; setSharedDirty(false);
   agentCache = { key: '', list: null, loading: false, error: '' };
   const m = $('wsModal');
   m.classList.remove('is-visible', 'is-closing', 'is-shared-mode');
@@ -97,6 +98,13 @@ document.addEventListener('keydown', (e) => {
 document.querySelectorAll('.ws-tabs .seg').forEach((b) => {
   b.addEventListener('click', () => showWsTab(b.dataset.wstab));
 });
+// 標題旁小問號說明：hover/focus 展開走 CSS；這裡只補 Esc 暫時關閉（WAI tooltip 慣例：
+// Esc 關但焦點留原地），重新 hover 或焦點離開就復原
+document.querySelectorAll('.page-help').forEach((h) => {
+  h.addEventListener('keydown', (e) => { if (e.key === 'Escape') h.classList.add('is-dismissed'); });
+  h.addEventListener('pointerenter', () => h.classList.remove('is-dismissed'));
+  h.addEventListener('focusout', () => h.classList.remove('is-dismissed'));
+});
 
 async function confirmDiscard() {
   if (!dirty) return true;
@@ -124,9 +132,10 @@ function openWsModal() {
   m.classList.remove('is-closing');
   m.classList.add('is-visible');
   document.body.classList.add('b-modal-lock');
-  $('saveBtn').innerHTML = wsMode === 'shared'
-    ? '<i data-lucide="save"></i>儲存共用版面'
-    : '<i data-lucide="cloud-upload"></i>儲存並發布';
+  $('saveBtn').textContent = wsMode === 'shared' ? '儲存版面' : '儲存並發布';
+  // 儲存鈕位置依模式搬家：shared＝固定底部欄；device＝header（✕ 前面）
+  if (wsMode === 'shared') $('wsFooter').appendChild($('saveBtn'));
+  else m.querySelector('.ws-head-actions').insertBefore($('saveBtn'), $('wsCloseBtn'));
   if (window.lucide) lucide.createIcons();
   showWsTab('layout');
 }
@@ -141,27 +150,33 @@ async function enterWorkspace(d) {
   await loadConfig();
 }
 
-/** 從共用設定開啟共用版面編輯：同一套畫布編輯器，掛在虛擬 state 上。 */
-function enterSharedLayoutEditor() {
-  if (shared === null) shared = {}; // 正常從版面設定頁進來已載入；保底
+/** 從版面設定清單點「編輯」開啟某個版面：同一套畫布編輯器，掛在虛擬 state 上。 */
+function enterSharedLayoutEditor(layout) {
   wsMode = 'shared';
+  sharedLayoutId = layout.id;
   deviceId = '';
-  $('wsDeviceName').textContent = '共用版面';
-  $('wsDeviceSub').textContent = '編輯後儲存，再從共用設定「套用到機器」發布';
+  $('wsDeviceName').textContent = layout.name || '未命名版面';
+  $('wsDeviceSub').textContent = '';
   openWsModal();
   resetSharedEditorState();
 }
 
-/** 共用版面 → 編輯器 state（deep copy，取消不汙染範本）；沒有範本就給一頁空版面。 */
+/** 目前在編輯器裡的那個版面（可能已被刪除 → null）。 */
+function currentSharedLayout() {
+  return (shared && shared.layouts || []).find((l) => l.id === sharedLayoutId) || null;
+}
+
+/** 版面 → 編輯器 state（deep copy，取消不汙染範本）；還沒設計過就給一頁空版面。 */
 function resetSharedEditorState() {
+  const layout = currentSharedLayout();
   state = {
     version: 0,
     config: {
-      pages: shared && shared.pages
-        ? JSON.parse(JSON.stringify(shared.pages))
+      pages: layout && layout.pages
+        ? JSON.parse(JSON.stringify(layout.pages))
         : [{ id: 1, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] }],
       activePage: 0,
-      screen: (shared && shared.layoutScreen) || { w: 1080, h: 1920 },
+      screen: (layout && layout.screen) || { w: 1080, h: 1920 },
     },
   };
   pageIndex = 0;
@@ -202,17 +217,20 @@ async function saveConfig() {
   return savePublish();
 }
 
-/** 共用版面：存回 shared 範本（不發布到任何機器）。 */
+/** 共用版面：存回清單裡對應的版面（不發布到任何機器）。 */
 async function saveSharedLayout() {
+  const layout = currentSharedLayout();
+  if (!layout) return setStatus('這個版面已被刪除，無法儲存', true);
   try {
     $('saveBtn').disabled = true;
     // deep copy：範本與編輯器不能共用同一份物件，否則存過一次後繼續編輯會「未存先改」汙染範本
-    shared.pages = JSON.parse(JSON.stringify(state.config.pages));
-    shared.layoutScreen = state.config.screen ? { ...state.config.screen } : null;
-    shared.layoutUpdatedAt = new Date().toISOString();
+    layout.pages = JSON.parse(JSON.stringify(state.config.pages));
+    layout.screen = state.config.screen ? { ...state.config.screen } : null;
+    layout.updatedAt = new Date().toISOString();
     await api('PUT', '/api/shared-settings', { settings: shared });
     setDirty(false);
-    setStatus('已儲存共用版面（到共用設定按「套用到機器」才會發布）');
+    setStatus(`已儲存版面「${layout.name || '未命名版面'}」（到版面設定按「加入機器」才會發布）`);
+    exitWorkspace(); // 儲存即完成 → 關閉編輯器回清單（2026-09-03 指示）；dirty 已清不會跳確認
   } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
 }
 
@@ -379,12 +397,8 @@ function renderTabs() {
   }
 }
 
-$('showPageBtn').addEventListener('click', () => {
-  state.config.activePage = pageIndex;
-  activePageTouched = true;
-  setDirty(true); renderTabs();
-  setStatus('已設定此頁為展示頁（記得儲存並發布）');
-});
+// 「在機器上展示此頁」鈕先拿掉（2026-09-03 指示）：activePageTouched 機制保留，
+// 沒人設 true → 儲存永不送 activePage，機器維持自己目前顯示的頁；「展示中」badge 仍照雲端值顯示
 
 $('addBlockBtn').addEventListener('click', () => {
   const blocks = page().blocks;
@@ -404,9 +418,12 @@ function renderCanvas() {
   const SW = scr && scr.w > 0 ? scr.w : 1080;
   const SH = scr && scr.h > 0 ? scr.h : 1920;
   canvas.style.aspectRatio = `${SW} / ${SH}`;
+  canvas.classList.toggle('is-landscape', SW > SH); // 橫式改以寬度定尺寸（CSS .is-landscape）
   const blocks = page().blocks;
   const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0);
-  $('addBlockBtn').disabled = blocks.length >= MAX_BLOCKS;
+  const addFull = blocks.length >= MAX_BLOCKS;
+  $('addBlockBtn').disabled = addFull;
+  $('addBlockBtn').title = addFull ? `最多 ${MAX_BLOCKS} 個大區塊，已達上限` : '';
 
   // 與 App cellPixelSize 相同：格子的「實際機器像素」尺寸，顯示在右上角標籤
   const splitChildPx = (px, node, second) => {
@@ -811,46 +828,90 @@ function renderPanel() {
   panel.innerHTML = '';
   const sel = selected;
   const cell = sel && getCell(sel);
+  panel.classList.remove('hidden');
+  panel.classList.toggle('is-empty', !cell);
+  // 內容顯示/切換淡入（kit SPA crossfade 的縮小版：重排 class 讓動畫每次重播）
+  panel.classList.remove('is-faded');
+  void panel.offsetWidth;
+  panel.classList.add('is-faded');
+  // 沒選格子＝滿高空狀態容器（2026-09-03：右欄不能空一大塊）
   if (!cell) {
-    panel.innerHTML = '<p class="hint" style="padding:20px">← 點左邊版面上的格子開始編輯</p>';
+    panel.innerHTML =
+      '<div class="b-empty">' +
+      '<span class="b-empty-icon"><i data-lucide="mouse-pointer-click"></i></span>' +
+      '<p class="b-empty-title">尚未選擇格子</p>' +
+      '<p class="b-empty-sub">點左邊預覽畫面上的任一格子，設定會顯示在這裡。</p>' +
+      '</div>';
+    if (window.lucide) lucide.createIcons();
     return;
   }
 
   const cellPx = cellPixelSizeOf(sel);
+  // web 版不放「完成」鈕（2026-09-03 指示）：面板跟著選取走，點其他格子即切換
   const head = document.createElement('div');
   head.className = 'panel-head';
   const h3 = document.createElement('h3');
   h3.textContent = `${cellLabel(sel)}｜${cellPx.w}×${cellPx.h} px`;
   head.appendChild(h3);
-  const close = document.createElement('button');
-  close.className = 'b-btn b-btn-sm'; close.textContent = '完成';
-  close.onclick = () => { selected = null; renderCanvas(); renderPanel(); };
-  head.appendChild(close);
   panel.appendChild(head);
 
   const body = document.createElement('div');
-  body.className = 'body';
+  body.className = 'body inspector';
   panel.appendChild(body);
 
   const refresh = () => { renderCanvas(); renderPanel(); };
   const touch = () => { setDirty(true); renderCanvas(); };
 
-  // ---- 版面（分割 / 合併 / 區塊操作）----
-  body.appendChild(group('版面', (g) => {
-    const row = document.createElement('div');
-    row.className = 'row';
+  // inspector 兩欄列（2026-09-03 定版：桌面檢查器式，label 左、控件右）；
+  // sub＝主欄位展開的附屬列（例：內容選跑馬燈才出現的文字/速度）
+  const insRow = (label, ...ctrls) => {
+    const r = document.createElement('div');
+    r.className = 'ins-row';
+    const l = document.createElement('span');
+    l.className = 'ins-label';
+    l.textContent = label;
+    const c = document.createElement('div');
+    c.className = 'ins-ctrl';
+    for (const el of ctrls) c.appendChild(el);
+    r.append(l, c);
+    body.appendChild(r);
+    return r;
+  };
+  const subRow = (label, ...ctrls) => { const r = insRow(label, ...ctrls); r.classList.add('sub'); return r; };
+  // 區段標題（版面/背景/內容/點擊動作）＝小標＋hairline 分隔線（2026-09-03：user 嫌全部混在一起沒區隔）
+  const sec = (title) => {
+    const h = document.createElement('div');
+    h.className = 'ins-sec';
+    h.textContent = title;
+    body.appendChild(h);
+  };
+  // 區段的主控件列：不帶 label、佔滿整行（區段標題已說明是什麼；label 欄留給附屬列）
+  const rowFull = (...ctrls) => {
+    const r = document.createElement('div');
+    r.className = 'ins-full';
+    for (const el of ctrls) r.appendChild(el);
+    body.appendChild(r);
+    return r;
+  };
+
+  // ---- 版面（分割 / 合併 / 區塊操作；分割限制改掛按鈕 tooltip，不佔版面）----
+  {
     const blocks = page().blocks;
+    const ctrls = [];
     if (!sel.sub) {
-      row.appendChild(btn('上下分割', () => {
+      const limitTip = '每個大塊只能分割一次，子格不可再分割';
+      const b1 = btn('上下分割', () => {
         blocks[sel.bi].node = { t: 'split', dir: 'Horizontal', ratio: 0.5, a: cell, b: DEFAULT_CELL() };
         selected = { bi: sel.bi, sub: 'a' }; setDirty(true); refresh();
-      }));
-      row.appendChild(btn('左右分割', () => {
+      });
+      const b2 = btn('左右分割', () => {
         blocks[sel.bi].node = { t: 'split', dir: 'Vertical', ratio: 0.5, a: cell, b: DEFAULT_CELL() };
         selected = { bi: sel.bi, sub: 'a' }; setDirty(true); refresh();
-      }));
+      });
+      b1.title = limitTip; b2.title = limitTip;
+      ctrls.push(b1, b2);
     } else {
-      row.appendChild(btn('移除此格（合併）', () => {
+      ctrls.push(btn('移除此格（合併）', () => {
         const other = sel.sub === 'a' ? 'b' : 'a';
         blocks[sel.bi].node = blocks[sel.bi].node[other];
         selected = { bi: sel.bi, sub: null }; setDirty(true); refresh();
@@ -866,40 +927,40 @@ function renderPanel() {
         selected = null; setDirty(true); refresh();
       });
       del.classList.add('b-btn-danger-soft');
-      row.appendChild(del);
+      ctrls.push(del);
     }
-    g.appendChild(row);
-    if (!sel.sub) g.appendChild(hint('子格不可再分割（每個大塊只能分割一次）。'));
-  }));
+    sec('版面');
+    rowFull(...ctrls);
+  }
 
   // ---- 背景（天氣格多一個「天氣背景」＝動畫天空）----
-  body.appendChild(group('背景', (g) => {
+  {
     const isWeather = cell.content === 'Weather';
     const segs = [
       ['純色', !cell.wDynBg && cell.bg !== 'Image', () => { cell.bg = 'Solid'; cell.wDynBg = false; setDirty(true); refresh(); }],
       ['圖片', !cell.wDynBg && cell.bg === 'Image', () => { cell.bg = 'Image'; cell.wDynBg = false; setDirty(true); refresh(); }],
     ];
     if (isWeather) segs.push(['天氣背景', !!cell.wDynBg, () => { cell.wDynBg = true; setDirty(true); refresh(); }]);
-    g.appendChild(segRow(segs));
+    const extra = [];
     if (isWeather && cell.wDynBg) {
-      g.appendChild(hint('依即時天氣顯示動畫天空（陽光、雲、雨絲…）；字色自動配置，深色天空白字、霧/雪黑字。'));
+      extra.push(hint('依即時天氣顯示動畫天空（陽光、雲、雨絲…）；字色自動配置，深色天空白字、霧/雪黑字。'));
     } else if (cell.bg === 'Image') {
-      g.appendChild(thumbList(cell, cellPx));
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.appendChild(lbl('每張秒數'));
-      row.appendChild(numInput(cell.dur ?? 8, 3, 30, (v) => { cell.dur = v; touch(); }));
-      row.appendChild(lbl('顯示方式'));
-      row.appendChild(selInput([['Crop', '填滿裁切'], ['Fit', '完整顯示']], cell.scale || 'Crop', (v) => { cell.scale = v; touch(); }));
-      g.appendChild(row);
+      extra.push(thumbList(cell, cellPx));
     } else {
-      g.appendChild(swatchRow(BG_SWATCHES, cell.bgColor, false, (v) => { cell.bgColor = v; touch(); renderPanel(); }));
+      extra.push(swatchRow(BG_SWATCHES, cell.bgColor, false, (v) => { cell.bgColor = v; touch(); renderPanel(); }));
     }
-  }));
+    sec('背景');
+    rowFull(segRow(segs), ...extra);
+    if (!cell.wDynBg && cell.bg === 'Image') {
+      subRow('每張秒數', numInput(cell.dur ?? 8, 3, 30, (v) => { cell.dur = v; touch(); }));
+      subRow('顯示方式', selInput([['Crop', '填滿裁切'], ['Fit', '完整顯示']], cell.scale || 'Crop', (v) => { cell.scale = v; touch(); }));
+    }
+  }
 
   // ---- 內容 ----
-  body.appendChild(group('內容', (g) => {
-    g.appendChild(selInput(
+  {
+    sec('內容');
+    rowFull(selInput(
       Object.entries(CONTENT_NAMES), cell.content || 'None',
       (v) => { cell.content = v; setDirty(true); refresh(); },
     ));
@@ -909,77 +970,63 @@ function renderPanel() {
       ta.value = cell.text || '';
       ta.placeholder = cell.content === 'Marquee' ? '跑馬燈文字' : '顯示文字';
       ta.addEventListener('input', () => { cell.text = ta.value; touch(); });
-      g.appendChild(ta);
+      subRow('文字', ta);
     }
     if (cell.content === 'Marquee') {
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.appendChild(lbl('速度'));
       const range = document.createElement('input');
       range.type = 'range'; range.min = 50; range.max = 300; range.step = 10;
       range.value = cell.mqSpeed ?? 100;
       const val = lbl(`${range.value}%`);
       range.addEventListener('input', () => { cell.mqSpeed = Number(range.value); val.textContent = `${range.value}%`; touch(); });
-      row.append(range, val);
-      g.appendChild(row);
+      subRow('速度', range, val);
     }
     if (cell.content === 'Weather') {
-      g.appendChild(checkRow('自動偵測位置', cell.wAuto !== false, (v) => { cell.wAuto = v; setDirty(true); refresh(); }));
+      subRow('位置', checkRow('自動偵測位置', cell.wAuto !== false, (v) => { cell.wAuto = v; setDirty(true); refresh(); }));
       if (cell.wAuto === false) {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.appendChild(txtInput(cell.wCounty, '縣市（例：臺北市）', (v) => { cell.wCounty = v; touch(); }));
-        row.appendChild(txtInput(cell.wDistrict, '區/鄉鎮（可留白）', (v) => { cell.wDistrict = v; touch(); }));
-        g.appendChild(row);
+        subRow('地點',
+          txtInput(cell.wCounty, '縣市（例：臺北市）', (v) => { cell.wCounty = v; touch(); }),
+          txtInput(cell.wDistrict, '區/鄉鎮（可留白）', (v) => { cell.wDistrict = v; touch(); }));
       }
     }
     if (cell.content === 'Web') {
-      g.appendChild(txtInput(cell.web, '網頁網址 https://…', (v) => { cell.web = v; touch(); }, 'url'));
+      subRow('網址', txtInput(cell.web, '網頁網址 https://…', (v) => { cell.web = v; touch(); }, 'url'));
     }
     if (cell.content === 'Video') {
-      const row = document.createElement('div');
-      row.className = 'row';
       const span = lbl(cell.video ? (isRemote(cell.video) ? '已上傳影片' : '機器本機影片') : '（尚未選擇）');
-      row.appendChild(span);
-      row.appendChild(btn('上傳新影片', () => pickAndUpload('video/*', (url) => {
+      subRow('影片', span, btn('上傳新影片', () => pickAndUpload('video/*', (url) => {
         cell.video = url; span.textContent = '已上傳影片'; touch();
       })));
-      g.appendChild(row);
     }
     if (['Marquee', 'Text', 'Weather'].includes(cell.content) && !(cell.content === 'Weather' && cell.wDynBg)) {
-      g.appendChild(lbl('文字顏色'));
-      g.appendChild(swatchRow(TXT_SWATCHES, cell.txtColor, true, (v) => {
+      subRow('文字顏色', swatchRow(TXT_SWATCHES, cell.txtColor, true, (v) => {
         if (v === null) delete cell.txtColor; else cell.txtColor = v;
         touch(); renderPanel();
       }));
     }
-  }));
+  }
 
   // ---- 點擊動作 ----
-  body.appendChild(group('點擊動作', (g) => {
-    g.appendChild(selInput(
+  {
+    sec('點擊動作');
+    rowFull(selInput(
       [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服']],
       cell.tap || 'None',
       (v) => { cell.tap = v; setDirty(true); refresh(); },
     ));
     if (cell.tap === 'OpenWeb') {
-      g.appendChild(txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
+      subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
     }
     if (cell.tap === 'OpenAssistant') {
       // 從清單選擇客服（與 App 的 AgentPickerField 相同）：用機器設定裡的 JustAI 帳號拉清單
       const cApi = chatApiConfigured();
       if (!cApi) {
-        g.appendChild(hint('要從清單選擇客服，請先到左側「機器設定」填寫智能客服 API 帳號。'));
+        subRow('客服', hint('要從清單選擇客服，請先到「機器設定」填寫智能客服 API 帳號。'));
       } else {
         if (agentCache.key !== agentKeyOf(cApi)) fetchAgents(); // 帳號變過或還沒載入
         if (agentCache.loading) {
-          g.appendChild(hint('載入客服清單中…'));
+          subRow('客服', hint('載入客服清單中…'));
         } else if (agentCache.error) {
-          const row = document.createElement('div');
-          row.className = 'row';
-          row.appendChild(hint('客服清單載入失敗：' + agentCache.error));
-          row.appendChild(btn('重試', () => { fetchAgents(true); renderPanel(); }));
-          g.appendChild(row);
+          subRow('客服', hint('清單載入失敗：' + agentCache.error), btn('重試', () => { fetchAgents(true); renderPanel(); }));
         } else if (agentCache.list) {
           const opts = [['', '（從清單選擇…）']];
           for (const a of agentCache.list) opts.push([a.id, a.name || a.id]);
@@ -987,8 +1034,7 @@ function renderPanel() {
           if (cell.agentId && !agentCache.list.some((a) => a.id === cell.agentId)) {
             opts.push([cell.agentId, cell.agentName || cell.agentId]);
           }
-          g.appendChild(lbl('客服'));
-          g.appendChild(selInput(opts, cell.agentId || '', (v) => {
+          subRow('客服', selInput(opts, cell.agentId || '', (v) => {
             const hit = agentCache.list.find((a) => a.id === v);
             cell.agentId = v;
             if (hit) cell.agentName = hit.name;
@@ -997,40 +1043,27 @@ function renderPanel() {
           }));
         }
       }
-      g.appendChild(txtInput(cell.agentId, '或直接貼上 Agent ID', (v) => {
+      const idInput = txtInput(cell.agentId, '或直接貼上 Agent ID', (v) => {
         cell.agentId = v.trim(); cell.agentName = ''; touch();
-      }));
-      g.appendChild(hint('JustAI 後台網址 chat.justhings.ai/agents/〔這一段〕/edit 就是 ID。'));
-      const row2 = document.createElement('div');
-      row2.className = 'row';
-      row2.appendChild(lbl('介面'));
-      row2.appendChild(selInput(
+      });
+      idInput.title = 'JustAI 後台網址 chat.justhings.ai/agents/〔這一段〕/edit 就是 ID';
+      subRow('Agent ID', idInput);
+      subRow('介面', selInput(
         [['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']],
         cell.assistantLayout || 'Kiosk', (v) => { cell.assistantLayout = v; touch(); },
       ));
-      g.appendChild(row2);
-      g.appendChild(lbl('客服主題色'));
-      g.appendChild(hint('此格開啟的聊天頁主色（頭像、按鈕、游標）。「自動」使用預設綠色。'));
-      g.appendChild(swatchRow(ACCENT_SWATCHES, cell.agentAccent, true, (v) => {
+      const accentRow = subRow('主題色', swatchRow(ACCENT_SWATCHES, cell.agentAccent, true, (v) => {
         if (v === null) delete cell.agentAccent; else cell.agentAccent = v;
         touch(); renderPanel();
       }));
+      accentRow.querySelector('.ins-label').title = '此格開啟的聊天頁主色（頭像、按鈕、游標）；「自動」使用預設綠色';
     }
-  }));
+  }
 
   if (window.BDropdown) BDropdown.init(panel); // 動態產生的下拉套 kit 樣式
 }
 
 // ---------- 面板小元件 ----------
-function group(title, build) {
-  const g = document.createElement('div');
-  g.className = 'group';
-  const h = document.createElement('h4');
-  h.textContent = title;
-  g.appendChild(h);
-  build(g);
-  return g;
-}
 function btn(text, onClick) {
   const b = document.createElement('button');
   b.className = 'b-btn b-btn-sm';
@@ -1050,13 +1083,39 @@ function hint(text) {
 }
 function segRow(items) {
   const row = document.createElement('div');
-  row.className = 'seg-row';
+  row.className = 'seg-row has-ind'; // has-ind＝active 底色改由滑動指示塊畫（ws-tabs 靜態版不吃）
+  const ind = document.createElement('span');
+  ind.className = 'seg-ind';
+  row.appendChild(ind);
+  const moveInd = () => {
+    const a = row.querySelector('.seg.active');
+    if (!a) { ind.style.opacity = '0'; return; }
+    ind.style.opacity = '1';
+    ind.style.left = a.offsetLeft + 'px';
+    ind.style.top = a.offsetTop + 'px';
+    ind.style.width = a.offsetWidth + 'px';
+    ind.style.height = a.offsetHeight + 'px';
+  };
   for (const [text, active, onClick] of items) {
     const b = document.createElement('button');
     b.className = 'seg' + (active ? ' active' : '');
-    b.textContent = text; b.onclick = onClick;
+    b.textContent = text;
+    b.onclick = () => {
+      if (b.classList.contains('active')) return;
+      // 先在本地滑動指示塊（onClick 會重繪整個面板、DOM 重建就看不到動畫），滑完才套用
+      row.querySelectorAll('.seg').forEach((s) => s.classList.remove('active'));
+      b.classList.add('active');
+      moveInd();
+      setTimeout(onClick, 170);
+    };
     row.appendChild(b);
   }
+  // 入 DOM 排版完成後定位；首次不播動畫（先關 transition，下一幀恢復）
+  ind.style.transition = 'none';
+  requestAnimationFrame(() => {
+    moveInd();
+    requestAnimationFrame(() => { ind.style.transition = ''; });
+  });
   return row;
 }
 function selInput(options, value, onChange) {
@@ -1525,8 +1584,7 @@ async function saveShared() {
   } catch (e) { setStatus('儲存失敗：' + e.message, true); return false; }
 }
 $('sharedSaveBtn').addEventListener('click', saveShared);
-$('editSharedLayoutBtn').addEventListener('click', enterSharedLayoutEditor);
-$('applySharedLayoutBtn').addEventListener('click', () => applySharedLayout());
+$('addSharedLayoutBtn').addEventListener('click', () => addSharedLayout());
 $('applySharedSettingsBtn').addEventListener('click', () => applySharedSettings());
 
 // 側欄「共用設定」群組開闔由 kit.js 的 submenu 手風琴接管（這裡不能再綁，會互相抵銷）
@@ -1535,42 +1593,225 @@ async function ensureSharedLoaded() {
   if (shared !== null) return true;
   try {
     shared = (await api('GET', '/api/shared-settings')).settings || {};
+    migrateSharedLayouts();
     return true;
   } catch (e) { setStatus(String(e.message), true); return false; }
 }
 
-/** 共用設定 › 版面設定頁：狀態說明＋（header 上的）編輯與套用鈕。 */
-async function renderSharedLayoutView() {
-  if (!(await ensureSharedLoaded())) return;
-  const g = $('sharedLayoutInfo');
-  g.innerHTML = '';
-  g.appendChild(hint(shared.pages
-    ? `共用版面：${shared.pages.length} 頁` +
-      (shared.layoutUpdatedAt ? `（${new Date(shared.layoutUpdatedAt).toLocaleString('zh-TW', { hour12: false })} 更新）` : '') + '。'
-    : '還沒有共用版面，點右上角「編輯共用版面」開始設計。'));
-  $('applySharedLayoutBtn').disabled = !shared.pages;
+/** 舊格式（單一共用版面存在 shared.pages）→ 新格式（shared.layouts 清單）。
+ *  新制一個版面＝一頁，舊範本的每一頁各拆成一個版面。
+ *  只改記憶體，下一次任何儲存動作會一併寫回伺服器。 */
+/** 版面的預設起始頁（跟編輯器的空版面相同：單一深色格）。 */
+const DEFAULT_LAYOUT_PAGE = () => ({ id: 1, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] });
+
+function migrateSharedLayouts() {
+  if (!Array.isArray(shared.layouts)) shared.layouts = [];
+  if (shared.pages) {
+    shared.pages.forEach((p, i) => {
+      shared.layouts.push({
+        id: nextSharedLayoutId(),
+        name: p.name || (i ? `共用版面 ${i + 1}` : '共用版面'),
+        pages: [p],
+        screen: shared.layoutScreen || null,
+        updatedAt: shared.layoutUpdatedAt || null,
+      });
+    });
+    delete shared.pages;
+    delete shared.layoutScreen;
+    delete shared.layoutUpdatedAt;
+  }
+  // 版面一律要有內容（新增當下就帶預設頁）：舊資料/中斷建立留下的空版面在這裡補上
+  for (const l of shared.layouts) {
+    if (!l.pages || !l.pages.length) {
+      l.pages = [DEFAULT_LAYOUT_PAGE()];
+      l.screen = l.screen || { w: 1080, h: 1920 };
+      l.updatedAt = l.updatedAt || new Date().toISOString();
+    }
+  }
 }
 
-async function applySharedLayout() {
-  if (!shared.pages) return;
+function nextSharedLayoutId() {
+  return Math.max(0, ...(shared.layouts || []).map((l) => l.id || 0)) + 1;
+}
+
+/** 共用設定 › 版面設定頁：具名版面清單，逐列 編輯／加入機器／更名／刪除。 */
+async function renderSharedLayoutView() {
+  if (!(await ensureSharedLoaded())) return;
+  const tb = $('sharedLayoutTable').querySelector('tbody');
+  tb.innerHTML = '';
+  if (!shared.layouts.length) {
+    tb.innerHTML =
+      '<tr><td colspan="3"><div class="b-empty">' +
+      '<span class="b-empty-icon"><i data-lucide="layout-template"></i></span>' +
+      '<p class="b-empty-title">還沒有任何版面</p>' +
+      '<p class="b-empty-sub">點右上角「新增版面」開始設計，之後可以把版面加到任何機器。</p>' +
+      '</div></td></tr>';
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+  for (const layout of shared.layouts) {
+    const tr = document.createElement('tr');
+    tr.className = 'device-row';
+    const updated = layout.updatedAt ? new Date(layout.updatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
+    const nameTd = document.createElement('td');
+    nameTd.className = 'b-th';
+    const nameWrap = document.createElement('div');
+    nameWrap.className = 'layout-name-wrap';
+    nameWrap.appendChild(sharedLayoutThumb(layout));
+    const nm = document.createElement('span');
+    nm.textContent = layout.name || '未命名版面';
+    nameWrap.appendChild(nm);
+    nameTd.appendChild(nameWrap);
+    tr.appendChild(nameTd);
+    tr.insertAdjacentHTML('beforeend', `<td class="num">${updated}</td>`);
+
+    const opTd = document.createElement('td');
+    opTd.className = 'device-ops';
+    const mkBtn = (cls, html, onclick) => {
+      const b = document.createElement('button');
+      b.className = cls; b.innerHTML = html; b.onclick = onclick;
+      opTd.appendChild(b);
+      return b;
+    };
+    mkBtn('b-btn', '編輯', () => enterSharedLayoutEditor(layout));
+    mkBtn('b-btn b-btn-primary', '加入機器', () => applySharedLayout(layout));
+    mkBtn('b-btn', '更名', () => renameSharedLayout(layout));
+    mkBtn('b-btn b-btn-danger-soft', '刪除', () => deleteSharedLayout(layout));
+    tr.appendChild(opTd);
+    // 列＝純資訊（同機器總覽 2026-09-03 指示）：不可點，入口只有操作鈕
+    tb.appendChild(tr);
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+/** 版面小縮圖：照第一頁的區塊結構縮排（純色底色／第一張遠端底圖；比例照 screen，
+ *  預設直式 9:16）。只畫結構不畫內容——夠認得出是哪個版面就好。 */
+function sharedLayoutThumb(layout) {
+  const box = document.createElement('div');
+  box.className = 'layout-thumb';
+  const scr = layout.screen && layout.screen.w > 0 && layout.screen.h > 0 ? layout.screen : { w: 1080, h: 1920 };
+  box.style.width = Math.max(20, Math.min(100, Math.round(56 * (scr.w / scr.h)))) + 'px';
+  const pg = layout.pages && layout.pages[0];
+  if (!pg) { box.classList.add('is-blank'); return box; }
+  const nodeEl = (node, flex) => {
+    const el = document.createElement('div');
+    el.style.flex = String(flex);
+    if (node.t === 'split') {
+      // dir=Horizontal＝水平分隔線（上下疊）→ column；Vertical＝左右並排 → row
+      el.className = 'lt-split' + (node.dir === 'Horizontal' ? '' : ' lt-vert');
+      const r = Math.min(0.9, Math.max(0.1, node.ratio || 0.5));
+      el.appendChild(nodeEl(node.a, r));
+      el.appendChild(nodeEl(node.b, 1 - r));
+    } else {
+      el.className = 'lt-cell';
+      el.style.background = colorCss(node.bgColor);
+      const img = node.bg === 'Image' && (node.bgImgs || []).find(isRemote);
+      if (img) {
+        el.style.backgroundImage = `url(${img})`;
+        el.style.backgroundSize = node.scale === 'Fit' ? 'contain' : 'cover';
+      }
+    }
+    return el;
+  };
+  for (const b of pg.blocks || []) box.appendChild(nodeEl(b.node, b.w || 1));
+  return box;
+}
+
+/** 新增版面：取名 → 存進清單 → 直接開編輯器設計。 */
+async function addSharedLayout() {
+  if (!(await ensureSharedLoaded())) return;
+  const name = await BDialog.prompt({
+    title: '新增版面', desc: '為這個版面取個名字，方便之後挑選要加到哪些機器。',
+    placeholder: '例如：週年慶活動', confirmText: '建立',
+  });
+  if (name === null) return;
+  // 一建立就帶預設頁（單一深色格）＝編輯器打開看到的起始樣子，清單立即有縮圖與更新時間
+  const layout = {
+    id: nextSharedLayoutId(), name: name.trim() || `版面 ${nextSharedLayoutId()}`,
+    pages: [DEFAULT_LAYOUT_PAGE()], screen: { w: 1080, h: 1920 },
+    updatedAt: new Date().toISOString(),
+  };
+  shared.layouts.push(layout);
+  try { await api('PUT', '/api/shared-settings', { settings: shared }); }
+  catch (e) { shared.layouts.pop(); return setStatus('建立失敗：' + e.message, true); }
+  renderSharedLayoutView();
+  enterSharedLayoutEditor(layout);
+}
+
+async function renameSharedLayout(layout) {
+  const name = await BDialog.prompt({
+    title: '版面更名', value: layout.name || '', placeholder: '版面名稱', confirmText: '儲存',
+  });
+  if (name === null || !name.trim() || name.trim() === layout.name) return;
+  const prev = layout.name;
+  layout.name = name.trim();
+  try { await api('PUT', '/api/shared-settings', { settings: shared }); }
+  catch (e) { layout.name = prev; return setStatus('更名失敗：' + e.message, true); }
+  renderSharedLayoutView();
+}
+
+async function deleteSharedLayout(layout) {
+  const ok = await BDialog.confirm({
+    title: `刪除版面「${layout.name || '未命名版面'}」？`,
+    desc: '只刪除這裡的範本；已加到機器上的頁面不受影響。',
+    variant: 'danger', confirmText: '刪除',
+  });
+  if (!ok) return;
+  const idx = shared.layouts.indexOf(layout);
+  if (idx < 0) return;
+  shared.layouts.splice(idx, 1);
+  try { await api('PUT', '/api/shared-settings', { settings: shared }); }
+  catch (e) { shared.layouts.splice(idx, 0, layout); return setStatus('刪除失敗：' + e.message, true); }
+  renderSharedLayoutView();
+}
+
+/** 把一個版面「加入」勾選的機器：頁面附加在該機現有頁面後面（不覆蓋），逐台發布。 */
+async function applySharedLayout(layout) {
+  if (!layout.pages || !layout.pages.length) return;
   let devices;
   try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
-  const srcPortrait = !shared.layoutScreen || shared.layoutScreen.h >= shared.layoutScreen.w;
+  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
+  const srcPortrait = !layout.screen || layout.screen.h >= layout.screen.w;
   const infos = await Promise.all(devices.map(async (d) => {
     try {
       const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
       const scr = cfg.config.screen;
-      return { d, warn: (!scr || scr.h >= scr.w) !== srcPortrait ? '⚠ 螢幕方向不同' : '' };
-    } catch { return { d, warn: '' }; }
+      const pages = cfg.config.pages || [];
+      const warns = [];
+      if ((!scr || scr.h >= scr.w) !== srcPortrait) warns.push('⚠ 螢幕方向不同');
+      if (pages.length + layout.pages.length > MAX_PAGES) warns.push(`⚠ 加入後超過 ${MAX_PAGES} 頁上限`);
+      return { d, warn: warns.join('　'), pages };
+    } catch { return { d, warn: '', pages: [] }; }
   }));
   const picked = await pickDevicesDialog({
-    title: '套用共用版面到機器',
-    desc: '會以共用版面覆蓋所選機器的版面並立即發布；各機器自己的客服帳號、休眠時段與展示頁不受影響。',
-    confirmText: '套用並發布',
+    title: `把「${layout.name || '未命名版面'}」加入機器`,
+    desc: '會把這個版面加成所選機器的新頁面（接在現有頁面後面）並立即發布；機器原有的頁面與設定都不會被改動。',
+    confirmText: '加入並發布',
     items: infos,
   });
   if (!picked || !picked.length) return;
-  await publishToDevices(picked, { pages: shared.pages }, '套用');
+
+  let ok = 0;
+  const failed = [];
+  for (const d of picked) {
+    const info = infos.find((i) => i.d === d);
+    const existing = info ? info.pages : [];
+    if (existing.length + layout.pages.length > MAX_PAGES) {
+      failed.push(`${d.DeviceName || d.DeviceId}（超過 ${MAX_PAGES} 頁上限）`);
+      continue;
+    }
+    // 頁面 id 在同一台機器的 config 裡要唯一 → 附加時重新編號；
+    // 頁面沒取名就帶版面名，機器的頁籤/admin-pager 上才認得出來
+    let nextId = Math.max(0, ...existing.map((p) => p.id || 0));
+    const appended = JSON.parse(JSON.stringify(layout.pages))
+      .map((p) => ({ ...p, id: ++nextId, name: p.name || layout.name || '' }));
+    try {
+      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: [...existing, ...appended] } });
+      ok++;
+    } catch { failed.push(d.DeviceName || d.DeviceId); }
+  }
+  if (failed.length) setStatus(`已加入 ${ok} 台；失敗：${failed.join('、')}`, true);
+  else setStatus(`已把「${layout.name || '未命名版面'}」加入 ${ok} 台機器並發布`);
 }
 
 /** 共用設定 › 機器設定頁：共用的客服帳號＋休眠卡片。 */
@@ -1654,14 +1895,13 @@ function agoText(sec) {
 
 async function renderDevicesView() {
   const devices = await api('GET', '/api/devices');
-  const users = meIsAdmin ? await api('GET', '/api/users') : [];
 
   const tb = $('deviceTable').querySelector('tbody');
   tb.innerHTML = '';
   if (!devices.length) {
     // tiri 規範：空清單不留光禿表頭，換 b-empty 空狀態
     tb.innerHTML =
-      '<tr><td colspan="7"><div class="b-empty">' +
+      '<tr><td colspan="5"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>' +
       '<p class="b-empty-title">還沒有機器連上來</p>' +
       '<p class="b-empty-sub">在 kiosk 機器的 App 裡開啟「雲端同步」，機器會自動出現在這裡。</p>' +
@@ -1676,65 +1916,23 @@ async function renderDevicesView() {
     tr.innerHTML =
       `<td class="b-th">${esc(d.DeviceName || d.DeviceId)}</td>` +
       `<td class="device-id-dim">${esc(d.DeviceId)}</td>` +
-      `<td class="num">第 ${d.Version} 版</td><td class="num">${updated}</td>`;
+      `<td class="num">${updated}</td>`;
     tr.appendChild(statusCell(d));
-
-    const ownerTd = document.createElement('td');
-    if (meIsAdmin) {
-      const sel = document.createElement('select');
-      sel.innerHTML = '<option value="">（未分配）</option>';
-      for (const u of users) {
-        const o = document.createElement('option');
-        o.value = u.UserId; o.textContent = u.DisplayName ? `${u.Username}（${u.DisplayName}）` : u.Username;
-        if (u.UserId === d.OwnerUserId) o.selected = true;
-        sel.appendChild(o);
-      }
-      sel.onchange = async () => {
-        try {
-          await api('PUT', `/api/devices/${encodeURIComponent(d.DeviceId)}/owner`, { userId: sel.value || null });
-          setStatus('已更新機器分配');
-        } catch (e) { setStatus(e.message, true); }
-      };
-      ownerTd.appendChild(sel);
-    } else {
-      ownerTd.textContent = d.OwnerName || '';
-    }
-    tr.appendChild(ownerTd);
+    // 「版本」「屬於（帳號分配）」欄先不放（2026-09-03 指示）；
+    // 分配 API（PUT /api/devices/:id/owner）與後端過濾邏輯保留，之後要加回來只補 UI
 
     const opTd = document.createElement('td');
     opTd.className = 'device-ops';
     const manage = document.createElement('button');
-    manage.className = 'b-btn'; manage.innerHTML = '<i data-lucide="pencil-ruler"></i>管理';
+    manage.className = 'b-btn'; manage.textContent = '內容管理';
     manage.onclick = () => enterWorkspace(d);
     opTd.appendChild(manage);
-    if (meIsAdmin) {
-      const del = document.createElement('button');
-      del.className = 'b-btn b-btn-danger-soft'; del.textContent = '刪除';   // 標準 36px，與同列下拉等高
-      del.onclick = async () => {
-        const ok = await BDialog.confirm({
-          title: `刪除機器「${d.DeviceName || d.DeviceId}」的雲端資料？`,
-          desc: '機器本身不受影響，重新開啟雲端同步會再上傳。',
-          variant: 'danger', confirmText: '刪除',
-        });
-        if (!ok) return;
-        try {
-          await api('DELETE', `/api/devices/${encodeURIComponent(d.DeviceId)}`);
-          setStatus('已刪除');
-          renderDevicesView();
-        } catch (e) { setStatus(e.message, true); }
-      };
-      opTd.appendChild(del);
-    }
+    // 刪除鈕先拿掉（2026-09-03 指示）；DELETE /api/devices API 仍在，之後要加回來直接補鈕
     tr.appendChild(opTd);
-
-    // 點整列＝進入工作區（避開下拉/按鈕等互動元素）
-    tr.addEventListener('click', (e) => {
-      if (e.target.closest('button, select, .b-dd, input, label')) return;
-      enterWorkspace(d);
-    });
+    // 整列點擊已移除（2026-09-03 指示）：列是純資訊，入口只有「內容管理」鈕
     tb.appendChild(tr);
   }
-  if (window.BDropdown) BDropdown.init(tb);
+  // BDropdown.init 移除：表格裡已無 select（原本是「屬於」的分配下拉）
   if (window.lucide) lucide.createIcons();
 }
 
@@ -1769,6 +1967,37 @@ async function renderUsersView() {
   }
 }
 
+// 新增帳號 modal：入口在頁首右上；必填（帳號＋密碼）沒填齊前送出鈕 disabled
+function refreshAddUserSubmit() {
+  $('addUserSubmit').disabled = !($('newUsername').value.trim() && $('newPassword').value);
+}
+$('addUserBtn').onclick = () => {
+  $('addUserForm').reset();
+  refreshAddUserSubmit();
+  BModal.open('#addUserModal');
+  $('newUsername').focus();
+};
+$('addUserForm').addEventListener('input', refreshAddUserSubmit);
+// 關閉前確認：只要任一欄有輸入就先問過（✕/點遮罩/Esc 三個入口都走這裡）
+async function closeAddUserModal() {
+  const typed = $('newUsername').value || $('newPassword').value || $('newDisplayName').value;
+  if (typed) {
+    const ok = await BDialog.confirm({
+      title: '有尚未送出的內容', desc: '捨棄剛剛輸入的內容嗎？', variant: 'danger', confirmText: '捨棄',
+    });
+    if (!ok) return;
+  }
+  BModal.close('#addUserModal');
+}
+$('addUserCloseBtn').addEventListener('click', closeAddUserModal);
+$('addUserModal').addEventListener('click', (e) => { if (e.target === $('addUserModal')) closeAddUserModal(); });
+// Esc：BDialog 開著時它自己在 capture 階段攔掉，不會走到這；防禦性再排除其他 vue modal
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('addUserModal').classList.contains('is-visible')) return;
+  if (document.querySelector('.b-modal-overlay[data-modal-vue].is-visible:not(#addUserModal)')) return;
+  closeAddUserModal();
+});
 $('addUserForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
@@ -1777,10 +2006,10 @@ $('addUserForm').addEventListener('submit', async (e) => {
       password: $('newPassword').value,
       displayName: $('newDisplayName').value.trim(),
     });
-    $('newUsername').value = ''; $('newPassword').value = ''; $('newDisplayName').value = '';
-    setStatus('帳號已建立');
+    BModal.close('#addUserModal');
+    BToast.success('已新增帳號。');
     renderUsersView();
-  } catch (e2) { setStatus(e2.message, true); }
+  } catch (e2) { BToast.danger(e2.message); }   // 留在 modal 裡讓使用者改完重送
 });
 
 // ---------- 自動同步：機器（或其他人）發布新版時，網頁 5 秒內自動載入 ----------
