@@ -70,14 +70,9 @@ $('loginForm').addEventListener('submit', async (e) => {
 
 $('logoutBtn').addEventListener('click', logout);
 $('reloadBtn').addEventListener('click', async () => { if (await confirmDiscard()) loadConfig(); });
-$('deviceSelect').addEventListener('change', async () => {
-  if (!(await confirmDiscard())) {
-    $('deviceSelect').value = deviceId;
-    if (window.BDropdown) BDropdown.refresh($('deviceSelect'));
-    return;
-  }
-  deviceId = $('deviceSelect').value;
-  loadConfig();
+$('backBtn').addEventListener('click', exitWorkspace);
+document.querySelectorAll('.ws-tabs .seg').forEach((b) => {
+  b.addEventListener('click', () => showWsTab(b.dataset.wstab));
 });
 
 async function confirmDiscard() {
@@ -97,34 +92,44 @@ async function enterMain() {
   $('whoamiSub').textContent = me.isAdmin ? '管理員' : '一般帳號';
   meIsAdmin = !!me.isAdmin;
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
-  const devices = await refreshDeviceSelect();
-  if (!devices.length) {
-    $('editor').classList.add('hidden');
-    $('emptyState').classList.remove('hidden');
-    return;
-  }
-  deviceId = devices[0].DeviceId;
+  switchView('devices'); // 首頁＝機器總覽列表，點一列進工作區
+}
+
+/** 從機器總覽點一列進入該機器的工作區（版面＋機器設定）。 */
+async function enterWorkspace(d) {
+  deviceId = d.DeviceId;
+  $('wsDeviceName').textContent = d.DeviceName || d.DeviceId;
+  $('devicesView').classList.add('hidden');
+  $('workspaceView').classList.remove('hidden');
+  spaFade();
+  showWsTab('layout');
   await loadConfig();
 }
 
-/** 重抓機器清單並重建下拉選單（顯示名稱，沒名稱顯示編號）；保留目前選擇。 */
-async function refreshDeviceSelect() {
-  const devices = await api('GET', '/api/devices');
-  const sel = $('deviceSelect');
-  sel.innerHTML = '';
-  if (!devices.length) {
-    sel.innerHTML = '<option>（尚無機器）</option>';
-    return devices;
-  }
-  for (const d of devices) {
-    const o = document.createElement('option');
-    o.value = d.DeviceId;
-    o.textContent = `${d.DeviceName || d.DeviceId}（第 ${d.Version} 版）`;
-    sel.appendChild(o);
-  }
-  if (devices.some((d) => d.DeviceId === deviceId)) sel.value = deviceId;
-  if (window.BDropdown) BDropdown.refresh(sel);
-  return devices;
+async function exitWorkspace() {
+  if (!(await confirmDiscard())) return;
+  setDirty(false);
+  state = null;
+  selected = null;
+  switchView('devices');
+}
+
+/** 工作區內的〔版面｜機器設定〕頁籤切換。 */
+function showWsTab(tab) {
+  document.querySelectorAll('.ws-tabs .seg').forEach((b) => {
+    b.classList.toggle('active', b.dataset.wstab === tab);
+  });
+  $('layoutTab').classList.toggle('hidden', tab !== 'layout');
+  $('settingsTab').classList.toggle('hidden', tab !== 'settings');
+  if (tab === 'settings') renderSettingsView();
+}
+
+/** SPA 換頁 crossfade（kit 規範：抽換主內容純淡入 .12s）。 */
+function spaFade() {
+  const mc = document.querySelector('.main-content');
+  mc.classList.remove('is-spa-entered');
+  void mc.offsetWidth;
+  mc.classList.add('is-spa-entered');
 }
 
 async function loadConfig() {
@@ -147,7 +152,6 @@ async function loadConfig() {
 async function saveConfig() {
   try {
     $('saveBtn').disabled = true;
-    $('saveBtn2').disabled = true;
     // 沒按過「展示此頁」就不送 activePage，機器維持目前顯示的頁面（伺服器沿用舊值）
     const payload = { ...state.config };
     if (!activePageTouched) delete payload.activePage;
@@ -159,9 +163,8 @@ async function saveConfig() {
   } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
 }
 $('saveBtn').addEventListener('click', saveConfig);
-$('saveBtn2').addEventListener('click', saveConfig);
 
-function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; $('saveBtn2').disabled = !v; }
+function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; }
 function setStatus(msg, isErr) {
   if (window.BToast) (isErr ? BToast.danger : BToast.success)(msg);
 }
@@ -208,7 +211,7 @@ function cellLabel(sel) {
 // ---------- 整體渲染 ----------
 function render() {
   renderTabs(); renderCanvas(); renderPanel();
-  if (!$('settingsView').classList.contains('hidden')) renderSettingsView();
+  if (!$('settingsTab').classList.contains('hidden')) renderSettingsView();
 }
 
 // ---------- 頁面分頁籤 ----------
@@ -1080,6 +1083,134 @@ function pickAndUpload(accept, onDone, beforeUpload) {
   input.click();
 }
 
+// ---------- 複製版面到其他機器 ----------
+// 語意＝一次性複製（蓋過目標機器的版面）；目標機器自己的客服帳號、休眠、
+// 展示頁與機器名都不動（伺服器 PUT 沒帶的欄位沿用舊值）。
+$('copyLayoutBtn').addEventListener('click', async () => {
+  if (!state) return;
+  let devices;
+  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
+  const targets = devices.filter((d) => d.DeviceId !== deviceId);
+  if (!targets.length) {
+    return BDialog.alert({ title: '沒有其他機器', desc: '目前帳號下只有這一台機器，沒有可複製的對象。' });
+  }
+  // 抓每台的螢幕方向：直橫互套會整個變形，要標警告
+  const src = state.config.screen;
+  const srcPortrait = !src || src.h >= src.w;
+  const infos = await Promise.all(targets.map(async (d) => {
+    try {
+      const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
+      const scr = cfg.config.screen;
+      return { d, portrait: !scr || scr.h >= scr.w };
+    } catch { return { d, portrait: srcPortrait }; }
+  }));
+  const picked = await pickDevicesDialog(infos, srcPortrait);
+  if (!picked || !picked.length) return;
+  let ok = 0;
+  const failed = [];
+  for (const d of picked) {
+    try {
+      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: state.config.pages } });
+      ok++;
+    } catch { failed.push(d.DeviceName || d.DeviceId); }
+  }
+  if (failed.length) setStatus(`已複製到 ${ok} 台；失敗：${failed.join('、')}`, true);
+  else setStatus(`已複製並發布到 ${ok} 台機器`);
+});
+
+/** 勾選目標機器的小對話框（BDialog 沒有多選，沿用 kit modal 樣式自建）。 */
+function pickDevicesDialog(infos, srcPortrait) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'b-modal-overlay';
+    overlay.setAttribute('data-modal-vue', '');   // 同 dialogs.js：別讓殼層 modal JS 接管
+    overlay.setAttribute('data-modal-anim', 'vue');
+    overlay.style.zIndex = '1600';
+
+    const modal = document.createElement('div');
+    modal.className = 'b-modal is-alert copy-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    const body = document.createElement('div');
+    body.className = 'b-alert-body';
+    const h = document.createElement('h2');
+    h.className = 'b-alert-title';
+    h.textContent = '複製版面到其他機器';
+    const p = document.createElement('p');
+    p.className = 'b-alert-desc';
+    p.textContent = '會以目前畫面上的版面（含未發布的修改）覆蓋所選機器並立即發布；各機器自己的客服帳號、休眠時段與展示頁不受影響。';
+    body.append(h, p);
+
+    const list = document.createElement('div');
+    list.className = 'copy-list';
+    const checks = [];
+    for (const { d, portrait } of infos) {
+      const label = document.createElement('label');
+      label.className = 'copy-item';
+      const c = document.createElement('input');
+      c.type = 'checkbox';
+      checks.push([c, d]);
+      const name = document.createElement('span');
+      name.textContent = d.DeviceName || d.DeviceId;
+      label.append(c, name);
+      if (portrait !== srcPortrait) {
+        const warn = document.createElement('span');
+        warn.className = 'copy-warn';
+        warn.textContent = '⚠ 螢幕方向不同';
+        label.appendChild(warn);
+      }
+      list.appendChild(label);
+    }
+    body.appendChild(list);
+
+    const foot = document.createElement('div');
+    foot.className = 'b-alert-foot';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'b-btn b-btn-quiet';
+    cancel.textContent = '取消';
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'b-btn b-btn-text';
+    okBtn.textContent = '複製並發布';
+    foot.append(cancel, okBtn);
+
+    modal.append(body, foot);
+    overlay.appendChild(modal);
+
+    let settled = false;
+    function close(value) {
+      if (settled) return;
+      settled = true;
+      overlay.classList.remove('is-open');
+      let removed = false;
+      const fin = (e) => {
+        if (removed || (e && e.target !== overlay)) return;
+        removed = true;
+        overlay.remove();
+        document.body.classList.remove('b-modal-lock');
+      };
+      overlay.addEventListener('transitionend', fin);
+      setTimeout(fin, 200);
+      resolve(value);
+    }
+    cancel.onclick = () => close(null);
+    okBtn.onclick = () => close(checks.filter(([c]) => c.checked).map(([, d]) => d));
+    overlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target === overlay) close(null);
+    });
+
+    document.body.appendChild(overlay);
+    document.body.classList.add('b-modal-lock');
+    // 兩段式淡入（同 dialogs.js）
+    overlay.classList.add('is-visible');
+    void overlay.offsetWidth;
+    overlay.classList.add('is-open');
+  });
+}
+
 // ---------- 智能客服清單（伺服器 proxy 代打 JustAI；瀏覽器直呼會被 CORS 擋） ----------
 let agentCache = { key: '', list: null, loading: false, error: '' };
 const agentKeyOf = (c) => `${c.baseUrl}|${c.email}|${c.password}`;
@@ -1121,14 +1252,9 @@ function ensureSleep() {
 }
 
 function renderSettingsView() {
-  const has = !!(state && state.config);
-  $('settingsEmpty').classList.toggle('hidden', has);
-  $('settingsBody').classList.toggle('hidden', !has);
-  const opt = $('deviceSelect').selectedOptions[0];
-  $('settingsDeviceName').textContent = has ? (opt ? opt.textContent : deviceId) : '—';
-  if (!has) return;
   const body = $('settingsBody');
   body.innerHTML = '';
+  if (!state || !state.config) return; // 機器還沒上傳過設定：版面頁籤已顯示空狀態
   body.appendChild(chatApiCard());
   body.appendChild(sleepCard());
   if (window.BDropdown) BDropdown.init(body);
@@ -1249,31 +1375,59 @@ function updateSleepTime(day, isStart, minutes, applyToAll) {
 
 // ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
 function switchView(view) {
-  const cur = document.querySelector('.sidebar .nav-item.active');
-  const changed = !cur || cur.dataset.view !== view;
   document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
   });
-  $('editorView').classList.toggle('hidden', view !== 'editor');
-  $('settingsView').classList.toggle('hidden', view !== 'settings');
+  $('workspaceView').classList.add('hidden'); // 工作區只能從機器總覽點列進入
   $('devicesView').classList.toggle('hidden', view !== 'devices');
   $('usersView').classList.toggle('hidden', view !== 'users');
-  // SPA 換頁 crossfade（kit 規範：抽換主內容純淡入 .12s）；同頁重點不重播
-  if (changed) {
-    const mc = document.querySelector('.main-content');
-    mc.classList.remove('is-spa-entered');
-    void mc.offsetWidth;   // 強制 reflow，讓動畫重觸發
-    mc.classList.add('is-spa-entered');
-  }
-  if (view === 'settings') renderSettingsView();
+  spaFade();
   if (view === 'devices') renderDevicesView();
   if (view === 'users') renderUsersView();
 }
 document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
-  b.addEventListener('click', () => switchView(b.dataset.view));
+  b.addEventListener('click', async () => {
+    // 從髒的工作區離開要先確認（confirmDiscard 不髒時直接放行）
+    if (!$('workspaceView').classList.contains('hidden')) {
+      if (!(await confirmDiscard())) return;
+      setDirty(false);
+      state = null;
+      selected = null;
+    }
+    switchView(b.dataset.view);
+  });
 });
 
-// ---------- 機器管理 ----------
+// ---------- 機器總覽（首頁列表） ----------
+/** 上線狀態文字：機器每 ~25 秒會回來掛長輪詢，60 秒內有露面就當在線。 */
+function statusCell(d) {
+  const td = document.createElement('td');
+  const dot = document.createElement('span');
+  const txt = document.createElement('span');
+  if (d.LastSeenAgoSec == null) {
+    dot.className = 'dev-dot off';
+    txt.className = 'device-id-dim';
+    txt.textContent = '—';
+  } else if (d.LastSeenAgoSec < 60) {
+    dot.className = 'dev-dot on';
+    txt.textContent = '在線';
+  } else {
+    dot.className = 'dev-dot off';
+    txt.className = 'device-id-dim';
+    txt.textContent = `離線 ${agoText(d.LastSeenAgoSec)}`;
+  }
+  td.append(dot, txt);
+  return td;
+}
+function agoText(sec) {
+  if (sec < 90) return `${Math.round(sec)} 秒`;
+  const m = sec / 60;
+  if (m < 90) return `${Math.round(m)} 分鐘`;
+  const h = m / 60;
+  if (h < 36) return `${Math.round(h)} 小時`;
+  return `${Math.round(h / 24)} 天`;
+}
+
 async function renderDevicesView() {
   const devices = await api('GET', '/api/devices');
   const users = meIsAdmin ? await api('GET', '/api/users') : [];
@@ -1282,11 +1436,13 @@ async function renderDevicesView() {
   tb.innerHTML = '';
   for (const d of devices) {
     const tr = document.createElement('tr');
+    tr.className = 'device-row';
     const updated = d.UpdatedAt ? new Date(d.UpdatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
     tr.innerHTML =
       `<td class="b-th">${d.DeviceName || d.DeviceId}</td>` +
       `<td class="device-id-dim">${d.DeviceId}</td>` +
       `<td class="num">第 ${d.Version} 版</td><td class="num">${updated}</td>`;
+    tr.appendChild(statusCell(d));
 
     const ownerTd = document.createElement('td');
     if (meIsAdmin) {
@@ -1311,7 +1467,11 @@ async function renderDevicesView() {
     tr.appendChild(ownerTd);
 
     const opTd = document.createElement('td');
-    opTd.style.textAlign = 'right';
+    opTd.className = 'device-ops';
+    const manage = document.createElement('button');
+    manage.className = 'b-btn'; manage.innerHTML = '<i data-lucide="pencil-ruler"></i>管理';
+    manage.onclick = () => enterWorkspace(d);
+    opTd.appendChild(manage);
     if (meIsAdmin) {
       const del = document.createElement('button');
       del.className = 'b-btn b-btn-danger-soft'; del.textContent = '刪除';   // 標準 36px，與同列下拉等高
@@ -1325,20 +1485,22 @@ async function renderDevicesView() {
         try {
           await api('DELETE', `/api/devices/${encodeURIComponent(d.DeviceId)}`);
           setStatus('已刪除');
-          const rest = await refreshDeviceSelect();
-          if (deviceId === d.DeviceId) {
-            deviceId = rest[0]?.DeviceId || '';
-            if (deviceId) loadConfig();
-          }
           renderDevicesView();
         } catch (e) { setStatus(e.message, true); }
       };
       opTd.appendChild(del);
     }
     tr.appendChild(opTd);
+
+    // 點整列＝進入工作區（避開下拉/按鈕等互動元素）
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('button, select, .b-dd, input, label')) return;
+      enterWorkspace(d);
+    });
     tb.appendChild(tr);
   }
   if (window.BDropdown) BDropdown.init(tb);
+  if (window.lucide) lucide.createIcons();
 }
 
 // ---------- 帳號管理 ----------
@@ -1389,7 +1551,7 @@ $('addUserForm').addEventListener('submit', async (e) => {
 // ---------- 自動同步：機器（或其他人）發布新版時，網頁 5 秒內自動載入 ----------
 setInterval(async () => {
   if (!token || !state || dirty || !deviceId) return;
-  if ($('editor').classList.contains('hidden')) return;
+  if ($('workspaceView').classList.contains('hidden')) return;
   try {
     const r = await api('GET', `/api/config/${encodeURIComponent(deviceId)}/version`);
     if (r.version === state.version) return;

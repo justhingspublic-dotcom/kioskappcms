@@ -90,14 +90,8 @@
 
     <nav class="sidebar" aria-label="後台選單">
       <div class="sidebar-nav">
-        <button type="button" class="menu-item nav-item active" data-view="editor">
-          <i data-lucide="layout-dashboard"></i><span class="menu-text">版面上架</span>
-        </button>
-        <button type="button" class="menu-item nav-item" data-view="settings">
-          <i data-lucide="sliders-horizontal"></i><span class="menu-text">機器設定</span>
-        </button>
-        <button type="button" class="menu-item nav-item" data-view="devices">
-          <i data-lucide="monitor"></i><span class="menu-text">機器管理</span>
+        <button type="button" class="menu-item nav-item active" data-view="devices">
+          <i data-lucide="monitor"></i><span class="menu-text">機器總覽</span>
         </button>
         <button type="button" class="menu-item nav-item hidden" data-view="users" id="usersNav">
           <i data-lucide="users"></i><span class="menu-text">帳號管理</span>
@@ -117,79 +111,73 @@
     <div class="sidebar-overlay" aria-hidden="true"></div>
 
     <main id="main-content" class="main-content" tabindex="-1">
-      <!-- 版面上架 -->
-      <div id="editorView">
+      <!-- 機器總覽（首頁）：列表選機器，點一列進入該機器的工作區 -->
+      <div id="devicesView">
         <div class="page-header">
-          <h1 class="page-title">版面上架</h1>
+          <h1 class="page-title">機器總覽</h1>
+        </div>
+        <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
+        <div class="b-tbl-scroll">
+          <table class="b-tbl" id="deviceTable">
+            <thead><tr><th>名稱</th><th>編號</th><th>版本</th><th>最後更新</th><th>狀態</th><th>屬於</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="table-note">點一列進入該機器的版面與設定。機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
+      </div>
+
+      <!-- 機器工作區：單一機器的〔版面｜機器設定〕，儲存並發布只影響這一台 -->
+      <div id="workspaceView" class="hidden">
+        <div class="page-header">
+          <div class="ws-title">
+            <button id="backBtn" class="b-btn ws-back" title="返回機器總覽"><i data-lucide="arrow-left"></i><span class="sr-only">返回</span></button>
+            <h1 class="page-title" id="wsDeviceName">—</h1>
+          </div>
           <div class="page-actions">
-            <!-- 機器選擇：只有這頁用得到，放頁面動作列（不放頂欄） -->
-            <label class="device-pick-label" for="deviceSelect">機器</label>
-            <select id="deviceSelect" class="b-select device-pick" title="選擇要管理的機器"></select>
             <button id="reloadBtn" class="b-btn"><i data-lucide="refresh-cw"></i>重新載入</button>
             <button id="saveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
           </div>
         </div>
 
-        <nav id="pageTabs" class="page-tabs"></nav>
-
-        <div id="emptyState" class="b-card hidden">
-          <div class="b-empty">
-            <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
-            <p class="b-empty-title">這台機器還沒有上傳過設定</p>
-            <p class="b-empty-sub">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
-          </div>
+        <div class="seg-row ws-tabs">
+          <button type="button" class="seg active" data-wstab="layout">版面</button>
+          <button type="button" class="seg" data-wstab="settings">機器設定</button>
         </div>
 
-        <div id="editor" class="editor hidden">
-          <div class="editor-body">
-            <div class="canvas-col">
-              <div id="canvas" class="canvas"></div>
-              <div class="canvas-actions">
-                <button id="addBlockBtn" class="b-btn b-btn-sm"><i data-lucide="plus"></i>新增大區塊</button>
-                <button id="showPageBtn" class="b-btn b-btn-sm"><i data-lucide="monitor-play"></i>在機器上展示此頁</button>
-              </div>
-              <p class="canvas-hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
+        <!-- 版面頁籤 -->
+        <div id="layoutTab">
+          <nav id="pageTabs" class="page-tabs"></nav>
+
+          <div id="emptyState" class="b-card hidden">
+            <div class="b-empty">
+              <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
+              <p class="b-empty-title">這台機器還沒有上傳過設定</p>
+              <p class="b-empty-sub">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
             </div>
-            <aside id="cellPanel" class="cell-panel b-card">
-              <p class="panel-placeholder">← 點左邊版面上的格子開始編輯</p>
-            </aside>
           </div>
-        </div>
-      </div>
 
-      <!-- 機器設定（每台機器的智能客服帳號、休眠時段；隨版面一起儲存發布） -->
-      <div id="settingsView" class="hidden">
-        <div class="page-header">
-          <h1 class="page-title">機器設定</h1>
-          <div class="page-actions">
-            <span class="device-pick-label">機器</span>
-            <span id="settingsDeviceName" class="device-pick-label">—</span>
-            <button id="saveBtn2" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
+          <div id="editor" class="editor hidden">
+            <div class="editor-body">
+              <div class="canvas-col">
+                <div id="canvas" class="canvas"></div>
+                <div class="canvas-actions">
+                  <button id="addBlockBtn" class="b-btn b-btn-sm"><i data-lucide="plus"></i>新增大區塊</button>
+                  <button id="showPageBtn" class="b-btn b-btn-sm"><i data-lucide="monitor-play"></i>在機器上展示此頁</button>
+                  <button id="copyLayoutBtn" class="b-btn b-btn-sm"><i data-lucide="copy"></i>複製版面到其他機器</button>
+                </div>
+                <p class="canvas-hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
+              </div>
+              <aside id="cellPanel" class="cell-panel b-card">
+                <p class="panel-placeholder">← 點左邊版面上的格子開始編輯</p>
+              </aside>
+            </div>
           </div>
         </div>
-        <div id="settingsEmpty" class="b-card hidden">
-          <div class="b-empty">
-            <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
-            <p class="b-empty-title">尚未載入機器設定</p>
-            <p class="b-empty-sub">請先在「版面上架」選擇機器；機器需開啟「雲端同步」。</p>
-          </div>
-        </div>
-        <div id="settingsBody" class="settings-body hidden"></div>
-      </div>
 
-      <!-- 機器管理 -->
-      <div id="devicesView" class="hidden">
-        <div class="page-header">
-          <h1 class="page-title">機器管理</h1>
+        <!-- 機器設定頁籤 -->
+        <div id="settingsTab" class="hidden">
+          <div id="settingsBody" class="settings-body"></div>
         </div>
-        <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
-        <div class="b-tbl-scroll">
-          <table class="b-tbl" id="deviceTable">
-            <thead><tr><th>名稱</th><th>編號</th><th>版本</th><th>最後更新</th><th>屬於</th><th></th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="table-note">機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
       </div>
 
       <!-- 帳號管理（限管理員） -->

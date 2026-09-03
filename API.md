@@ -16,7 +16,8 @@
 Body：`{ "password": "..." }` → `{ "token": "..." }`。密碼錯回 401。
 
 ### GET /api/devices（限管理網頁）
-→ `[ { "DeviceId": "...", "Version": 3, "UpdatedAt": "..." } ]`
+→ `[ { "DeviceId": "...", "DeviceName": "...", "Version": 3, "UpdatedAt": "...", "OwnerUserId": null, "OwnerName": null, "LastSeenAgoSec": 11 } ]`
+`LastSeenAgoSec`＝機器最後一次帶 Device Key 連線距今秒數（記憶體統計，伺服器重啟後歸 null，機器 25 秒內會再露面）；null＝重啟後尚未露面。網頁以 <60 秒視為在線。
 
 ### GET /api/config/{deviceId}/version
 → `{ "version": 3 }`（該機器沒設定過則 `0`）

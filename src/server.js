@@ -22,6 +22,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// 機器「最後露面時間」：帶 Device Key 的 config 請求（含掛 /wait）都算，
+// 供機器總覽顯示在線/離線。存記憶體即可——重啟後機器 25 秒內就會再露面。
+const deviceLastSeen = new Map(); // deviceId -> epoch ms
+app.use((req, _res, next) => {
+  if (isDevice(req)) {
+    const m = req.path.match(/^\/api\/config\/([^/]+)/);
+    if (m) deviceLastSeen.set(decodeURIComponent(m[1]), Date.now());
+  }
+  next();
+});
+
 // ---- 密碼雜湊（scrypt + 隨機 salt，格式 "salt:hash"）----
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -180,7 +191,12 @@ app.get('/api/devices', requireUser, async (req, res) => {
     sqlText += ' WHERE c.OwnerUserId = @me';
   }
   const r = await q.query(sqlText + ' ORDER BY c.DeviceId');
-  res.json(r.recordset);
+  res.json(r.recordset.map((row) => ({
+    ...row,
+    LastSeenAgoSec: deviceLastSeen.has(row.DeviceId)
+      ? Math.round((Date.now() - deviceLastSeen.get(row.DeviceId)) / 1000)
+      : null,
+  })));
 });
 
 // ---- 版本號 ----

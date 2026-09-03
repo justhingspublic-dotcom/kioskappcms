@@ -382,6 +382,40 @@ html:root[data-color-mode="dark"] {
 .sleep-row .sleep-day { width: 44px; flex: none; }
 .group input[type=time].b-input.sleep-time { width: 112px; flex: none; }
 
+/* ══════════════════ 機器總覽列表＋工作區 ══════════════════ */
+/* 列表整列可點進工作區 */
+.device-row { cursor: pointer; }
+.device-row:hover { background: var(--neutral-secondary-soft); }
+.device-row .device-ops { text-align: right; white-space: nowrap; }
+.device-row .device-ops .b-btn + .b-btn { margin-left: 8px; }
+/* 在線狀態小圓點 */
+.dev-dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-full); margin-right: 7px; vertical-align: 1px; }
+.dev-dot.on { background: var(--success, #2e9e5b); }
+.dev-dot.off { background: var(--border-default-medium); }
+
+/* 工作區 header：返回鈕＋機器名同一行；頁籤沿用 seg-row 造型 */
+.ws-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ws-back { flex: none; padding: 0 9px; }
+.ws-tabs { margin-bottom: 16px; }
+.ws-tabs .seg { min-width: 96px; }
+
+/* 複製版面對話框：kit modal 樣式＋勾選清單 */
+.copy-modal { width: min(420px, calc(100vw - 48px)); }
+.copy-modal .b-alert-title { text-align: left; }
+.copy-modal .b-alert-desc { text-align: left; }
+.copy-list {
+  margin-top: 12px; max-height: 40vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+}
+.copy-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: var(--radius-md); cursor: pointer;
+  font-size: 14px; color: var(--text-body);
+}
+.copy-item:hover { background: var(--neutral-secondary-soft); }
+.copy-item input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.copy-warn { margin-left: auto; font-size: 12px; color: var(--fg-warning, #b26a00); flex: none; }
+
 /* RWD */
 @media (max-width: 1100px) {
   .editor-body { flex-direction: column; }
