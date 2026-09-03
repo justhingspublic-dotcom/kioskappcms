@@ -70,7 +70,12 @@ $('loginForm').addEventListener('submit', async (e) => {
 
 $('logoutBtn').addEventListener('click', logout);
 $('reloadBtn').addEventListener('click', async () => { if (await confirmDiscard()) loadConfig(); });
-$('backBtn').addEventListener('click', exitWorkspace);
+$('wsCloseBtn').addEventListener('click', exitWorkspace);
+$('wsModal').addEventListener('click', (e) => { if (e.target === $('wsModal')) exitWorkspace(); });
+// Esc 關工作區（BDialog 開著時它會在 capture 階段攔掉 Esc，不會關到這層）
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('wsModal').classList.contains('is-visible')) exitWorkspace();
+});
 document.querySelectorAll('.ws-tabs .seg').forEach((b) => {
   b.addEventListener('click', () => showWsTab(b.dataset.wstab));
 });
@@ -95,13 +100,15 @@ async function enterMain() {
   switchView('devices'); // 首頁＝機器總覽列表，點一列進工作區
 }
 
-/** 從機器總覽點一列進入該機器的工作區（版面＋機器設定）。 */
+/** 從機器總覽點一列開啟該機器的工作區 modal（版面＋機器設定；tiri 開信件同款）。 */
 async function enterWorkspace(d) {
   deviceId = d.DeviceId;
   $('wsDeviceName').textContent = d.DeviceName || d.DeviceId;
-  $('devicesView').classList.add('hidden');
-  $('workspaceView').classList.remove('hidden');
-  spaFade();
+  $('wsDeviceSub').textContent = d.DeviceId;
+  const m = $('wsModal');
+  m.classList.remove('is-closing');
+  m.classList.add('is-visible');
+  document.body.classList.add('b-modal-lock');
   showWsTab('layout');
   await loadConfig();
 }
@@ -111,7 +118,22 @@ async function exitWorkspace() {
   setDirty(false);
   state = null;
   selected = null;
-  switchView('devices');
+  const m = $('wsModal');
+  m.classList.add('is-closing'); // 退場動畫（獨立 out keyframes；播完才真正隱藏）
+  let closed = false;
+  const fin = () => {
+    if (closed) return;
+    closed = true;
+    m.classList.remove('is-visible', 'is-closing');
+    document.body.classList.remove('b-modal-lock');
+    renderDevicesView(); // 版本/狀態可能變了，回列表重整
+  };
+  m.addEventListener('animationend', function h(e) {
+    if (e.target !== m) return;
+    m.removeEventListener('animationend', h);
+    fin();
+  });
+  setTimeout(fin, 250); // 後備：動畫被停用時仍會關閉
 }
 
 /** 工作區內的〔版面｜機器設定〕頁籤切換。 */
@@ -1104,22 +1126,33 @@ $('copyLayoutBtn').addEventListener('click', async () => {
       return { d, portrait: !scr || scr.h >= scr.w };
     } catch { return { d, portrait: srcPortrait }; }
   }));
-  const picked = await pickDevicesDialog(infos, srcPortrait);
+  const picked = await pickDevicesDialog({
+    title: '複製版面到其他機器',
+    desc: '會以目前畫面上的版面（含未發布的修改）覆蓋所選機器並立即發布；各機器自己的客服帳號、休眠時段與展示頁不受影響。',
+    confirmText: '複製並發布',
+    items: infos.map(({ d, portrait }) => ({ d, warn: portrait !== srcPortrait ? '⚠ 螢幕方向不同' : '' })),
+  });
   if (!picked || !picked.length) return;
+  await publishToDevices(picked, { pages: state.config.pages }, '複製');
+});
+
+/** 逐台 PUT 部分 config（伺服器淺合併，其他欄位不動）並回報結果。 */
+async function publishToDevices(targets, partialConfig, verb) {
   let ok = 0;
   const failed = [];
-  for (const d of picked) {
+  for (const d of targets) {
     try {
-      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: state.config.pages } });
+      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: partialConfig });
       ok++;
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
-  if (failed.length) setStatus(`已複製到 ${ok} 台；失敗：${failed.join('、')}`, true);
-  else setStatus(`已複製並發布到 ${ok} 台機器`);
-});
+  if (failed.length) setStatus(`已${verb}到 ${ok} 台；失敗：${failed.join('、')}`, true);
+  else setStatus(`已${verb}並發布到 ${ok} 台機器`);
+}
 
-/** 勾選目標機器的小對話框（BDialog 沒有多選，沿用 kit modal 樣式自建）。 */
-function pickDevicesDialog(infos, srcPortrait) {
+/** 勾選目標機器的小對話框（BDialog 沒有多選，沿用 kit modal 樣式自建）。
+ *  opts = { title, desc, confirmText, single, items: [{ d, warn }] } → resolve 選中的機器陣列或 null。 */
+function pickDevicesDialog(opts) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'b-modal-overlay';
@@ -1136,29 +1169,33 @@ function pickDevicesDialog(infos, srcPortrait) {
     body.className = 'b-alert-body';
     const h = document.createElement('h2');
     h.className = 'b-alert-title';
-    h.textContent = '複製版面到其他機器';
-    const p = document.createElement('p');
-    p.className = 'b-alert-desc';
-    p.textContent = '會以目前畫面上的版面（含未發布的修改）覆蓋所選機器並立即發布；各機器自己的客服帳號、休眠時段與展示頁不受影響。';
-    body.append(h, p);
+    h.textContent = opts.title;
+    body.appendChild(h);
+    if (opts.desc) {
+      const p = document.createElement('p');
+      p.className = 'b-alert-desc';
+      p.textContent = opts.desc;
+      body.appendChild(p);
+    }
 
     const list = document.createElement('div');
     list.className = 'copy-list';
     const checks = [];
-    for (const { d, portrait } of infos) {
+    for (const { d, warn } of opts.items) {
       const label = document.createElement('label');
       label.className = 'copy-item';
       const c = document.createElement('input');
-      c.type = 'checkbox';
+      c.type = opts.single ? 'radio' : 'checkbox';
+      if (opts.single) c.name = 'pick-device';
       checks.push([c, d]);
       const name = document.createElement('span');
       name.textContent = d.DeviceName || d.DeviceId;
       label.append(c, name);
-      if (portrait !== srcPortrait) {
-        const warn = document.createElement('span');
-        warn.className = 'copy-warn';
-        warn.textContent = '⚠ 螢幕方向不同';
-        label.appendChild(warn);
+      if (warn) {
+        const w = document.createElement('span');
+        w.className = 'copy-warn';
+        w.textContent = warn;
+        label.appendChild(w);
       }
       list.appendChild(label);
     }
@@ -1173,7 +1210,7 @@ function pickDevicesDialog(infos, srcPortrait) {
     const okBtn = document.createElement('button');
     okBtn.type = 'button';
     okBtn.className = 'b-btn b-btn-text';
-    okBtn.textContent = '複製並發布';
+    okBtn.textContent = opts.confirmText || '確定';
     foot.append(cancel, okBtn);
 
     modal.append(body, foot);
@@ -1242,21 +1279,23 @@ const DEFAULT_SLEEP_PERIOD = () => ({ start: 22 * 60, end: 8 * 60 }); // App Sle
 const minToTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const timeToMin = (t) => { const [h, m] = String(t || '0:0').split(':').map(Number); return ((h || 0) * 60 + (m || 0)) % 1440; };
 
-/** 沒同步過機器設定的舊 config 才建立欄位（只在使用者實際修改時呼叫，避免覆寫機器現值）。 */
-function ensureChatApi() {
-  return state.config.chatApi || (state.config.chatApi = { baseUrl: DEFAULT_CHAT_BASE, email: '', password: '' });
+/** 沒有欄位的物件才建立（只在使用者實際修改時呼叫，避免覆寫機器現值）。 */
+function ensureChatApi(cfg) {
+  return cfg.chatApi || (cfg.chatApi = { baseUrl: DEFAULT_CHAT_BASE, email: '', password: '' });
 }
-function ensureSleep() {
-  return state.config.sleep ||
-    (state.config.sleep = { enabled: false, sameEveryDay: false, experimentalSystemSleep: false, periods: [] });
+function ensureSleep(cfg) {
+  return cfg.sleep ||
+    (cfg.sleep = { enabled: false, sameEveryDay: false, experimentalSystemSleep: false, periods: [] });
 }
 
+/** 工作區「機器設定」頁籤：卡片繫到這台機器的 config。 */
 function renderSettingsView() {
   const body = $('settingsBody');
   body.innerHTML = '';
   if (!state || !state.config) return; // 機器還沒上傳過設定：版面頁籤已顯示空狀態
-  body.appendChild(chatApiCard());
-  body.appendChild(sleepCard());
+  const ctx = { cfg: state.config, markDirty: () => setDirty(true), rerender: renderSettingsView };
+  body.appendChild(chatApiCard(ctx));
+  body.appendChild(sleepCard(ctx));
   if (window.BDropdown) BDropdown.init(body);
 }
 
@@ -1278,54 +1317,54 @@ function settingsCard(title, subtitle, build) {
   return card;
 }
 
-function chatApiCard() {
+function chatApiCard(ctx) {
   return settingsCard('智能客服 API', '與機器上「設定 → 智能客服 API」相同；儲存發布後會同步到機器。', (g) => {
-    const c = state.config.chatApi;
+    const c = ctx.cfg.chatApi;
     g.appendChild(lbl('伺服器位址'));
     g.appendChild(txtInput(c ? c.baseUrl : DEFAULT_CHAT_BASE, DEFAULT_CHAT_BASE, (v) => {
-      ensureChatApi().baseUrl = v.trim(); setDirty(true);
+      ensureChatApi(ctx.cfg).baseUrl = v.trim(); ctx.markDirty();
     }, 'url'));
     g.appendChild(lbl('Email'));
     g.appendChild(txtInput(c ? c.email : '', 'JustAI 帳號 Email', (v) => {
-      ensureChatApi().email = v.trim(); setDirty(true);
+      ensureChatApi(ctx.cfg).email = v.trim(); ctx.markDirty();
     }));
     g.appendChild(lbl('密碼'));
     g.appendChild(txtInput(c ? c.password : '', 'JustAI 帳號密碼', (v) => {
-      ensureChatApi().password = v; setDirty(true);
+      ensureChatApi(ctx.cfg).password = v; ctx.markDirty();
     }, 'password'));
     const row = document.createElement('div');
     row.className = 'row';
-    row.appendChild(btn('測試連線並載入客服清單', testChatApi));
+    row.appendChild(btn('測試連線並載入客服清單', () => testChatApi(ctx.cfg)));
     g.appendChild(row);
   });
 }
 
-async function testChatApi() {
-  const c = chatApiConfigured();
-  if (!c) return setStatus('請先填妥伺服器位址、Email 與密碼', true);
+async function testChatApi(holder) {
+  const c = holder.chatApi;
+  if (!c || !c.baseUrl || !c.email || !c.password) return setStatus('請先填妥伺服器位址、Email 與密碼', true);
   try {
     const list = await api('POST', '/api/justai/agents', { baseUrl: c.baseUrl, email: c.email, password: c.password });
     agentCache = { key: agentKeyOf(c), list, loading: false, error: '' };
-    setStatus(`連線成功，載入 ${list.length} 個客服（可到版面上架的格子選用）`);
+    setStatus(`連線成功，載入 ${list.length} 個客服（可到機器版面的格子選用）`);
   } catch (e) { setStatus('連線失敗：' + e.message, true); }
 }
 
-function sleepCard() {
+function sleepCard(ctx) {
   return settingsCard('休眠時段', '休眠時停止播放並顯示黑畫面；儲存發布後同步到機器（機器按「開始展示」後套用）。', (g) => {
-    const s = state.config.sleep || { enabled: false, sameEveryDay: false, periods: [] };
+    const s = ctx.cfg.sleep || { enabled: false, sameEveryDay: false, periods: [] };
     g.appendChild(checkRow('啟用每週排程', !!s.enabled, (v) => {
-      ensureSleep().enabled = v; setDirty(true); renderSettingsView();
+      ensureSleep(ctx.cfg).enabled = v; ctx.markDirty(); ctx.rerender();
     }));
     g.appendChild(segRow([
       ['每日相同', !!s.sameEveryDay, () => {
-        const sl = ensureSleep();
+        const sl = ensureSleep(ctx.cfg);
         const first = (sl.periods || []).slice().sort((a, b) => a.day - b.day)[0];
         const p = first ? { start: first.start, end: first.end } : DEFAULT_SLEEP_PERIOD();
         sl.sameEveryDay = true;
         sl.periods = [1, 2, 3, 4, 5, 6, 7].map((d) => ({ day: d, start: p.start, end: p.end }));
-        setDirty(true); renderSettingsView();
+        ctx.markDirty(); ctx.rerender();
       }],
-      ['分星期設定', !s.sameEveryDay, () => { ensureSleep().sameEveryDay = false; setDirty(true); renderSettingsView(); }],
+      ['分星期設定', !s.sameEveryDay, () => { ensureSleep(ctx.cfg).sameEveryDay = false; ctx.markDirty(); ctx.rerender(); }],
     ]));
     const days = s.sameEveryDay ? [[1, '每日']] : SLEEP_DAY_LABELS;
     for (const [day, label] of days) {
@@ -1339,11 +1378,11 @@ function sleepCard() {
         const c = document.createElement('input');
         c.type = 'checkbox'; c.checked = !!period; c.title = '這一天要休眠';
         c.onchange = () => {
-          const sl = ensureSleep();
+          const sl = ensureSleep(ctx.cfg);
           sl.periods = sl.periods || [];
           if (c.checked) sl.periods.push({ day, ...DEFAULT_SLEEP_PERIOD() });
           else sl.periods = sl.periods.filter((p) => p.day !== day);
-          setDirty(true); renderSettingsView();
+          ctx.markDirty(); ctx.rerender();
         };
         row.appendChild(c);
       }
@@ -1352,7 +1391,7 @@ function sleepCard() {
           const t = document.createElement('input');
           t.type = 'time'; t.className = 'b-input sleep-time';
           t.value = minToTime(isStart ? period.start : period.end);
-          t.onchange = () => updateSleepTime(day, isStart, timeToMin(t.value), !!s.sameEveryDay);
+          t.onchange = () => updateSleepTime(ctx, day, isStart, timeToMin(t.value), !!s.sameEveryDay);
           return t;
         };
         row.appendChild(mkTime(true));
@@ -1365,12 +1404,163 @@ function sleepCard() {
   });
 }
 
-function updateSleepTime(day, isStart, minutes, applyToAll) {
-  const sl = ensureSleep();
+function updateSleepTime(ctx, day, isStart, minutes, applyToAll) {
+  const sl = ensureSleep(ctx.cfg);
   for (const p of sl.periods || []) {
     if (applyToAll || p.day === day) { if (isStart) p.start = minutes; else p.end = minutes; }
   }
-  setDirty(true); renderSettingsView();
+  ctx.markDirty(); ctx.rerender();
+}
+
+// ---------- 共用設定（折疊分區：版面設定／機器設定；「套用」＝逐台發布部分 config） ----------
+let shared = null;        // /api/shared-settings 的 settings 物件（登入帳號各一份）
+let sharedDirty = false;
+const sharedOpen = { layout: true, settings: true }; // 折疊開闔記憶
+
+function setSharedDirty(v) { sharedDirty = v; $('sharedSaveBtn').disabled = !v; }
+
+async function saveShared() {
+  try {
+    await api('PUT', '/api/shared-settings', { settings: shared || {} });
+    setSharedDirty(false);
+    setStatus('已儲存共用設定');
+    return true;
+  } catch (e) { setStatus('儲存失敗：' + e.message, true); return false; }
+}
+$('sharedSaveBtn').addEventListener('click', saveShared);
+
+/** 折疊卡：標題列點了開闔（chevron 旋轉），開著才渲染內容。 */
+function collapseSection(key, title, subtitle, build) {
+  const card = document.createElement('div');
+  card.className = 'b-card collapse-card' + (sharedOpen[key] ? ' open' : '');
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'collapse-head';
+  const t = document.createElement('span');
+  t.className = 'collapse-title';
+  t.textContent = title;
+  const s = document.createElement('span');
+  s.className = 'collapse-sub';
+  s.textContent = subtitle || '';
+  const caret = document.createElement('i');
+  caret.setAttribute('data-lucide', 'chevron-down');
+  caret.className = 'collapse-caret';
+  head.append(t, s, caret);
+  head.onclick = () => { sharedOpen[key] = !sharedOpen[key]; renderSharedView(); };
+  card.appendChild(head);
+  if (sharedOpen[key]) {
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'collapse-body';
+    build(bodyEl);
+    card.appendChild(bodyEl);
+  }
+  return card;
+}
+
+async function renderSharedView() {
+  const body = $('sharedBody');
+  if (shared === null) {
+    try { shared = (await api('GET', '/api/shared-settings')).settings || {}; }
+    catch (e) { return setStatus(String(e.message), true); }
+  }
+  body.innerHTML = '';
+  body.appendChild(collapseSection('layout', '版面設定', '共用版面：從一台機器匯入，再套用到多台', buildSharedLayout));
+  body.appendChild(collapseSection('settings', '機器設定', '客服帳號與休眠時段的共用範本', buildSharedSettings));
+  if (window.BDropdown) BDropdown.init(body);
+  if (window.lucide) lucide.createIcons();
+}
+
+function buildSharedLayout(el) {
+  const g = document.createElement('div');
+  g.className = 'group';
+  const info = hint(shared.pages
+    ? `已儲存共用版面：${shared.pages.length} 頁（來源：${shared.layoutFrom || '—'}` +
+      (shared.layoutImportedAt ? `，${new Date(shared.layoutImportedAt).toLocaleString('zh-TW', { hour12: false })} 匯入` : '') + '）。'
+    : '還沒有共用版面。先在某台機器的工作區把版面編好並發布，再從那台匯入進來。');
+  g.appendChild(info);
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.appendChild(btn('從機器匯入版面', importSharedLayout));
+  if (shared.pages) row.appendChild(btn('套用版面到機器', applySharedLayout));
+  g.appendChild(row);
+  el.appendChild(g);
+}
+
+async function importSharedLayout() {
+  let devices;
+  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
+  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器可匯入。' });
+  const picked = await pickDevicesDialog({
+    title: '從機器匯入版面',
+    desc: '把所選機器目前已發布的版面存成共用版面（會覆蓋原本的共用版面）。',
+    confirmText: '匯入',
+    single: true,
+    items: devices.map((d) => ({ d })),
+  });
+  if (!picked || !picked.length) return;
+  const d = picked[0];
+  try {
+    const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
+    shared.pages = cfg.config.pages;
+    shared.layoutScreen = cfg.config.screen || null;
+    shared.layoutFrom = d.DeviceName || d.DeviceId;
+    shared.layoutImportedAt = new Date().toISOString();
+    if (await saveShared()) renderSharedView();
+  } catch (e) { setStatus('匯入失敗：' + e.message, true); }
+}
+
+async function applySharedLayout() {
+  if (!shared.pages) return;
+  let devices;
+  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
+  const srcPortrait = !shared.layoutScreen || shared.layoutScreen.h >= shared.layoutScreen.w;
+  const infos = await Promise.all(devices.map(async (d) => {
+    try {
+      const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
+      const scr = cfg.config.screen;
+      return { d, warn: (!scr || scr.h >= scr.w) !== srcPortrait ? '⚠ 螢幕方向不同' : '' };
+    } catch { return { d, warn: '' }; }
+  }));
+  const picked = await pickDevicesDialog({
+    title: '套用共用版面到機器',
+    desc: '會以共用版面覆蓋所選機器的版面並立即發布；各機器自己的客服帳號、休眠時段與展示頁不受影響。',
+    confirmText: '套用並發布',
+    items: infos,
+  });
+  if (!picked || !picked.length) return;
+  await publishToDevices(picked, { pages: shared.pages }, '套用');
+}
+
+function buildSharedSettings(el) {
+  const wrap = document.createElement('div');
+  wrap.className = 'settings-body';
+  const ctx = { cfg: shared, markDirty: () => setSharedDirty(true), rerender: renderSharedView };
+  wrap.appendChild(chatApiCard(ctx));
+  wrap.appendChild(sleepCard(ctx));
+  el.appendChild(wrap);
+  const row = document.createElement('div');
+  row.className = 'row apply-row';
+  row.appendChild(btn('套用設定到機器', applySharedSettings));
+  el.appendChild(row);
+}
+
+async function applySharedSettings() {
+  if (!shared.chatApi && !shared.sleep) return setStatus('請先填寫共用的客服帳號或休眠時段', true);
+  if (sharedDirty && !(await saveShared())) return; // 先存檔，套用的內容＝存下來的內容
+  let devices;
+  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
+  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
+  const picked = await pickDevicesDialog({
+    title: '套用共用設定到機器',
+    desc: '會以共用的客服帳號與休眠時段覆蓋所選機器並立即發布；版面不受影響。',
+    confirmText: '套用並發布',
+    items: devices.map((d) => ({ d })),
+  });
+  if (!picked || !picked.length) return;
+  const partial = {};
+  if (shared.chatApi) partial.chatApi = shared.chatApi;
+  if (shared.sleep) partial.sleep = shared.sleep;
+  await publishToDevices(picked, partial, '套用');
 }
 
 // ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
@@ -1378,24 +1568,16 @@ function switchView(view) {
   document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
   });
-  $('workspaceView').classList.add('hidden'); // 工作區只能從機器總覽點列進入
   $('devicesView').classList.toggle('hidden', view !== 'devices');
+  $('sharedView').classList.toggle('hidden', view !== 'shared');
   $('usersView').classList.toggle('hidden', view !== 'users');
   spaFade();
   if (view === 'devices') renderDevicesView();
+  if (view === 'shared') renderSharedView();
   if (view === 'users') renderUsersView();
 }
 document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
-  b.addEventListener('click', async () => {
-    // 從髒的工作區離開要先確認（confirmDiscard 不髒時直接放行）
-    if (!$('workspaceView').classList.contains('hidden')) {
-      if (!(await confirmDiscard())) return;
-      setDirty(false);
-      state = null;
-      selected = null;
-    }
-    switchView(b.dataset.view);
-  });
+  b.addEventListener('click', () => switchView(b.dataset.view)); // 工作區是 modal，開著時側欄被遮罩擋住
 });
 
 // ---------- 機器總覽（首頁列表） ----------
@@ -1551,7 +1733,7 @@ $('addUserForm').addEventListener('submit', async (e) => {
 // ---------- 自動同步：機器（或其他人）發布新版時，網頁 5 秒內自動載入 ----------
 setInterval(async () => {
   if (!token || !state || dirty || !deviceId) return;
-  if ($('workspaceView').classList.contains('hidden')) return;
+  if (!$('wsModal').classList.contains('is-visible')) return;
   try {
     const r = await api('GET', `/api/config/${encodeURIComponent(deviceId)}/version`);
     if (r.version === state.version) return;

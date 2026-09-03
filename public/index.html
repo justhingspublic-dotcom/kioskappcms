@@ -93,6 +93,9 @@
         <button type="button" class="menu-item nav-item active" data-view="devices">
           <i data-lucide="monitor"></i><span class="menu-text">機器總覽</span>
         </button>
+        <button type="button" class="menu-item nav-item" data-view="shared">
+          <i data-lucide="layers"></i><span class="menu-text">共用設定</span>
+        </button>
         <button type="button" class="menu-item nav-item hidden" data-view="users" id="usersNav">
           <i data-lucide="users"></i><span class="menu-text">帳號管理</span>
         </button>
@@ -126,58 +129,16 @@
         <p class="table-note">點一列進入該機器的版面與設定。機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
       </div>
 
-      <!-- 機器工作區：單一機器的〔版面｜機器設定〕，儲存並發布只影響這一台 -->
-      <div id="workspaceView" class="hidden">
+      <!-- 共用設定：折疊分區（版面設定／機器設定），各自可套用到多台機器 -->
+      <div id="sharedView" class="hidden">
         <div class="page-header">
-          <div class="ws-title">
-            <button id="backBtn" class="b-btn ws-back" title="返回機器總覽"><i data-lucide="arrow-left"></i><span class="sr-only">返回</span></button>
-            <h1 class="page-title" id="wsDeviceName">—</h1>
-          </div>
+          <h1 class="page-title">共用設定</h1>
           <div class="page-actions">
-            <button id="reloadBtn" class="b-btn"><i data-lucide="refresh-cw"></i>重新載入</button>
-            <button id="saveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
+            <button id="sharedSaveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="save"></i>儲存共用設定</button>
           </div>
         </div>
-
-        <div class="seg-row ws-tabs">
-          <button type="button" class="seg active" data-wstab="layout">版面</button>
-          <button type="button" class="seg" data-wstab="settings">機器設定</button>
-        </div>
-
-        <!-- 版面頁籤 -->
-        <div id="layoutTab">
-          <nav id="pageTabs" class="page-tabs"></nav>
-
-          <div id="emptyState" class="b-card hidden">
-            <div class="b-empty">
-              <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
-              <p class="b-empty-title">這台機器還沒有上傳過設定</p>
-              <p class="b-empty-sub">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
-            </div>
-          </div>
-
-          <div id="editor" class="editor hidden">
-            <div class="editor-body">
-              <div class="canvas-col">
-                <div id="canvas" class="canvas"></div>
-                <div class="canvas-actions">
-                  <button id="addBlockBtn" class="b-btn b-btn-sm"><i data-lucide="plus"></i>新增大區塊</button>
-                  <button id="showPageBtn" class="b-btn b-btn-sm"><i data-lucide="monitor-play"></i>在機器上展示此頁</button>
-                  <button id="copyLayoutBtn" class="b-btn b-btn-sm"><i data-lucide="copy"></i>複製版面到其他機器</button>
-                </div>
-                <p class="canvas-hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
-              </div>
-              <aside id="cellPanel" class="cell-panel b-card">
-                <p class="panel-placeholder">← 點左邊版面上的格子開始編輯</p>
-              </aside>
-            </div>
-          </div>
-        </div>
-
-        <!-- 機器設定頁籤 -->
-        <div id="settingsTab" class="hidden">
-          <div id="settingsBody" class="settings-body"></div>
-        </div>
+        <div id="sharedBody"></div>
+        <p class="table-note">大部分機器用同一套版面或同一組設定時，在這裡維護一份、按各區的「套用到機器」勾選要更新的機器。個別機器要不同設定，到該機器工作區單獨調整——之後再套用共用設定會覆蓋回來。</p>
       </div>
 
       <!-- 帳號管理（限管理員） -->
@@ -204,6 +165,64 @@
         </div>
       </div>
     </main>
+
+    <!-- 機器工作區 modal（tiri 開啟信件同款）：單一機器的〔版面｜機器設定〕，儲存並發布只影響這一台 -->
+    <div class="b-modal-overlay" id="wsModal">
+      <div class="b-modal is-ws" role="dialog" aria-modal="true" aria-labelledby="wsDeviceName">
+        <div class="b-modal-head">
+          <div class="ws-head-info">
+            <h3 class="b-modal-title" id="wsDeviceName">—</h3>
+            <p class="b-modal-sub" id="wsDeviceSub"></p>
+          </div>
+          <div class="ws-head-actions">
+            <button id="reloadBtn" class="b-btn"><i data-lucide="refresh-cw"></i>重新載入</button>
+            <button id="saveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
+            <button type="button" class="b-modal-close" id="wsCloseBtn" aria-label="關閉"><i data-lucide="x"></i></button>
+          </div>
+        </div>
+        <div class="b-modal-body ws-body">
+          <div class="seg-row ws-tabs">
+            <button type="button" class="seg active" data-wstab="layout">版面</button>
+            <button type="button" class="seg" data-wstab="settings">機器設定</button>
+          </div>
+
+          <!-- 版面頁籤 -->
+          <div id="layoutTab">
+            <nav id="pageTabs" class="page-tabs"></nav>
+
+            <div id="emptyState" class="b-card hidden">
+              <div class="b-empty">
+                <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
+                <p class="b-empty-title">這台機器還沒有上傳過設定</p>
+                <p class="b-empty-sub">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
+              </div>
+            </div>
+
+            <div id="editor" class="editor hidden">
+              <div class="editor-body">
+                <div class="canvas-col">
+                  <div id="canvas" class="canvas"></div>
+                  <div class="canvas-actions">
+                    <button id="addBlockBtn" class="b-btn b-btn-sm"><i data-lucide="plus"></i>新增大區塊</button>
+                    <button id="showPageBtn" class="b-btn b-btn-sm"><i data-lucide="monitor-play"></i>在機器上展示此頁</button>
+                    <button id="copyLayoutBtn" class="b-btn b-btn-sm"><i data-lucide="copy"></i>複製版面到其他機器</button>
+                  </div>
+                  <p class="canvas-hint">拖曳格子之間的粗線可調整大小；點一下格子開始編輯。</p>
+                </div>
+                <aside id="cellPanel" class="cell-panel b-card">
+                  <p class="panel-placeholder">← 點左邊版面上的格子開始編輯</p>
+                </aside>
+              </div>
+            </div>
+          </div>
+
+          <!-- 機器設定頁籤 -->
+          <div id="settingsTab" class="hidden">
+            <div id="settingsBody" class="settings-body"></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/lucide@latest"></script>

@@ -399,6 +399,33 @@ html:root[data-color-mode="dark"] {
 .ws-tabs { margin-bottom: 16px; }
 .ws-tabs .seg { min-width: 96px; }
 
+/* 工作區 modal（tiri 開啟信件同款：kit 最寬 is-wide=640，這裡拉寬裝下畫布編輯器）。
+   開闔動畫照 tiri inbox modal 用 @keyframes 綁 display 切換瞬間（transition 版首開會跳終態）。 */
+.b-modal.is-ws { max-width: 1240px; width: calc(100vw - 48px); }
+#wsModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
+#wsModal.is-visible .b-modal { animation: ws-modal-in .15s ease-out both; }
+#wsModal.is-visible.is-closing { animation: ws-overlay-out .12s ease-in both; }
+#wsModal.is-visible.is-closing .b-modal { animation: none; }
+@keyframes ws-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ws-modal-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
+@keyframes ws-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+.ws-head-info { min-width: 0; }
+.ws-head-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* 共用設定：折疊卡（chevron 旋轉；內容開著才渲染） */
+.collapse-card { margin-bottom: 14px; }
+.collapse-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 18px; border: 0; background: transparent; cursor: pointer;
+  text-align: left; color: var(--text-body);
+}
+.collapse-title { font-size: 15px; font-weight: 700; flex: none; }
+.collapse-sub { font-size: 12.5px; color: var(--text-body-subtle); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collapse-caret { flex: none; color: var(--text-body-subtle); transition: transform .15s ease; }
+.collapse-card.open .collapse-caret { transform: rotate(180deg); }
+.collapse-body { padding: 4px 18px 18px; }
+.collapse-body .apply-row { margin-top: 14px; }
+
 /* 複製版面對話框：kit modal 樣式＋勾選清單 */
 .copy-modal { width: min(420px, calc(100vw - 48px)); }
 .copy-modal .b-alert-title { text-align: left; }

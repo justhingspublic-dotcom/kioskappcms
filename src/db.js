@@ -57,6 +57,12 @@ async function init() {
       ALTER TABLE dbo.KioskConfig ADD OwnerUserId NVARCHAR(64) NULL;
     IF COL_LENGTH('dbo.KioskConfig', 'DeviceName') IS NULL
       ALTER TABLE dbo.KioskConfig ADD DeviceName NVARCHAR(128) NULL;
+    IF OBJECT_ID('dbo.KioskSharedSettings') IS NULL
+    CREATE TABLE dbo.KioskSharedSettings (
+      UserId       NVARCHAR(64)  NOT NULL PRIMARY KEY,
+      SettingsJson NVARCHAR(MAX) NOT NULL,
+      UpdatedAt    DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
+    );
   `);
   return pool;
 }

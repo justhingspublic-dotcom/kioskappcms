@@ -264,24 +264,20 @@ app.put('/api/config/:deviceId', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'unauthorized' });
     if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: 'not your device' });
   }
-  const config = req.body?.config;
+  let config = req.body?.config;
   if (!config || typeof config !== 'object') {
     return res.status(400).json({ error: 'body must be { config: {...} }' });
   }
-  // 網頁「儲存並發布」不帶 activePage（只改內容不搶頁面）；沿用機器目前顯示的頁面。
-  // 只有「在機器上展示此頁」或機器自己上傳時才會帶 activePage。deviceName 同理：
-  // 沒帶就沿用舊值，避免舊版網頁存檔把名稱洗掉。chatApi / sleep（客服帳號、休眠排程）
-  // 也一樣：舊版 App 或網頁存檔沒帶這些欄位時沿用舊值。
-  if (config.activePage === undefined || config.deviceName === undefined ||
-      config.chatApi === undefined || config.sleep === undefined) {
+  // 部分更新語意：沒帶的頂層欄位一律沿用舊值（淺合併）。所以——
+  // 網頁「儲存並發布」不帶 activePage → 機器不跳頁；舊版存檔不帶 deviceName/chatApi/sleep
+  // → 不會洗掉；「複製版面」只帶 pages、「套用共用設定」只帶 chatApi+sleep → 其他都不動。
+  {
     const prev = await db.getPool().request()
       .input('id', db.sql.NVarChar(64), req.params.deviceId)
       .query('SELECT ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
     const prevParsed = prev.recordset[0] ? JSON.parse(prev.recordset[0].ConfigJson) : null;
-    if (config.activePage === undefined) config.activePage = prevParsed?.activePage ?? 0;
-    if (config.deviceName === undefined && prevParsed?.deviceName) config.deviceName = prevParsed.deviceName;
-    if (config.chatApi === undefined && prevParsed?.chatApi) config.chatApi = prevParsed.chatApi;
-    if (config.sleep === undefined && prevParsed?.sleep) config.sleep = prevParsed.sleep;
+    config = Object.assign({}, prevParsed || {}, config);
+    if (config.activePage === undefined) config.activePage = 0;
   }
   // 機器名同步不宜整筆退件 → 靜默剝掉編碼壞字（U+FFFD），剝完全空視同沒名稱
   const rawName =
@@ -302,6 +298,33 @@ app.put('/api/config/:deviceId', async (req, res) => {
   const version = r.recordset[0].Version;
   notifyWaiters(req.params.deviceId, version); // 立刻叫醒掛在 /wait 的機器
   res.json({ version });
+});
+
+// ---- 共用機器設定（每個登入帳號一份：客服帳號＋休眠排程的共用範本）----
+// 「套用到機器」由網頁端逐台 PUT config（沿用欄位保留機制），這裡只存範本本身。
+app.get('/api/shared-settings', requireUser, async (req, res) => {
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.user.userId)
+    .query('SELECT SettingsJson, UpdatedAt FROM dbo.KioskSharedSettings WHERE UserId = @id');
+  const row = r.recordset[0];
+  res.json(row ? { settings: JSON.parse(row.SettingsJson), updatedAt: row.UpdatedAt } : { settings: null });
+});
+
+app.put('/api/shared-settings', requireUser, async (req, res) => {
+  const settings = req.body?.settings;
+  if (!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'body must be { settings: {...} }' });
+  }
+  await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.user.userId)
+    .input('json', db.sql.NVarChar(db.sql.MAX), JSON.stringify(settings))
+    .query(`
+      MERGE dbo.KioskSharedSettings AS t
+      USING (SELECT @id AS UserId) AS s ON t.UserId = s.UserId
+      WHEN MATCHED THEN UPDATE SET SettingsJson = @json, UpdatedAt = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (UserId, SettingsJson) VALUES (@id, @json);
+    `);
+  res.json({ ok: true });
 });
 
 // ---- 智能客服（JustAI）代理：用機器設定裡的帳號拉客服清單 ----

@@ -29,6 +29,14 @@ kiosk 每 30–60 秒輪詢這支；版本比本機記錄的大才抓整份設�
 ### PUT /api/config/{deviceId}
 Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一次寫入為 1）
 網頁存檔用這支；kiosk 第一次連上、伺服器版本為 0 時，也用這支把本機設定上傳當初始值。
+**部分更新語意（淺合併）**：沒帶的頂層欄位一律沿用舊值。所以「複製/套用版面」只帶
+`pages`、「套用共用設定」只帶 `chatApi`+`sleep`、網頁存檔不帶 `activePage`（機器不跳頁）。
+
+### GET / PUT /api/shared-settings（限管理網頁，每個登入帳號一份）
+共用範本（版面＋客服帳號＋休眠排程）。GET → `{ "settings": {...}|null, "updatedAt" }`；
+PUT Body：`{ "settings": { "pages": [...], "layoutScreen": {...}, "layoutFrom": "...",
+"layoutImportedAt": "...", "chatApi": {...}, "sleep": {...} } }`（欄位皆可省略）。
+「套用到機器」不經伺服器特別處理——網頁端逐台 `PUT /api/config/{id}` 帶部分欄位即可。
 
 ### POST /api/upload（限管理網頁；multipart，欄位名 `file`，上限 500MB）
 → `{ "id": "...", "url": "/files/<檔名>" }`
