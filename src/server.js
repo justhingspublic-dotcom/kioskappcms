@@ -159,6 +159,20 @@ app.post('/api/users', requireAdmin, async (req, res) => {
   }
 });
 
+// 改帳號顯示名稱（2026-09-03：帳號管理「更名」）
+app.put('/api/users/:userId', requireAdmin, async (req, res) => {
+  const displayName = String(req.body?.displayName ?? '').trim();
+  if (/�/.test(displayName)) {
+    return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
+  }
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.params.userId)
+    .input('n', db.sql.NVarChar(128), displayName.slice(0, 128) || null)
+    .query('UPDATE dbo.KioskUser SET DisplayName = @n WHERE UserId = @id');
+  if (!r.rowsAffected[0]) return res.status(404).json({ error: '帳號不存在' });
+  res.json({ ok: true });
+});
+
 app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
   if (req.params.userId === req.user.userId) return res.status(400).json({ error: '不能刪除自己' });
   await db.getPool().request()

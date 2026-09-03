@@ -32,7 +32,7 @@
 /* 文字類按鈕 hover（2026-09-03 指示）＝字保持主題色＋「透明主題色」底（半透明 brand pill）；
    danger 文字鈕同型但紅系；quiet（取消）維持灰系不變主題色（半透明灰 pill）。 */
 .b-btn.b-btn-text:hover {
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  background: color-mix(in srgb, var(--brand) 7%, transparent); /* 12%→7%：user 嫌太深 */
   color: var(--fg-brand-strong);
 }
 .b-btn.b-btn-text.b-btn-text-danger:hover {
@@ -488,13 +488,88 @@ html:root[data-color-mode="dark"] {
 .device-id-dim { color: var(--text-body-subtle); }
 
 /* ══════════════════ 機器設定頁 ══════════════════ */
-/* 兩張卡並排（窄幕自動直排）；卡內欄位沿用面板 .group 規格 */
-.settings-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 480px)); gap: 16px; align-items: start; }
-.settings-card-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--text-body); }
+/* 兩張卡均分並排（tiri 郵件設定同款；窄幕直排），
+   卡＝b-card-head 標題列＋.settings-fields 雙欄欄位＋.settings-foot 左說明右動作 */
+.settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: stretch; }
+@media (max-width: 1100px) { .settings-body { grid-template-columns: 1fr; } }
+.settings-card { display: flex; flex-direction: column; }
+.settings-fields {
+  padding: 20px; display: grid; grid-template-columns: 1fr 1fr;
+  gap: 18px 20px; align-items: start;
+}
+.settings-fields .field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.settings-fields .field.full { grid-column: 1 / -1; }
+.settings-fields .field-title { font-size: 14px; color: var(--text-heading); }
+.settings-fields .field :is(.b-input, .b-select, .b-dd, .pw-wrap) { width: 100%; }
+.settings-fields .hint { font-size: 13px; color: var(--text-body-subtle); margin: 0; }
+.settings-fields label.row { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
+.settings-fields input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.settings-fields input[type=time].b-input.sleep-time { width: 112px; flex: none; }
+.settings-card .card-title-wrap { display: flex; align-items: center; gap: 4px; }
+.settings-foot {
+  margin-top: auto; padding: 6px 20px 18px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.settings-foot .b-btn { flex: none; margin-left: auto; } /* 只有動作鈕時也靠右 */
+.settings-foot .foot-link {
+  font-size: 13.5px; color: var(--text-body-subtle); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.settings-foot .foot-link :where(i, svg) { width: 14px; height: 14px; }
+.settings-foot .foot-link:hover { color: var(--fg-brand); }
+/* 密碼欄顯示/隱藏（tiri SMTP 同款眼睛鈕） */
+.pw-wrap { position: relative; }
+.pw-wrap .b-input { width: 100%; padding-right: 40px; }
+.pw-eye {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--text-body-subtle);
+  cursor: pointer; border-radius: var(--radius-sm); padding: 0;
+}
+.pw-eye:hover { color: var(--text-heading); }
+.pw-eye :where(i, svg) { width: 16px; height: 16px; }
 .group input[type=password].b-input, .group input[type=email].b-input { width: 100%; }
-.sleep-row { display: flex; gap: 10px; align-items: center; }
-.sleep-row .sleep-day { width: 44px; flex: none; }
-.group input[type=time].b-input.sleep-time { width: 112px; flex: none; }
+/* iOS 式開關（.b-switch＝checkbox 換皮；勾選語意不變）。
+   ⚠ 全站 squircle corner-shape 會把圓鈕壓成方形 → 開關與圓鈕都排除回 round。 */
+input[type=checkbox].b-switch {
+  -webkit-appearance: none; appearance: none;
+  width: 54px; height: 26px; border-radius: var(--radius-full);
+  background: var(--neutral-tertiary-medium); border: 0; margin: 0;
+  position: relative; cursor: pointer; flex: none;
+  transition: background .2s;
+}
+/* 滑鈕＝橫向膠囊（user 指定形狀，非正圓） */
+input[type=checkbox].b-switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 28px; height: 20px; border-radius: var(--radius-full);
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: left .2s cubic-bezier(.22, 1, .36, 1);
+}
+input[type=checkbox].b-switch:checked { background: var(--brand); }
+input[type=checkbox].b-switch:checked::after { left: 23px; }
+input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--brand-medium); }
+@supports (corner-shape: squircle) {
+  input[type=checkbox].b-switch, input[type=checkbox].b-switch::after { corner-shape: round; }
+}
+.switch-row { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
+/* 休眠卡＝固定 7 列清單（高度不跳動；點「編輯」跳單日 modal） */
+.sleep-list.is-off { opacity: .55; }
+.sleep-item { display: flex; align-items: center; gap: 12px; padding: 3px 0; }
+.sleep-item .sleep-day { width: 40px; flex: none; font-size: 13.5px; color: var(--text-heading); }
+.sleep-item .sleep-sum { flex: 1; font-size: 13.5px; color: var(--text-body); }
+.sleep-item .sleep-sum.is-none { color: var(--text-body-subtle); }
+/* 單日休眠 modal 內部 */
+.sleep-modal .sleep-edit-check {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 14px; font-size: 14px; color: var(--text-body); cursor: pointer;
+}
+.sleep-modal .sleep-edit-check input[type=checkbox]:not(.b-switch) { accent-color: var(--accent); width: 16px; height: 16px; }
+.sleep-modal .sleep-edit-times {
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px;
+}
+.sleep-modal .sleep-edit-times.is-off { opacity: .5; }
+.sleep-modal input[type=time].b-input.sleep-time { width: 132px; flex: none; } /* 中文時制「下午 10:00」要放得下 */
+.sleep-modal .sleep-edit-cross { margin-top: 10px; font-size: 12px; color: var(--text-body-subtle); }
 
 /* ══════════════════ 機器總覽列表＋工作區 ══════════════════ */
 /* 列＝純資訊（2026-09-03 指示）：不可點、不給 hover 反饋，入口只有「內容管理」鈕。
@@ -514,6 +589,9 @@ html:root[data-color-mode="dark"] {
 .layout-thumb .lt-cell { background-position: center; background-repeat: no-repeat; min-width: 0; min-height: 0; }
 .layout-thumb .lt-split { display: flex; flex-direction: column; gap: 1px; min-width: 0; min-height: 0; }
 .layout-thumb .lt-split.lt-vert { flex-direction: row; }
+/* 帳號管理：操作鈕（更名/刪除）靠最右；刪除＝全站統一紅字文字鈕（hover 透明紅底走 kit 規則） */
+#userTable .user-ops { text-align: right; white-space: nowrap; }
+#userTable .user-ops .b-btn + .b-btn { margin-left: 4px; }
 /* 在線狀態小圓點 */
 .dev-dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-full); margin-right: 7px; vertical-align: 1px; }
 .dev-dot.on { background: var(--success, #2e9e5b); }
@@ -574,7 +652,7 @@ html:root[data-color-mode="dark"] {
   color: var(--accent);
 }
 .ws-footer .b-btn:not(:disabled):hover {
-  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  background: color-mix(in srgb, var(--brand) 7%, transparent); /* 同文字鈕：12%→7% */
   color: var(--fg-brand-strong, var(--accent));
 }
 .ws-footer .b-btn:disabled {

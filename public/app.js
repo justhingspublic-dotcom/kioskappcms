@@ -48,7 +48,7 @@ function logout() {
   sessionStorage.removeItem('token');
   // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
   state = null; deviceId = ''; selected = null; setDirty(false);
-  shared = null; sharedLayoutId = 0; setSharedDirty(false);
+  shared = null; sharedLayoutId = 0; setSharedDirty(false); clearTimeout(sharedSaveTimer);
   agentCache = { key: '', list: null, loading: false, error: '' };
   const m = $('wsModal');
   m.classList.remove('is-visible', 'is-closing', 'is-shared-mode');
@@ -280,7 +280,7 @@ async function savePublish() {
     state.version = r.version;
     activePageTouched = false;
     setDirty(false);
-    setStatus(`已發布第 ${r.version} 版，機器將在一分鐘內更新`);
+    setStatus('已發布，機器將在一分鐘內更新'); // 不寫版號（2026-09-03 指示）
   } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
 }
 $('saveBtn').addEventListener('click', () => saveConfig());
@@ -1146,6 +1146,16 @@ function txtInput(value, placeholder, onChange, type = 'text') {
   i.addEventListener('input', () => onChange(i.value));
   return i;
 }
+/** iOS 式開關列（外觀走 CSS .b-switch，行為同 checkbox）。 */
+function switchRow(text, checked, onChange) {
+  const row = document.createElement('label');
+  row.className = 'row switch-row';
+  const c = document.createElement('input');
+  c.type = 'checkbox'; c.className = 'b-switch'; c.checked = checked;
+  c.addEventListener('change', () => onChange(c.checked));
+  row.append(c, document.createTextNode(text));
+  return row;
+}
 function checkRow(text, checked, onChange) {
   const row = document.createElement('label');
   row.className = 'row';
@@ -1454,45 +1464,104 @@ function renderSettingsView() {
   body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
   if (window.BDropdown) BDropdown.init(body);
+  if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
 }
 
-function settingsCard(title, subtitle, build) {
+/* 機器設定卡（2026-09-03 改版＝tiri 郵件設定同款解剖）：
+ * b-card-head 標題列（說明文字收進標題旁小問號 hover 展開）＋ .settings-fields 雙欄欄位區
+ * ＋ .settings-foot 動作列（沒內容就不佔位）。 */
+function settingsCard(title, helpLines, build) {
   const card = document.createElement('div');
   card.className = 'b-card settings-card';
-  const bodyEl = document.createElement('div');
-  bodyEl.className = 'b-card-body';
+  const head = document.createElement('div');
+  head.className = 'b-card-head';
+  const wrap = document.createElement('div');
+  wrap.className = 'card-title-wrap';
   const h = document.createElement('h3');
-  h.className = 'settings-card-title';
+  h.className = 'b-card-title';
   h.textContent = title;
-  bodyEl.appendChild(h);
+  wrap.appendChild(h);
+  if (helpLines && helpLines.length) {
+    const pop = document.createElement('div');
+    pop.className = 'b-pop page-help';
+    pop.innerHTML =
+      '<button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>' +
+      '<div class="b-pop-panel page-help-panel"><p class="b-pop-panel-title">說明</p>' +
+      helpLines.map((t) => `<p>${esc(t)}</p>`).join('') +
+      '</div>';
+    wrap.appendChild(pop);
+  }
+  head.appendChild(wrap);
+  card.appendChild(head);
   const g = document.createElement('div');
-  g.className = 'group'; // 沿用格子面板的欄位樣式規格
-  if (subtitle) g.appendChild(hint(subtitle));
-  build(g);
-  bodyEl.appendChild(g);
-  card.appendChild(bodyEl);
+  g.className = 'settings-fields';
+  card.appendChild(g);
+  const foot = document.createElement('div');
+  foot.className = 'settings-foot';
+  card.appendChild(foot);
+  build(g, foot);
+  if (!foot.childNodes.length) foot.remove();
   return card;
 }
 
+/** 一個欄位＝標題＋控件＋（可選）底下的說明字；full＝跨滿兩欄。 */
+function field(title, control, hintText, full) {
+  const f = document.createElement('div');
+  f.className = 'field' + (full ? ' full' : '');
+  const l = document.createElement('label');
+  l.className = 'field-title';
+  l.textContent = title;
+  f.append(l, control);
+  if (hintText) f.appendChild(hint(hintText));
+  return f;
+}
+
+/** 密碼欄＋顯示/隱藏切換（tiri SMTP 密碼欄同款眼睛鈕）。 */
+function pwInput(value, placeholder, onChange) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pw-wrap';
+  const i = txtInput(value, placeholder, onChange, 'password');
+  const eye = document.createElement('button');
+  eye.type = 'button'; eye.className = 'pw-eye'; eye.title = '顯示/隱藏密碼';
+  eye.innerHTML = '<i data-lucide="eye"></i>';
+  eye.onclick = () => {
+    const show = i.type === 'password';
+    i.type = show ? 'text' : 'password';
+    eye.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}"></i>`;
+    if (window.lucide) lucide.createIcons();
+  };
+  wrap.append(i, eye);
+  return wrap;
+}
+
 function chatApiCard(ctx) {
-  return settingsCard('智能客服 API', '與機器上「設定 → 智能客服 API」相同；儲存發布後會同步到機器。', (g) => {
+  return settingsCard('智能客服 API', ['與機器上「設定 → 智能客服 API」相同；儲存發布後同步到機器。'], (g, foot) => {
     const c = ctx.cfg.chatApi;
-    g.appendChild(lbl('伺服器位址'));
-    g.appendChild(txtInput(c ? c.baseUrl : DEFAULT_CHAT_BASE, DEFAULT_CHAT_BASE, (v) => {
-      ensureChatApi(ctx.cfg).baseUrl = v.trim(); ctx.markDirty();
-    }, 'url'));
-    g.appendChild(lbl('Email'));
-    g.appendChild(txtInput(c ? c.email : '', 'JustAI 帳號 Email', (v) => {
-      ensureChatApi(ctx.cfg).email = v.trim(); ctx.markDirty();
-    }));
-    g.appendChild(lbl('密碼'));
-    g.appendChild(txtInput(c ? c.password : '', 'JustAI 帳號密碼', (v) => {
-      ensureChatApi(ctx.cfg).password = v; ctx.markDirty();
-    }, 'password'));
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.appendChild(btn('測試連線並載入客服清單', () => testChatApi(ctx.cfg)));
-    g.appendChild(row);
+    g.appendChild(field('伺服器位址',
+      txtInput(c ? c.baseUrl : DEFAULT_CHAT_BASE, DEFAULT_CHAT_BASE, (v) => {
+        ensureChatApi(ctx.cfg).baseUrl = v.trim(); ctx.markDirty();
+      }, 'url'),
+      `預設為 ${DEFAULT_CHAT_BASE}`, true));
+    g.appendChild(field('Email',
+      txtInput(c ? c.email : '', 'JustAI 帳號 Email', (v) => {
+        ensureChatApi(ctx.cfg).email = v.trim(); ctx.markDirty();
+      })));
+    g.appendChild(field('密碼',
+      pwInput(c ? c.password : '', 'JustAI 帳號密碼', (v) => {
+        ensureChatApi(ctx.cfg).password = v; ctx.markDirty();
+      }),
+      c && c.password ? '已設定，重打即覆蓋' : ''));
+    // 左下＝申請帳號連結（另開分頁）；右下＝tiri 文字鈕（同對話框「建立」樣式）
+    const apply = document.createElement('a');
+    apply.className = 'foot-link';
+    apply.href = 'https://chat.justhings.ai/';
+    apply.target = '_blank';
+    apply.rel = 'noopener';
+    apply.innerHTML = '申請 JustAI 帳號<i data-lucide="external-link"></i>'; // 另開分頁 icon 放右側
+    foot.appendChild(apply);
+    const test = btn('測試連線並載入客服清單', () => testChatApi(ctx.cfg));
+    test.className = 'b-btn b-btn-text';
+    foot.appendChild(test);
   });
 }
 
@@ -1506,84 +1575,201 @@ async function testChatApi(holder) {
   } catch (e) { setStatus('連線失敗：' + e.message, true); }
 }
 
+/* 休眠卡（2026-09-03 再改版＝共用版面同邏輯）：卡片只放固定 7 列清單（高度不再跳動），
+ * 逐日的實際設定在「編輯」跳出的 modal 裡做；「每日相同」由 modal 的「套用到每天」取代。 */
 function sleepCard(ctx) {
-  return settingsCard('休眠時段', '休眠時停止播放並顯示黑畫面；儲存發布後同步到機器（機器按「開始展示」後套用）。', (g) => {
+  return settingsCard('休眠時段', [
+    '休眠時停止播放並顯示黑畫面；儲存發布後同步到機器（機器按「開始展示」後套用）。',
+    '時段的開始時間晚於結束時間＝跨午夜，結束時間為隔日。',
+  ], (g) => {
     const s = ctx.cfg.sleep || { enabled: false, sameEveryDay: false, periods: [] };
-    g.appendChild(checkRow('啟用每週排程', !!s.enabled, (v) => {
-      ensureSleep(ctx.cfg).enabled = v; ctx.markDirty(); ctx.rerender();
+    const top = document.createElement('div');
+    top.className = 'field full';
+    top.appendChild(switchRow('啟用排程', !!s.enabled, (v) => {
+      ensureSleep(ctx.cfg).enabled = v; ctx.markDirty();
+      setTimeout(ctx.rerender, 220); // 先讓開關滑完動畫再重繪（重繪會重建 DOM、瞬間跳到終點）
     }));
-    g.appendChild(segRow([
-      ['每日相同', !!s.sameEveryDay, () => {
-        const sl = ensureSleep(ctx.cfg);
-        const first = (sl.periods || []).slice().sort((a, b) => a.day - b.day)[0];
-        const p = first ? { start: first.start, end: first.end } : DEFAULT_SLEEP_PERIOD();
-        sl.sameEveryDay = true;
-        sl.periods = [1, 2, 3, 4, 5, 6, 7].map((d) => ({ day: d, start: p.start, end: p.end }));
-        ctx.markDirty(); ctx.rerender();
-      }],
-      ['分星期設定', !s.sameEveryDay, () => { ensureSleep(ctx.cfg).sameEveryDay = false; ctx.markDirty(); ctx.rerender(); }],
-    ]));
-    const days = s.sameEveryDay ? [[1, '每日']] : SLEEP_DAY_LABELS;
-    for (const [day, label] of days) {
+    g.appendChild(top);
+    const list = document.createElement('div');
+    list.className = 'field full sleep-list' + (s.enabled ? '' : ' is-off');
+    for (const [day, label] of SLEEP_DAY_LABELS) {
       const period = (s.periods || []).find((p) => p.day === day);
       const row = document.createElement('div');
-      row.className = 'sleep-row';
-      const name = lbl(label);
-      name.classList.add('sleep-day');
-      row.appendChild(name);
-      if (!s.sameEveryDay) {
-        const c = document.createElement('input');
-        c.type = 'checkbox'; c.checked = !!period; c.title = '這一天要休眠';
-        c.onchange = () => {
-          const sl = ensureSleep(ctx.cfg);
-          sl.periods = sl.periods || [];
-          if (c.checked) sl.periods.push({ day, ...DEFAULT_SLEEP_PERIOD() });
-          else sl.periods = sl.periods.filter((p) => p.day !== day);
-          ctx.markDirty(); ctx.rerender();
-        };
-        row.appendChild(c);
-      }
-      if (period) {
-        const mkTime = (isStart) => {
-          const t = document.createElement('input');
-          t.type = 'time'; t.className = 'b-input sleep-time';
-          t.value = minToTime(isStart ? period.start : period.end);
-          t.onchange = () => updateSleepTime(ctx, day, isStart, timeToMin(t.value), !!s.sameEveryDay);
-          return t;
-        };
-        row.appendChild(mkTime(true));
-        row.appendChild(document.createTextNode('～'));
-        row.appendChild(mkTime(false));
-      }
-      g.appendChild(row);
-      if (period && period.start >= period.end) g.appendChild(hint('跨午夜，結束時間為隔日。'));
+      row.className = 'sleep-item';
+      const name = document.createElement('span');
+      name.className = 'sleep-day';
+      name.textContent = label;
+      const sum = document.createElement('span');
+      sum.className = 'sleep-sum' + (period ? '' : ' is-none');
+      sum.textContent = period
+        ? `${minToTime(period.start)}～${minToTime(period.end)}${period.start >= period.end ? '（跨午夜）' : ''}`
+        : '不休眠';
+      const edit = document.createElement('button');
+      edit.className = 'b-btn b-btn-xs';
+      edit.textContent = '編輯';
+      edit.onclick = () => editSleepDay(ctx, day, label);
+      row.append(name, sum, edit);
+      list.appendChild(row);
     }
+    g.appendChild(list);
   });
 }
 
-function updateSleepTime(ctx, day, isStart, minutes, applyToAll) {
-  const sl = ensureSleep(ctx.cfg);
-  for (const p of sl.periods || []) {
-    if (applyToAll || p.day === day) { if (isStart) p.start = minutes; else p.end = minutes; }
+/** 逐日編輯入口：跳 modal 設定 → 存回這一天（或套用到每天）。 */
+async function editSleepDay(ctx, day, label) {
+  const cur = ((ctx.cfg.sleep && ctx.cfg.sleep.periods) || []).find((p) => p.day === day);
+  const r = await sleepDayDialog(label, cur ? { start: cur.start, end: cur.end } : null);
+  if (!r) return;
+  const s = ensureSleep(ctx.cfg);
+  s.periods = s.periods || [];
+  if (r.applyAll) {
+    s.sameEveryDay = true;
+    s.periods = r.period ? [1, 2, 3, 4, 5, 6, 7].map((d) => ({ day: d, ...r.period })) : [];
+  } else {
+    s.sameEveryDay = false;
+    s.periods = s.periods.filter((p) => p.day !== day);
+    if (r.period) s.periods.push({ day, ...r.period });
   }
   ctx.markDirty(); ctx.rerender();
+}
+
+/** 單日休眠設定 modal（殼照 pickDevicesDialog）。
+ *  resolve null＝取消；{ applyAll, period }，period=null＝這天不休眠。 */
+function sleepDayDialog(label, period) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'b-modal-overlay';
+    overlay.setAttribute('data-modal-vue', '');
+    overlay.setAttribute('data-modal-anim', 'vue');
+    overlay.style.zIndex = '1600';
+
+    const modal = document.createElement('div');
+    modal.className = 'b-modal is-alert sleep-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    const body = document.createElement('div');
+    body.className = 'b-alert-body';
+    const h = document.createElement('h2');
+    h.className = 'b-alert-title';
+    h.textContent = `${label}的休眠時段`;
+    body.appendChild(h);
+
+    let p = period ? { ...period } : null;
+
+    const chkRow = document.createElement('label');
+    chkRow.className = 'sleep-edit-check';
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className = 'b-switch'; chk.checked = !!p;
+    chkRow.append(chk, document.createTextNode('這一天要休眠'));
+    body.appendChild(chkRow);
+
+    const timeRow = document.createElement('div');
+    timeRow.className = 'sleep-edit-times';
+    const mkTime = (isStart) => {
+      const t = document.createElement('input');
+      t.type = 'time'; t.className = 'b-input sleep-time';
+      t.value = minToTime(p ? (isStart ? p.start : p.end) : (isStart ? DEFAULT_SLEEP_PERIOD().start : DEFAULT_SLEEP_PERIOD().end));
+      t.onchange = () => { if (!p) return; if (isStart) p.start = timeToMin(t.value); else p.end = timeToMin(t.value); sync(); };
+      return t;
+    };
+    const t1 = mkTime(true), t2 = mkTime(false);
+    timeRow.append(t1, document.createTextNode('～'), t2);
+    body.appendChild(timeRow);
+
+    const cross = hint('跨午夜：結束時間為隔日。');
+    cross.classList.add('sleep-edit-cross');
+    body.appendChild(cross);
+
+    const sync = () => {
+      t1.disabled = t2.disabled = !p;
+      timeRow.classList.toggle('is-off', !p);
+      cross.style.visibility = p && p.start >= p.end ? 'visible' : 'hidden';
+    };
+    chk.onchange = () => {
+      p = chk.checked ? { start: timeToMin(t1.value), end: timeToMin(t2.value) } : null;
+      sync();
+    };
+    sync();
+
+    const foot = document.createElement('div');
+    foot.className = 'b-alert-foot';
+    const mk = (cls, text) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = cls; b.textContent = text;
+      foot.appendChild(b);
+      return b;
+    };
+    const cancel = mk('b-btn b-btn-quiet', '取消');
+    const applyAll = mk('b-btn b-btn-text', '套用到每天');
+    const ok = mk('b-btn b-btn-text', '儲存');
+
+    modal.append(body, foot);
+    overlay.appendChild(modal);
+
+    let settled = false;
+    function close(value) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onEsc, true);
+      overlay.classList.remove('is-open');
+      let removed = false;
+      const fin = (e) => {
+        if (removed || (e && e.target !== overlay)) return;
+        removed = true;
+        overlay.remove();
+        document.body.classList.remove('b-modal-lock');
+      };
+      overlay.addEventListener('transitionend', fin);
+      setTimeout(fin, 200);
+      resolve(value);
+    }
+    function onEsc(e) {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      close(null);
+    }
+    document.addEventListener('keydown', onEsc, true);
+    cancel.onclick = () => close(null);
+    ok.onclick = () => close({ applyAll: false, period: p });
+    applyAll.onclick = () => close({ applyAll: true, period: p });
+    overlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target === overlay) close(null);
+    });
+
+    document.body.appendChild(overlay);
+    document.body.classList.add('b-modal-lock');
+    overlay.classList.add('is-visible');
+    void overlay.offsetWidth;
+    overlay.classList.add('is-open');
+  });
 }
 
 // ---------- 共用設定（側欄子選單兩頁：版面設定／機器設定；「套用」＝逐台發布部分 config） ----------
 let shared = null;        // /api/shared-settings 的 settings 物件（登入帳號各一份）
 let sharedDirty = false;
 
-function setSharedDirty(v) { sharedDirty = v; $('sharedSaveBtn').disabled = !v; }
+function setSharedDirty(v) { sharedDirty = v; }
 
-async function saveShared() {
+/** 機器設定＝自動儲存（2026-09-03 指示拿掉儲存鈕）：改動後防抖 800ms 寫回；成功安靜、失敗跳錯。 */
+let sharedSaveTimer = 0;
+function scheduleSharedSave() {
+  sharedDirty = true;
+  clearTimeout(sharedSaveTimer);
+  sharedSaveTimer = setTimeout(() => saveShared(true), 800);
+}
+
+async function saveShared(quiet) {
+  clearTimeout(sharedSaveTimer);
   try {
     await api('PUT', '/api/shared-settings', { settings: shared || {} });
     setSharedDirty(false);
-    setStatus('已儲存共用設定');
+    if (!quiet) setStatus('已儲存共用設定');
     return true;
   } catch (e) { setStatus('儲存失敗：' + e.message, true); return false; }
 }
-$('sharedSaveBtn').addEventListener('click', saveShared);
 $('addSharedLayoutBtn').addEventListener('click', () => addSharedLayout());
 $('applySharedSettingsBtn').addEventListener('click', () => applySharedSettings());
 
@@ -1676,7 +1862,7 @@ async function renderSharedLayoutView() {
     mkBtn('b-btn', '編輯', () => enterSharedLayoutEditor(layout));
     mkBtn('b-btn b-btn-primary', '加入機器', () => applySharedLayout(layout));
     mkBtn('b-btn', '更名', () => renameSharedLayout(layout));
-    mkBtn('b-btn b-btn-danger-soft', '刪除', () => deleteSharedLayout(layout));
+    mkBtn('b-btn b-btn-text b-btn-text-danger', '刪除', () => deleteSharedLayout(layout));
     tr.appendChild(opTd);
     // 列＝純資訊（同機器總覽 2026-09-03 指示）：不可點，入口只有操作鈕
     tb.appendChild(tr);
@@ -1819,15 +2005,16 @@ async function renderSharedSettingsView() {
   if (!(await ensureSharedLoaded())) return;
   const body = $('sharedBody');
   body.innerHTML = '';
-  const ctx = { cfg: shared, markDirty: () => setSharedDirty(true), rerender: renderSharedSettingsView };
+  const ctx = { cfg: shared, markDirty: scheduleSharedSave, rerender: renderSharedSettingsView };
   body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
   if (window.BDropdown) BDropdown.init(body);
+  if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
 }
 
 async function applySharedSettings() {
   if (!shared.chatApi && !shared.sleep) return setStatus('請先填寫共用的客服帳號或休眠時段', true);
-  if (sharedDirty && !(await saveShared())) return; // 先存檔，套用的內容＝存下來的內容
+  if (sharedDirty && !(await saveShared(true))) return; // 自動存檔還沒跑完就先 flush，套用的內容＝存下來的內容
   let devices;
   try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
   if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
@@ -1948,9 +2135,24 @@ async function renderUsersView() {
       `<td>${u.IsAdmin ? '<span class="b-badge brand">管理員</span>' : '<span class="b-badge neutral">一般</span>'}</td>` +
       `<td class="num">${u.DeviceCount}</td>`;
     const td = document.createElement('td');
+    td.className = 'user-ops'; // 靠最右（2026-09-03 指示）
+    const ren = document.createElement('button');
+    ren.className = 'b-btn b-btn-text';
+    ren.textContent = '更名';
+    ren.onclick = async () => {
+      const name = await BDialog.prompt({
+        title: `${u.Username} 的顯示名稱`, value: u.DisplayName || '',
+        placeholder: '顯示名稱（例：XX專案）', confirmText: '儲存',
+      });
+      if (name === null || name.trim() === (u.DisplayName || '')) return;
+      try { await api('PUT', `/api/users/${u.UserId}`, { displayName: name.trim() }); renderUsersView(); }
+      catch (e) { setStatus(e.message, true); }
+    };
+    td.appendChild(ren);
     if (!u.IsAdmin) {
       const del = document.createElement('button');
-      del.className = 'b-btn b-btn-danger-soft'; del.textContent = '刪除';   // 標準 36px，與機器管理表一致
+      // 危險動作標準式：紅字文字鈕、hover 透明紅底（全站刪除統一）
+      del.className = 'b-btn b-btn-text b-btn-text-danger'; del.textContent = '刪除';
       del.onclick = async () => {
         const ok = await BDialog.confirm({
           title: `刪除帳號 ${u.Username}？`, desc: '該帳號的機器會變回未分配。',
@@ -2024,7 +2226,7 @@ setInterval(async () => {
     pageIndex = Math.min(keepPage, state.config.pages.length - 1);
     selected = keepSel && getCell(keepSel) ? keepSel : null;
     render();
-    setStatus(`機器上有新修改，已自動載入（第 ${state.version} 版）`);
+    setStatus('機器上有新修改，已自動載入');
   } catch { /* 網路暫時異常就等下一輪 */ }
 }, 5000);
 

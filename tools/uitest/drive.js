@@ -113,7 +113,7 @@ function check(name, ok, extra) {
       const rows = [...document.querySelectorAll('#sharedLayoutTable tbody tr')];
       const row = rows.find((r) => r.querySelector('.b-th')?.textContent === 'uitest 版面');
       if (!row) return false;
-      row.querySelector('.b-btn-danger-soft').click();
+      row.querySelector('.b-btn-text-danger').click();
       return true;
     });
     check('清單出現新建版面', rowFound);
@@ -132,10 +132,17 @@ function check(name, ok, extra) {
     check('客服/休眠卡片渲染', await page.evaluate(() => document.querySelectorAll('#sharedBody .settings-card').length === 2));
     await shot('07-shared-settings');
 
-    // 改個欄位 → 儲存鈕亮起
-    await page.type('#sharedBody input[type=text]', 'test@example.com');
-    await sleep(200);
-    check('編輯後儲存鈕啟用', await page.evaluate(() => !document.querySelector('#sharedSaveBtn').disabled));
+    // 改個欄位 → 自動儲存（儲存鈕已移除；防抖 800ms 後 sharedDirty 應清空）
+    const prevEmail = await page.evaluate(() => document.querySelector('#sharedBody input[type=text]').value);
+    await page.type('#sharedBody input[type=text]', 'x');
+    await sleep(1500);
+    check('編輯後自動儲存', await page.evaluate(() => !sharedDirty));
+    await page.evaluate((v) => { // 還原測試造成的修改（自動儲存會真的寫回伺服器）
+      const i = document.querySelector('#sharedBody input[type=text]');
+      i.value = v;
+      i.dispatchEvent(new Event('input'));
+    }, prevEmail);
+    await sleep(1200);
 
     // ── 回機器總覽 → 開機器工作區 modal ──
     await page.click('[data-view="devices"]');
