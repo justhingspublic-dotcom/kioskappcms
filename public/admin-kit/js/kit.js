@@ -111,12 +111,16 @@
       var titleEl = btn.querySelector('.menu-text');
       f.innerHTML = '<div class="cms-flyout-title"></div>';
       f.querySelector('.cms-flyout-title').textContent = titleEl ? titleEl.textContent : '';
-      sub.querySelectorAll('a.menu-item').forEach(function (a) {
+      /* 原版只支援 <a>（tiri 連結導頁）；SPA 用 <button> 子項時把點擊委派回原按鈕 */
+      sub.querySelectorAll('a.menu-item, button.menu-item').forEach(function (src) {
         var item = document.createElement('a');
-        item.className = 'cms-flyout-item' + (a.classList.contains('active') ? ' active' : '');
-        item.href = a.getAttribute('href') || '#';
+        item.className = 'cms-flyout-item' + (src.classList.contains('active') ? ' active' : '');
+        item.href = src.getAttribute('href') || '#';
         item.innerHTML = '<span></span>';
-        item.querySelector('span').textContent = (a.textContent || '').trim();
+        item.querySelector('span').textContent = (src.textContent || '').trim();
+        item.addEventListener('click', function (ev) {
+          if (!src.getAttribute('href')) { ev.preventDefault(); src.click(); closeFlyout(); }
+        });
         f.appendChild(item);
       });
       var r = btn.getBoundingClientRect();
@@ -183,13 +187,29 @@
     }
     paintFs();
     if (fsBtn && fsPanel) {
+      // 開收動畫與帳號下拉同款（hdrUserIn 進場／反向退場）——規範：所有浮層開收都要有動畫
+      var fsLeaveTimer = null;
+      var setFsPanel = function (open) {
+        if (open === !fsPanel.hidden) return;
+        clearTimeout(fsLeaveTimer);
+        if (open) {
+          fsPanel.hidden = false;
+          fsPanel.classList.remove('hdr-user-leave-active');
+          fsPanel.classList.add('hdr-user-enter-active');
+        } else {
+          fsPanel.classList.remove('hdr-user-enter-active');
+          fsPanel.classList.add('hdr-user-leave-active');
+          fsLeaveTimer = setTimeout(function () { fsPanel.hidden = true; fsPanel.classList.remove('hdr-user-leave-active'); }, 140);
+        }
+        fsBtn.setAttribute('aria-expanded', String(open));
+      };
       fsBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        fsPanel.hidden = !fsPanel.hidden;
-        fsBtn.setAttribute('aria-expanded', String(!fsPanel.hidden));
+        setFsPanel(fsPanel.hidden);
       });
       fsPanel.addEventListener('click', function (e) { e.stopPropagation(); });
-      document.addEventListener('click', function () { fsPanel.hidden = true; });
+      document.addEventListener('click', function () { setFsPanel(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setFsPanel(false); });
     }
     if (fsRange) {
       fsRange.addEventListener('input', function () {
