@@ -12,6 +12,7 @@ let selected = null;      // { bi, sub: null|'a'|'b' }
 let dirty = false;
 let activePageTouched = false; // 只有按過「在機器上展示此頁」才隨儲存送出 activePage
 let meIsAdmin = false;
+let wsMode = 'device';    // 工作區 modal 模式：'device'＝編輯某台機器；'shared'＝編輯共用版面
 
 const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片' };
@@ -69,7 +70,10 @@ $('loginForm').addEventListener('submit', async (e) => {
 });
 
 $('logoutBtn').addEventListener('click', logout);
-$('reloadBtn').addEventListener('click', async () => { if (await confirmDiscard()) loadConfig(); });
+$('reloadBtn').addEventListener('click', async () => {
+  if (!(await confirmDiscard())) return;
+  if (wsMode === 'shared') resetSharedEditorState(); else loadConfig();
+});
 $('wsCloseBtn').addEventListener('click', exitWorkspace);
 $('wsModal').addEventListener('click', (e) => { if (e.target === $('wsModal')) exitWorkspace(); });
 // Esc 關工作區（BDialog 開著時它會在 capture 階段攔掉 Esc，不會關到這層）
@@ -100,17 +104,58 @@ async function enterMain() {
   switchView('devices'); // 首頁＝機器總覽列表，點一列進工作區
 }
 
-/** 從機器總覽點一列開啟該機器的工作區 modal（版面＋機器設定；tiri 開信件同款）。 */
-async function enterWorkspace(d) {
-  deviceId = d.DeviceId;
-  $('wsDeviceName').textContent = d.DeviceName || d.DeviceId;
-  $('wsDeviceSub').textContent = d.DeviceId;
+function openWsModal() {
   const m = $('wsModal');
+  m.classList.toggle('is-shared-mode', wsMode === 'shared');
   m.classList.remove('is-closing');
   m.classList.add('is-visible');
   document.body.classList.add('b-modal-lock');
+  $('saveBtn').innerHTML = wsMode === 'shared'
+    ? '<i data-lucide="save"></i>儲存共用版面'
+    : '<i data-lucide="cloud-upload"></i>儲存並發布';
+  if (window.lucide) lucide.createIcons();
   showWsTab('layout');
+}
+
+/** 從機器總覽點一列開啟該機器的工作區 modal（版面＋機器設定；tiri 開信件同款）。 */
+async function enterWorkspace(d) {
+  wsMode = 'device';
+  deviceId = d.DeviceId;
+  $('wsDeviceName').textContent = d.DeviceName || d.DeviceId;
+  $('wsDeviceSub').textContent = d.DeviceId;
+  openWsModal();
   await loadConfig();
+}
+
+/** 從共用設定開啟共用版面編輯：同一套畫布編輯器，掛在虛擬 state 上。 */
+function enterSharedLayoutEditor() {
+  wsMode = 'shared';
+  deviceId = '';
+  $('wsDeviceName').textContent = '共用版面';
+  $('wsDeviceSub').textContent = '編輯後儲存，再從共用設定「套用到機器」發布';
+  openWsModal();
+  resetSharedEditorState();
+}
+
+/** 共用版面 → 編輯器 state（deep copy，取消不汙染範本）；沒有範本就給一頁空版面。 */
+function resetSharedEditorState() {
+  state = {
+    version: 0,
+    config: {
+      pages: shared && shared.pages
+        ? JSON.parse(JSON.stringify(shared.pages))
+        : [{ id: 1, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] }],
+      activePage: 0,
+      screen: (shared && shared.layoutScreen) || { w: 1080, h: 1920 },
+    },
+  };
+  pageIndex = 0;
+  selected = null;
+  activePageTouched = false;
+  setDirty(false);
+  $('emptyState').classList.add('hidden');
+  $('editor').classList.remove('hidden');
+  render();
 }
 
 async function exitWorkspace() {
@@ -126,7 +171,8 @@ async function exitWorkspace() {
     closed = true;
     m.classList.remove('is-visible', 'is-closing');
     document.body.classList.remove('b-modal-lock');
-    renderDevicesView(); // 版本/狀態可能變了，回列表重整
+    if (wsMode === 'shared') renderSharedView(); // 範本狀態行要更新
+    else renderDevicesView(); // 版本/狀態可能變了，回列表重整
   };
   m.addEventListener('animationend', function h(e) {
     if (e.target !== m) return;
@@ -134,6 +180,24 @@ async function exitWorkspace() {
     fin();
   });
   setTimeout(fin, 250); // 後備：動畫被停用時仍會關閉
+}
+
+async function saveConfig() {
+  if (wsMode === 'shared') return saveSharedLayout();
+  return savePublish();
+}
+
+/** 共用版面：存回 shared 範本（不發布到任何機器）。 */
+async function saveSharedLayout() {
+  try {
+    $('saveBtn').disabled = true;
+    shared.pages = state.config.pages;
+    shared.layoutScreen = state.config.screen;
+    shared.layoutUpdatedAt = new Date().toISOString();
+    await api('PUT', '/api/shared-settings', { settings: shared });
+    setDirty(false);
+    setStatus('已儲存共用版面（到共用設定按「套用到機器」才會發布）');
+  } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
 }
 
 /** 工作區內的〔版面｜機器設定〕頁籤切換。 */
@@ -171,7 +235,8 @@ async function loadConfig() {
   }
 }
 
-async function saveConfig() {
+/** 機器模式的儲存並發布（共用版面模式另走 saveSharedLayout）。 */
+async function savePublish() {
   try {
     $('saveBtn').disabled = true;
     // 沒按過「展示此頁」就不送 activePage，機器維持目前顯示的頁面（伺服器沿用舊值）
@@ -184,7 +249,7 @@ async function saveConfig() {
     setStatus(`已發布第 ${r.version} 版，機器將在一分鐘內更新`);
   } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
 }
-$('saveBtn').addEventListener('click', saveConfig);
+$('saveBtn').addEventListener('click', () => saveConfig());
 
 function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; }
 function setStatus(msg, isErr) {
@@ -1252,9 +1317,11 @@ function pickDevicesDialog(opts) {
 let agentCache = { key: '', list: null, loading: false, error: '' };
 const agentKeyOf = (c) => `${c.baseUrl}|${c.email}|${c.password}`;
 
-/** 機器設定裡填妥的 JustAI 帳號；沒填齊回傳 null。 */
+/** 填妥的 JustAI 帳號（機器模式＝該機的設定；共用版面模式＝共用設定）；沒填齊回傳 null。 */
 function chatApiConfigured() {
-  const c = state && state.config && state.config.chatApi;
+  const c = wsMode === 'shared'
+    ? (shared && shared.chatApi)
+    : (state && state.config && state.config.chatApi);
   return c && c.baseUrl && c.email && c.password ? c : null;
 }
 
@@ -1415,7 +1482,7 @@ function updateSleepTime(ctx, day, isStart, minutes, applyToAll) {
 // ---------- 共用設定（折疊分區：版面設定／機器設定；「套用」＝逐台發布部分 config） ----------
 let shared = null;        // /api/shared-settings 的 settings 物件（登入帳號各一份）
 let sharedDirty = false;
-const sharedOpen = { layout: true, settings: true }; // 折疊開闔記憶
+const sharedOpen = { layout: false, settings: false }; // 折疊開闔：預設全收，一次只開一區
 
 function setSharedDirty(v) { sharedDirty = v; $('sharedSaveBtn').disabled = !v; }
 
@@ -1446,7 +1513,12 @@ function collapseSection(key, title, subtitle, build) {
   caret.setAttribute('data-lucide', 'chevron-down');
   caret.className = 'collapse-caret';
   head.append(t, s, caret);
-  head.onclick = () => { sharedOpen[key] = !sharedOpen[key]; renderSharedView(); };
+  head.onclick = () => {
+    const willOpen = !sharedOpen[key];
+    Object.keys(sharedOpen).forEach((k) => { sharedOpen[k] = false; }); // 手風琴：開一區收其他
+    sharedOpen[key] = willOpen;
+    renderSharedView();
+  };
   card.appendChild(head);
   if (sharedOpen[key]) {
     const bodyEl = document.createElement('div');
@@ -1474,39 +1546,17 @@ function buildSharedLayout(el) {
   const g = document.createElement('div');
   g.className = 'group';
   const info = hint(shared.pages
-    ? `已儲存共用版面：${shared.pages.length} 頁（來源：${shared.layoutFrom || '—'}` +
-      (shared.layoutImportedAt ? `，${new Date(shared.layoutImportedAt).toLocaleString('zh-TW', { hour12: false })} 匯入` : '') + '）。'
-    : '還沒有共用版面。先在某台機器的工作區把版面編好並發布，再從那台匯入進來。');
+    ? `共用版面：${shared.pages.length} 頁` +
+      (shared.layoutUpdatedAt ? `（${new Date(shared.layoutUpdatedAt).toLocaleString('zh-TW', { hour12: false })} 更新）` : '') +
+      '。機器上的現場修改不會影響這份版面。'
+    : '還沒有共用版面，點「編輯共用版面」開始設計。');
   g.appendChild(info);
   const row = document.createElement('div');
   row.className = 'row';
-  row.appendChild(btn('從機器匯入版面', importSharedLayout));
+  row.appendChild(btn('編輯共用版面', enterSharedLayoutEditor));
   if (shared.pages) row.appendChild(btn('套用版面到機器', applySharedLayout));
   g.appendChild(row);
   el.appendChild(g);
-}
-
-async function importSharedLayout() {
-  let devices;
-  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
-  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器可匯入。' });
-  const picked = await pickDevicesDialog({
-    title: '從機器匯入版面',
-    desc: '把所選機器目前已發布的版面存成共用版面（會覆蓋原本的共用版面）。',
-    confirmText: '匯入',
-    single: true,
-    items: devices.map((d) => ({ d })),
-  });
-  if (!picked || !picked.length) return;
-  const d = picked[0];
-  try {
-    const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
-    shared.pages = cfg.config.pages;
-    shared.layoutScreen = cfg.config.screen || null;
-    shared.layoutFrom = d.DeviceName || d.DeviceId;
-    shared.layoutImportedAt = new Date().toISOString();
-    if (await saveShared()) renderSharedView();
-  } catch (e) { setStatus('匯入失敗：' + e.message, true); }
 }
 
 async function applySharedLayout() {
