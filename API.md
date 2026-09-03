@@ -36,13 +36,28 @@ Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一
 ### GET /files/{檔名}
 下載檔案（公開；檔名為隨機 UUID）。kiosk 從這裡把圖片/影片抓回本機快取。
 
+### POST /api/justai/agents（限管理網頁）
+Body：`{ "baseUrl": "...", "email": "...", "password": "..." }`（即 config 裡的 `chatApi`）
+→ `[ { "id": "...", "name": "...", "description": "..." } ]`
+伺服器代打 JustAI（登入拿 token → `GET /api/agents`）；瀏覽器直呼會被 CORS 擋。
+帳密錯或連不上回 502 附中文錯誤訊息。
+
 ## config JSON 格式
 
-只同步「版面內容」，不含 PIN、chat 帳密、睡眠排程（那些留在機器本機）：
+同步「版面內容」＋「機器設定」（客服帳號 `chatApi`、休眠排程 `sleep`）。
+**PIN 與雲端同步連線設定仍留在機器本機**。PUT 時沒帶 `activePage`／`deviceName`／
+`chatApi`／`sleep` 的欄位，伺服器沿用舊值（避免舊版存檔把欄位洗掉）：
 
 ```json
 {
   "activePage": 0,
+  "deviceName": "一樓大廳",
+  "screen": { "w": 1080, "h": 1920 },
+  "chatApi": { "baseUrl": "https://chat-api.justhings.ai", "email": "...", "password": "..." },
+  "sleep": {
+    "enabled": true, "sameEveryDay": false, "experimentalSystemSleep": false,
+    "periods": [ { "day": 1, "start": 1320, "end": 480 } ]
+  },
   "pages": [
     {
       "id": 1, "name": "",
@@ -62,7 +77,11 @@ cell 欄位（與 App 的 `LayoutTree.kt` 序列化一致）：
 `bg`(Solid/Image)、`bgColor`(ARGB 十進位)、`bgImgs`(字串陣列)、`scale`(Crop/Fit)、`dur`(秒)、
 `content`(None/Marquee/Weather/Text/Web/Video)、`txtColor`、`mqSpeed`、`video`、`web`、`text`、
 `wAuto`/`wCounty`/`wDistrict`/`wDynBg`(天氣)、`tap`(None/OpenWeb/OpenAssistant)、`tapUrl`、
-`agentId`/`agentName`/`agentAccent`/`assistantLayout`(AI 客服)。
+`agentId`/`agentName`/`agentAccent`(ARGB 十進位，省略=自動)/`assistantLayout`(AI 客服)。
+
+`sleep` 欄位（與 App DataStore 的 `sleep_schedule_json` 同格式）：`periods[].day` 用
+java.time 慣例（1=週一 … 7=週日）、`start`/`end` 為凌晨起算的分鐘數（0–1439）；
+`start >= end` 代表跨午夜（隔日結束）。`sameEveryDay=true` 時 App 會把 7 天設成同一時段。
 
 **媒體欄位規則**：`bgImgs` 與 `video` 的值可能是
 - `content://…` 或 `file://…`：機器本機檔案（現場用 SAF 選的），網頁端顯示為「機器本機圖片」，無法預覽

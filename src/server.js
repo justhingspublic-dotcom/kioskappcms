@@ -121,6 +121,10 @@ app.get('/api/users', requireAdmin, async (_req, res) => {
 app.post('/api/users', requireAdmin, async (req, res) => {
   const { username, password, displayName, isAdmin } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: '帳號與密碼必填' });
+  // U+FFFD＝上游編碼壞掉的替換字元（如用非 UTF-8 terminal 打 API），擋下避免存進壞資料
+  if (/�/.test(String(username) + String(displayName || ''))) {
+    return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
+  }
   try {
     const id = crypto.randomUUID().replace(/-/g, '');
     await db.getPool().request()
@@ -250,17 +254,23 @@ app.put('/api/config/:deviceId', async (req, res) => {
   }
   // 網頁「儲存並發布」不帶 activePage（只改內容不搶頁面）；沿用機器目前顯示的頁面。
   // 只有「在機器上展示此頁」或機器自己上傳時才會帶 activePage。deviceName 同理：
-  // 沒帶就沿用舊值，避免舊版網頁存檔把名稱洗掉。
-  if (config.activePage === undefined || config.deviceName === undefined) {
+  // 沒帶就沿用舊值，避免舊版網頁存檔把名稱洗掉。chatApi / sleep（客服帳號、休眠排程）
+  // 也一樣：舊版 App 或網頁存檔沒帶這些欄位時沿用舊值。
+  if (config.activePage === undefined || config.deviceName === undefined ||
+      config.chatApi === undefined || config.sleep === undefined) {
     const prev = await db.getPool().request()
       .input('id', db.sql.NVarChar(64), req.params.deviceId)
       .query('SELECT ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
     const prevParsed = prev.recordset[0] ? JSON.parse(prev.recordset[0].ConfigJson) : null;
     if (config.activePage === undefined) config.activePage = prevParsed?.activePage ?? 0;
     if (config.deviceName === undefined && prevParsed?.deviceName) config.deviceName = prevParsed.deviceName;
+    if (config.chatApi === undefined && prevParsed?.chatApi) config.chatApi = prevParsed.chatApi;
+    if (config.sleep === undefined && prevParsed?.sleep) config.sleep = prevParsed.sleep;
   }
-  const deviceName =
-    typeof config.deviceName === 'string' && config.deviceName.trim() ? config.deviceName.trim().slice(0, 128) : null;
+  // 機器名同步不宜整筆退件 → 靜默剝掉編碼壞字（U+FFFD），剝完全空視同沒名稱
+  const rawName =
+    typeof config.deviceName === 'string' ? config.deviceName.replace(/�/g, '').trim() : '';
+  const deviceName = rawName ? rawName.slice(0, 128) : null;
   const json = JSON.stringify(config);
   const r = await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.deviceId)
@@ -276,6 +286,34 @@ app.put('/api/config/:deviceId', async (req, res) => {
   const version = r.recordset[0].Version;
   notifyWaiters(req.params.deviceId, version); // 立刻叫醒掛在 /wait 的機器
   res.json({ version });
+});
+
+// ---- 智能客服（JustAI）代理：用機器設定裡的帳號拉客服清單 ----
+// 瀏覽器直呼 JustAI 會被 CORS 擋，且帳密已存在 config 裡，由伺服器代打最單純。
+app.post('/api/justai/agents', requireUser, async (req, res) => {
+  const { baseUrl, email, password } = req.body || {};
+  if (!baseUrl || !email || !password) {
+    return res.status(400).json({ error: '請先在「機器設定」填妥智能客服 API 帳號' });
+  }
+  const root = String(baseUrl).trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(root)) return res.status(400).json({ error: '伺服器位址格式不正確' });
+  try {
+    const login = await fetch(root + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!login.ok) return res.status(502).json({ error: '智能客服登入失敗，請檢查帳號密碼' });
+    const jt = (await login.json()).token;
+    const r = await fetch(root + '/api/agents', { headers: { Authorization: 'Bearer ' + jt } });
+    if (!r.ok) return res.status(502).json({ error: `取得客服清單失敗（HTTP ${r.status}）` });
+    const arr = await r.json();
+    res.json((Array.isArray(arr) ? arr : []).map((a) => ({
+      id: a.id, name: a.name || '', description: a.description || '',
+    })));
+  } catch (e) {
+    res.status(502).json({ error: '無法連線智能客服平台：' + e.message });
+  }
 });
 
 // ---- 圖片/影片上傳（任何登入帳號皆可；檔名隨機 UUID）----

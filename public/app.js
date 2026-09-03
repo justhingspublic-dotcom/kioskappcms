@@ -17,6 +17,9 @@ const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片' };
 const BG_SWATCHES = ['FF263238','FF37474F','FF1B5E20','FF2E6A43','FF0D47A1','FF4A148C','FFB71C1C','FFF57F17','FF00838F','FF5D4037','FF000000','FFFFFFFF'].map(h => parseInt(h, 16));
 const TXT_SWATCHES = ['FFFFFFFF','FF000000','FFFFEB3B','FFFF9800','FFFF5252','FF69F0AE','FF40C4FF','FFE040FB','FFFFC107','FF80CBC4'].map(h => parseInt(h, 16));
+// App AccentSwatches 同一組（客服聊天頁主題色；null = 預設綠）
+const ACCENT_SWATCHES = ['FF2E6A43','FF1565C0','FF00695C','FF6A1B9A','FFAD1457','FFC62828','FFEF6C00','FF37474F'].map(h => parseInt(h, 16));
+const DEFAULT_CHAT_BASE = 'https://chat-api.justhings.ai'; // App ChatApiConfig.DEFAULT_BASE_URL
 
 const DEFAULT_CELL = () => ({
   t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8,
@@ -42,6 +45,9 @@ function logout() { token = ''; sessionStorage.removeItem('token'); showLogin();
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  // 登入鈕填色動畫（tiri 版）：送出=慢速填 55%、成功=快速補滿再進場、失敗=縮回
+  const btn = e.target.querySelector('.btn-login');
+  btn.classList.add('is-loading');
   try {
     const r = await fetch('/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -51,8 +57,15 @@ $('loginForm').addEventListener('submit', async (e) => {
     token = (await r.json()).token;
     sessionStorage.setItem('token', token);
     $('loginError').classList.add('hidden');
+    btn.classList.remove('is-loading');
+    btn.classList.add('is-success');
+    await new Promise((res) => setTimeout(res, 320));   // 等填滿（.3s）再切主畫面
     await enterMain();
-  } catch { $('loginError').classList.remove('hidden'); }
+    btn.classList.remove('is-success');                 // 還原，登出再進來是乾淨狀態
+  } catch {
+    btn.classList.remove('is-loading');
+    $('loginError').classList.remove('hidden');
+  }
 });
 
 $('logoutBtn').addEventListener('click', logout);
@@ -81,6 +94,7 @@ async function enterMain() {
   const me = await api('GET', '/api/me');
   $('whoami').textContent = me.username;
   $('whoamiMenu').textContent = me.username;
+  $('whoamiSub').textContent = me.isAdmin ? '管理員' : '一般帳號';
   meIsAdmin = !!me.isAdmin;
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
   const devices = await refreshDeviceSelect();
@@ -130,9 +144,10 @@ async function loadConfig() {
   }
 }
 
-$('saveBtn').addEventListener('click', async () => {
+async function saveConfig() {
   try {
     $('saveBtn').disabled = true;
+    $('saveBtn2').disabled = true;
     // 沒按過「展示此頁」就不送 activePage，機器維持目前顯示的頁面（伺服器沿用舊值）
     const payload = { ...state.config };
     if (!activePageTouched) delete payload.activePage;
@@ -142,9 +157,11 @@ $('saveBtn').addEventListener('click', async () => {
     setDirty(false);
     setStatus(`已發布第 ${r.version} 版，機器將在一分鐘內更新`);
   } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
-});
+}
+$('saveBtn').addEventListener('click', saveConfig);
+$('saveBtn2').addEventListener('click', saveConfig);
 
-function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; }
+function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; $('saveBtn2').disabled = !v; }
 function setStatus(msg, isErr) {
   if (window.BToast) (isErr ? BToast.danger : BToast.success)(msg);
 }
@@ -189,7 +206,10 @@ function cellLabel(sel) {
 }
 
 // ---------- 整體渲染 ----------
-function render() { renderTabs(); renderCanvas(); renderPanel(); }
+function render() {
+  renderTabs(); renderCanvas(); renderPanel();
+  if (!$('settingsView').classList.contains('hidden')) renderSettingsView();
+}
 
 // ---------- 頁面分頁籤 ----------
 function renderTabs() {
@@ -834,11 +854,41 @@ function renderPanel() {
       g.appendChild(txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
     }
     if (cell.tap === 'OpenAssistant') {
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.appendChild(txtInput(cell.agentId, '客服 Agent ID', (v) => { cell.agentId = v; touch(); }));
-      row.appendChild(txtInput(cell.agentName, '客服名稱', (v) => { cell.agentName = v; touch(); }));
-      g.appendChild(row);
+      // 從清單選擇客服（與 App 的 AgentPickerField 相同）：用機器設定裡的 JustAI 帳號拉清單
+      const cApi = chatApiConfigured();
+      if (!cApi) {
+        g.appendChild(hint('要從清單選擇客服，請先到左側「機器設定」填寫智能客服 API 帳號。'));
+      } else {
+        if (agentCache.key !== agentKeyOf(cApi)) fetchAgents(); // 帳號變過或還沒載入
+        if (agentCache.loading) {
+          g.appendChild(hint('載入客服清單中…'));
+        } else if (agentCache.error) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.appendChild(hint('客服清單載入失敗：' + agentCache.error));
+          row.appendChild(btn('重試', () => { fetchAgents(true); renderPanel(); }));
+          g.appendChild(row);
+        } else if (agentCache.list) {
+          const opts = [['', '（從清單選擇…）']];
+          for (const a of agentCache.list) opts.push([a.id, a.name || a.id]);
+          // 目前設定的 id 不在清單裡（手貼的）也顯示出來，避免看起來像沒選
+          if (cell.agentId && !agentCache.list.some((a) => a.id === cell.agentId)) {
+            opts.push([cell.agentId, cell.agentName || cell.agentId]);
+          }
+          g.appendChild(lbl('客服'));
+          g.appendChild(selInput(opts, cell.agentId || '', (v) => {
+            const hit = agentCache.list.find((a) => a.id === v);
+            cell.agentId = v;
+            if (hit) cell.agentName = hit.name;
+            else if (!v) cell.agentName = '';
+            touch(); renderPanel();
+          }));
+        }
+      }
+      g.appendChild(txtInput(cell.agentId, '或直接貼上 Agent ID', (v) => {
+        cell.agentId = v.trim(); cell.agentName = ''; touch();
+      }));
+      g.appendChild(hint('JustAI 後台網址 chat.justhings.ai/agents/〔這一段〕/edit 就是 ID。'));
       const row2 = document.createElement('div');
       row2.className = 'row';
       row2.appendChild(lbl('介面'));
@@ -847,7 +897,12 @@ function renderPanel() {
         cell.assistantLayout || 'Kiosk', (v) => { cell.assistantLayout = v; touch(); },
       ));
       g.appendChild(row2);
-      g.appendChild(hint('Agent ID 需與智能客服平台上的客服一致（可在機器上的編輯器選好後同步上來）。'));
+      g.appendChild(lbl('客服主題色'));
+      g.appendChild(hint('此格開啟的聊天頁主色（頭像、按鈕、游標）。「自動」使用預設綠色。'));
+      g.appendChild(swatchRow(ACCENT_SWATCHES, cell.agentAccent, true, (v) => {
+        if (v === null) delete cell.agentAccent; else cell.agentAccent = v;
+        touch(); renderPanel();
+      }));
     }
   }));
 
@@ -1025,14 +1080,192 @@ function pickAndUpload(accept, onDone, beforeUpload) {
   input.click();
 }
 
+// ---------- 智能客服清單（伺服器 proxy 代打 JustAI；瀏覽器直呼會被 CORS 擋） ----------
+let agentCache = { key: '', list: null, loading: false, error: '' };
+const agentKeyOf = (c) => `${c.baseUrl}|${c.email}|${c.password}`;
+
+/** 機器設定裡填妥的 JustAI 帳號；沒填齊回傳 null。 */
+function chatApiConfigured() {
+  const c = state && state.config && state.config.chatApi;
+  return c && c.baseUrl && c.email && c.password ? c : null;
+}
+
+async function fetchAgents(force) {
+  const c = chatApiConfigured();
+  if (!c) return;
+  const key = agentKeyOf(c);
+  if (!force && agentCache.key === key) return; // 已載入 / 載入中 / 失敗過都不重打
+  agentCache = { key, list: null, loading: true, error: '' };
+  try {
+    const list = await api('POST', '/api/justai/agents', { baseUrl: c.baseUrl, email: c.email, password: c.password });
+    agentCache = { key, list, loading: false, error: '' };
+  } catch (e) {
+    agentCache = { key, list: null, loading: false, error: e.message };
+  }
+  renderPanel();
+}
+
+// ---------- 機器設定（客服帳號、休眠時段；存進 config、按「儲存並發布」同步到機器） ----------
+const SLEEP_DAY_LABELS = [[1, '週一'], [2, '週二'], [3, '週三'], [4, '週四'], [5, '週五'], [6, '週六'], [7, '週日']];
+const DEFAULT_SLEEP_PERIOD = () => ({ start: 22 * 60, end: 8 * 60 }); // App SleepPeriod 預設 22:00–08:00
+const minToTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const timeToMin = (t) => { const [h, m] = String(t || '0:0').split(':').map(Number); return ((h || 0) * 60 + (m || 0)) % 1440; };
+
+/** 沒同步過機器設定的舊 config 才建立欄位（只在使用者實際修改時呼叫，避免覆寫機器現值）。 */
+function ensureChatApi() {
+  return state.config.chatApi || (state.config.chatApi = { baseUrl: DEFAULT_CHAT_BASE, email: '', password: '' });
+}
+function ensureSleep() {
+  return state.config.sleep ||
+    (state.config.sleep = { enabled: false, sameEveryDay: false, experimentalSystemSleep: false, periods: [] });
+}
+
+function renderSettingsView() {
+  const has = !!(state && state.config);
+  $('settingsEmpty').classList.toggle('hidden', has);
+  $('settingsBody').classList.toggle('hidden', !has);
+  const opt = $('deviceSelect').selectedOptions[0];
+  $('settingsDeviceName').textContent = has ? (opt ? opt.textContent : deviceId) : '—';
+  if (!has) return;
+  const body = $('settingsBody');
+  body.innerHTML = '';
+  body.appendChild(chatApiCard());
+  body.appendChild(sleepCard());
+  if (window.BDropdown) BDropdown.init(body);
+}
+
+function settingsCard(title, subtitle, build) {
+  const card = document.createElement('div');
+  card.className = 'b-card settings-card';
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'b-card-body';
+  const h = document.createElement('h3');
+  h.className = 'settings-card-title';
+  h.textContent = title;
+  bodyEl.appendChild(h);
+  const g = document.createElement('div');
+  g.className = 'group'; // 沿用格子面板的欄位樣式規格
+  if (subtitle) g.appendChild(hint(subtitle));
+  build(g);
+  bodyEl.appendChild(g);
+  card.appendChild(bodyEl);
+  return card;
+}
+
+function chatApiCard() {
+  return settingsCard('智能客服 API', '與機器上「設定 → 智能客服 API」相同；儲存發布後會同步到機器。', (g) => {
+    const c = state.config.chatApi;
+    g.appendChild(lbl('伺服器位址'));
+    g.appendChild(txtInput(c ? c.baseUrl : DEFAULT_CHAT_BASE, DEFAULT_CHAT_BASE, (v) => {
+      ensureChatApi().baseUrl = v.trim(); setDirty(true);
+    }, 'url'));
+    g.appendChild(lbl('Email'));
+    g.appendChild(txtInput(c ? c.email : '', 'JustAI 帳號 Email', (v) => {
+      ensureChatApi().email = v.trim(); setDirty(true);
+    }));
+    g.appendChild(lbl('密碼'));
+    g.appendChild(txtInput(c ? c.password : '', 'JustAI 帳號密碼', (v) => {
+      ensureChatApi().password = v; setDirty(true);
+    }, 'password'));
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.appendChild(btn('測試連線並載入客服清單', testChatApi));
+    g.appendChild(row);
+  });
+}
+
+async function testChatApi() {
+  const c = chatApiConfigured();
+  if (!c) return setStatus('請先填妥伺服器位址、Email 與密碼', true);
+  try {
+    const list = await api('POST', '/api/justai/agents', { baseUrl: c.baseUrl, email: c.email, password: c.password });
+    agentCache = { key: agentKeyOf(c), list, loading: false, error: '' };
+    setStatus(`連線成功，載入 ${list.length} 個客服（可到版面上架的格子選用）`);
+  } catch (e) { setStatus('連線失敗：' + e.message, true); }
+}
+
+function sleepCard() {
+  return settingsCard('休眠時段', '休眠時停止播放並顯示黑畫面；儲存發布後同步到機器（機器按「開始展示」後套用）。', (g) => {
+    const s = state.config.sleep || { enabled: false, sameEveryDay: false, periods: [] };
+    g.appendChild(checkRow('啟用每週排程', !!s.enabled, (v) => {
+      ensureSleep().enabled = v; setDirty(true); renderSettingsView();
+    }));
+    g.appendChild(segRow([
+      ['每日相同', !!s.sameEveryDay, () => {
+        const sl = ensureSleep();
+        const first = (sl.periods || []).slice().sort((a, b) => a.day - b.day)[0];
+        const p = first ? { start: first.start, end: first.end } : DEFAULT_SLEEP_PERIOD();
+        sl.sameEveryDay = true;
+        sl.periods = [1, 2, 3, 4, 5, 6, 7].map((d) => ({ day: d, start: p.start, end: p.end }));
+        setDirty(true); renderSettingsView();
+      }],
+      ['分星期設定', !s.sameEveryDay, () => { ensureSleep().sameEveryDay = false; setDirty(true); renderSettingsView(); }],
+    ]));
+    const days = s.sameEveryDay ? [[1, '每日']] : SLEEP_DAY_LABELS;
+    for (const [day, label] of days) {
+      const period = (s.periods || []).find((p) => p.day === day);
+      const row = document.createElement('div');
+      row.className = 'sleep-row';
+      const name = lbl(label);
+      name.classList.add('sleep-day');
+      row.appendChild(name);
+      if (!s.sameEveryDay) {
+        const c = document.createElement('input');
+        c.type = 'checkbox'; c.checked = !!period; c.title = '這一天要休眠';
+        c.onchange = () => {
+          const sl = ensureSleep();
+          sl.periods = sl.periods || [];
+          if (c.checked) sl.periods.push({ day, ...DEFAULT_SLEEP_PERIOD() });
+          else sl.periods = sl.periods.filter((p) => p.day !== day);
+          setDirty(true); renderSettingsView();
+        };
+        row.appendChild(c);
+      }
+      if (period) {
+        const mkTime = (isStart) => {
+          const t = document.createElement('input');
+          t.type = 'time'; t.className = 'b-input sleep-time';
+          t.value = minToTime(isStart ? period.start : period.end);
+          t.onchange = () => updateSleepTime(day, isStart, timeToMin(t.value), !!s.sameEveryDay);
+          return t;
+        };
+        row.appendChild(mkTime(true));
+        row.appendChild(document.createTextNode('～'));
+        row.appendChild(mkTime(false));
+      }
+      g.appendChild(row);
+      if (period && period.start >= period.end) g.appendChild(hint('跨午夜，結束時間為隔日。'));
+    }
+  });
+}
+
+function updateSleepTime(day, isStart, minutes, applyToAll) {
+  const sl = ensureSleep();
+  for (const p of sl.periods || []) {
+    if (applyToAll || p.day === day) { if (isStart) p.start = minutes; else p.end = minutes; }
+  }
+  setDirty(true); renderSettingsView();
+}
+
 // ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
 function switchView(view) {
+  const cur = document.querySelector('.sidebar .nav-item.active');
+  const changed = !cur || cur.dataset.view !== view;
   document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
   });
   $('editorView').classList.toggle('hidden', view !== 'editor');
+  $('settingsView').classList.toggle('hidden', view !== 'settings');
   $('devicesView').classList.toggle('hidden', view !== 'devices');
   $('usersView').classList.toggle('hidden', view !== 'users');
+  // SPA 換頁 crossfade（kit 規範：抽換主內容純淡入 .12s）；同頁重點不重播
+  if (changed) {
+    const mc = document.querySelector('.main-content');
+    mc.classList.remove('is-spa-entered');
+    void mc.offsetWidth;   // 強制 reflow，讓動畫重觸發
+    mc.classList.add('is-spa-entered');
+  }
+  if (view === 'settings') renderSettingsView();
   if (view === 'devices') renderDevicesView();
   if (view === 'users') renderUsersView();
 }
@@ -1053,7 +1286,7 @@ async function renderDevicesView() {
     tr.innerHTML =
       `<td class="b-th">${d.DeviceName || d.DeviceId}</td>` +
       `<td class="device-id-dim">${d.DeviceId}</td>` +
-      `<td>第 ${d.Version} 版</td><td>${updated}</td>`;
+      `<td class="num">第 ${d.Version} 版</td><td class="num">${updated}</td>`;
 
     const ownerTd = document.createElement('td');
     if (meIsAdmin) {
@@ -1081,7 +1314,7 @@ async function renderDevicesView() {
     opTd.style.textAlign = 'right';
     if (meIsAdmin) {
       const del = document.createElement('button');
-      del.className = 'b-btn b-btn-sm b-btn-danger-soft'; del.textContent = '刪除';
+      del.className = 'b-btn b-btn-danger-soft'; del.textContent = '刪除';   // 標準 36px，與同列下拉等高
       del.onclick = async () => {
         const ok = await BDialog.confirm({
           title: `刪除機器「${d.DeviceName || d.DeviceId}」的雲端資料？`,
@@ -1116,12 +1349,13 @@ async function renderUsersView() {
   utb.innerHTML = '';
   for (const u of users) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${u.Username}</td><td>${u.DisplayName || ''}</td>` +
-      `<td>${u.IsAdmin ? '管理員' : '一般'}</td><td>${u.DeviceCount}</td>`;
+    tr.innerHTML = `<td class="b-th">${u.Username}</td><td>${u.DisplayName || ''}</td>` +
+      `<td>${u.IsAdmin ? '<span class="b-badge brand">管理員</span>' : '<span class="b-badge neutral">一般</span>'}</td>` +
+      `<td class="num">${u.DeviceCount}</td>`;
     const td = document.createElement('td');
     if (!u.IsAdmin) {
       const del = document.createElement('button');
-      del.className = 'b-btn b-btn-sm b-btn-danger-soft'; del.textContent = '刪除';
+      del.className = 'b-btn b-btn-danger-soft'; del.textContent = '刪除';   // 標準 36px，與機器管理表一致
       del.onclick = async () => {
         const ok = await BDialog.confirm({
           title: `刪除帳號 ${u.Username}？`, desc: '該帳號的機器會變回未分配。',

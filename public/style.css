@@ -1,67 +1,201 @@
 /* ==========================================================================
    Kiosk 管理後台 — 專案樣式（鋪在 admin-kit 之上）
+   結構：①品牌＋扁平 token → ②tiri 主題層（照 themes/tiri.css 移植，改橘）
+         → ③登入頁 → ④編輯器/畫布 → ⑤面板與小配件
    規則：介面全走 kit token（深淺色自動成立）；唯一例外是「畫布」——
    它模擬機器的實體螢幕，永遠黑底，用字面色不跟深淺色切換。
    ========================================================================== */
 
 :root {
-  --accent: #2E6A43;   /* 品牌綠（與 App 一致）；brand 家族由 kit color-mix 衍生 */
+  --accent: #E07800;   /* 品牌橘（2026-09-03 指定）；brand 家族由 kit color-mix 衍生 */
   --on-accent: #ffffff;
+
+  /* 扁平化（GUIDELINES「TIRI 裁決」）：除下拉/浮層（--float-shadow）外全站無陰影，深度靠 1px 邊框。
+     ⚠️ 值用「0 0 transparent」不用 none：這些 token 會出現在多重陰影列表裡
+     （如 focus 圈 box-shadow: var(--shadow-xs), var(--btn-glint), 0 0 0 4px …），
+     none 混進列表整條宣告作廢 → 焦點圈消失（tiri 原版就因此沒有按鈕焦點圈，這裡刻意修正）。 */
+  --shadow-2xs: 0 0 transparent; --shadow-xs: 0 0 transparent; --shadow-sm: 0 0 transparent;
+  --shadow-md: 0 0 transparent; --shadow-lg: 0 0 transparent;
+  --shadow-xl: 0 0 transparent; --shadow-2xl: 0 0 transparent;
+  --btn-glint: 0 0 transparent;
+  --dd-trigger-shadow: none;   /* 單獨使用、可安全 none；展開的選單吃 --dd-menu-shadow(--float-shadow) */
 }
 
 .hidden { display: none !important; }
 
-/* ── 登入（覆蓋殼層的全頁層） ── */
+/* ══════════════════ tiri 主題層（對齊原版 brand.css） ══════════════════ */
+
+/* 浮層陰影：tiri 的柔影（kit 預設偏硬）；深色另一組加重 */
+:root { --float-shadow: 0 6px 20px rgba(23, 20, 31, .08), 0 1px 4px rgba(23, 20, 31, .05); }
+:root[data-color-mode="dark"] { --float-shadow: 0 6px 20px rgba(0, 0, 0, .40), 0 1px 4px rgba(0, 0, 0, .30); }
+
+/* 文字類按鈕 hover＝文字亮 brand、不加底色；danger 文字鈕例外（半透明紅底） */
+.b-btn.b-btn-text:hover { background: transparent; color: var(--fg-brand-strong); }
+.b-btn.b-btn-text.b-btn-text-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--fg-danger-strong, var(--fg-danger));
+}
+.b-btn.b-btn-ghost:hover { background: transparent; color: var(--fg-brand); }
+.b-btn.b-btn-ghost:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+.b-btn.b-btn-quiet:hover { background: transparent; color: var(--fg-brand); }
+.b-btn.b-btn-quiet:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+
+/* 側欄／flyout hover 比照文字鈕：不加底、文字/icon 亮 brand */
+.sidebar .menu-item:not(.active):hover,
+.sidebar .submenu-toggle:not(.active):hover { background: transparent; color: var(--fg-brand); }
+.sidebar .menu-item:not(.active):hover :where(i, .lucide, svg),
+.sidebar .submenu-toggle:not(.active):hover :where(i, .lucide, svg) { color: var(--fg-brand); }
+.cms-flyout .cms-flyout-item:not(.active):hover { background: transparent; color: var(--fg-brand); }
+
+/* 對比調整：輸入框白底（與頁面灰底區隔）、表格列 hover 加深一階 */
+.b-input, .b-select, .b-textarea { background: var(--neutral-primary-soft); }
+.b-tbl tbody tr:hover td, .main-content tbody tr:hover { background: var(--neutral-tertiary); }
+
+/* 深色模式 brand 家族：手調 hex（kit 預設 oklch c×1.5 會螢光；Safari 也不吃相對色）。
+   ⚠️ 橘色不能照 tiri 紫的倍率壓暗（L.40 c.50）——橘壓暗＝棕，整站會變咖啡色（實測退件）。
+   改「提亮保橘」：實色層 L 抬到 .55+、彩度留 6 成，讀起來是焦橘不是棕。
+   值由 oklch(from #E07800 L calc(c×倍率) h) 預算：
+   brand L.55 c.62｜strong L.60 c.62｜medium L.40 c.42｜soft L.31 c.32｜softer L.25 c.26
+   fg L.78 c.55｜fg-strong L.85 c.42｜border L.48 c.42｜border-subtle L.33 c.28。改品牌色時重算。 */
+html:root[data-color-mode="dark"] {
+  --brand: #9E6130;
+  --brand-strong: #AE703F;
+  --brand-medium: #633D20;
+  --brand-soft: #442914;
+  --brand-softer: #311C0C;
+  --fg-brand: #E4A97E;
+  --fg-brand-strong: #F1C3A2;
+  --border-brand: #7B5336;
+  --border-brand-subtle: #472F1D;
+}
+/* 深色：active 一律實色＋白字（淡底 pill 在深色不夠醒目） */
+[data-color-mode="dark"] .sidebar .menu-item.active,
+[data-color-mode="dark"] .cms-flyout-item.active { background: var(--brand); color: var(--b-on-primary); }
+[data-color-mode="dark"] .sidebar .menu-item.active :where(i, .lucide, svg) { color: var(--b-on-primary); }
+[data-color-mode="dark"] .b-badge.brand { background: var(--brand); border-color: transparent; color: var(--b-on-primary); }
+[data-color-mode="dark"] .page-tabs .tab.active { background: var(--brand); color: var(--b-on-primary); }
+[data-color-mode="dark"] .seg-row .seg.active { background: var(--brand); color: var(--b-on-primary); }
+
+/* ══════════════════ 登入頁（對齊 tiri login.css） ══════════════════ */
+
 .login-wrap {
   position: fixed; inset: 0; z-index: 200;
   display: flex; align-items: center; justify-content: center;
+  padding: 24px; overflow: hidden;
   background: var(--neutral-secondary-soft);
 }
+/* 80px 格線底＋brand 漸層洗色（tiri 登入頁招牌背景） */
+.login-wrap::before {
+  content: ""; position: absolute; inset: 0; z-index: 0;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--border-default) 42%, transparent) 1px, transparent 1px),
+    linear-gradient(0deg, color-mix(in srgb, var(--border-default) 42%, transparent) 1px, transparent 1px);
+  background-size: 80px 80px;
+  opacity: .16;
+}
+.login-wrap::after {
+  content: ""; position: absolute; inset: 0; z-index: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--neutral-primary) 88%, transparent) 0%, transparent 58%),
+    linear-gradient(135deg, color-mix(in srgb, var(--brand-softer) 28%, transparent) 0%, transparent 46%);
+  opacity: .82;
+}
 .login-card {
-  width: 340px; padding: 32px 28px;
+  position: relative; z-index: 1;
+  width: min(420px, 100%); padding: 32px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--neutral-primary);
   display: flex; flex-direction: column; gap: 16px;
 }
-.login-brand {
-  font-size: 18px; font-weight: 500; color: var(--text-heading);
-  text-align: center; margin-bottom: 4px;
+.login-head { text-align: center; margin-bottom: 8px; }
+.login-mark {
+  width: 60px; height: 60px; margin: 0 auto 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-brand-subtle); border-radius: var(--radius-md);
+  background: var(--brand-softer); color: var(--fg-brand);
 }
+.login-mark :where(i, .lucide, svg) { width: 26px; height: 26px; }
+.login-title { margin: 5px 0 0; color: var(--text-heading); font-size: 1.55rem; font-weight: 600; line-height: 1.25; }
+.login-sub { margin: 8px 0 0; color: var(--text-body-subtle); font-size: 14px; }
 .login-card .b-input { margin-top: 6px; width: 100%; }
-.login-submit { margin-top: 4px; justify-content: center; }
+.btn-login {
+  width: 100%; height: 42px; margin-top: 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid transparent; border-radius: var(--control-radius);
+  background: var(--brand); color: var(--b-on-primary, #fff);
+  font-family: inherit; font-size: .98rem; font-weight: 600; cursor: pointer;
+  transition: background .15s ease;
+}
+.btn-login:hover { background: var(--brand-strong); }
+.btn-login:active { transform: translateY(1px); }
+.btn-login:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--brand-medium); }
+/* 登入中填色動畫（tiri login.css 原版）：::before 以 --brand-strong 由左至右填色。
+   送出 → is-loading 慢速填到 55% 等回應；成功 → is-success 快速補滿後進場；
+   失敗 → 移除 is-loading，縮回 scaleX(0)（自帶縮回過渡）。 */
+.btn-login { position: relative; overflow: hidden; transition: background .15s ease, box-shadow .15s ease, transform .15s ease; }
+.btn-login::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--brand-strong);
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform .45s cubic-bezier(.22, 1, .36, 1);
+  pointer-events: none;
+}
+.btn-login > * { position: relative; z-index: 1; }
+.btn-login.is-loading { background: var(--brand); pointer-events: none; }
+.btn-login.is-loading::before { transform: scaleX(.55); transition-duration: 1.1s; }
+.btn-login.is-success::before { transform: scaleX(1); transition-duration: .3s; }
+@media (prefers-reduced-motion: reduce) { .btn-login::before { transition-duration: .01s !important; } }
 .login-error { color: var(--fg-danger); font-size: 13px; text-align: center; margin: 0; }
 
-/* ── 頂欄的機器選擇 ── */
-.header-device-label { font-size: 13px; color: var(--text-body-subtle); }
-.header-device-select { min-width: 180px; }
-.header-right .b-dd { min-width: 180px; } /* BDropdown 增強後套在外殼上 */
-
-/* ── 版面上架 ── */
-.page-tabs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
-.page-tabs .tab {
-  display: flex; align-items: center; gap: 6px;
-  background: var(--neutral-primary-soft); border: 1px solid var(--border-default);
-  border-radius: var(--radius-full); padding: 5px 6px 5px 14px; cursor: pointer;
-  color: var(--text-body); font-size: 13.5px;
-  transition: background .15s, color .15s, border-color .15s;
+/* ── 視圖轉場（對齊 tiri：SPA 抽換＝純 crossfade）──
+   登入⇄主畫面＝整頁導航等級 .18s；側欄切頁＝kit 的 .is-spa-entered .12s（app.js 觸發）。
+   .hidden 切換會重置 display → 每次顯示自動重播。 */
+#mainView:not(.hidden) { animation: b-spa-fade-in .18s ease-out both; }
+.login-wrap:not(.hidden) { animation: b-spa-fade-in .18s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  #mainView:not(.hidden), .login-wrap:not(.hidden) { animation: none; }
 }
-.page-tabs .tab:hover { background: var(--neutral-secondary-medium); }
-.page-tabs .tab.active {
-  background: var(--brand-softer); border-color: var(--border-brand-subtle); color: var(--fg-brand);
+
+/* ── 版面上架的機器選擇（在 page-actions 裡；main-content 內，FOUC guard 由 kit 涵蓋） ── */
+.device-pick-label { font-size: 13px; color: var(--text-body-subtle); flex: none; }
+.device-pick { min-width: 220px; }   /* select 增強後這個 class 留在 .b-dd 外殼上，寬度沿用 */
+.page-actions { align-items: center; }
+
+/* ── 版面上架：頁面籤（造型對齊 tiri segment「白底圓角矩形容器」裁決） ── */
+.page-tabs {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  margin-bottom: 16px;
+  background: var(--neutral-primary-soft); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: 5px;
+}
+.page-tabs:empty { display: none; }   /* 未載入設定時不畫空容器框 */
+.page-tabs .tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; background: transparent; border-radius: 6px;
+  padding: 7px 8px 7px 14px; cursor: pointer;
+  color: var(--text-body); font-size: 14px; font-weight: 500;
+  transition: background .15s, color .15s;
+}
+.page-tabs .tab:hover { color: var(--text-heading); background: var(--neutral-tertiary-medium); }
+.page-tabs .tab.active, .page-tabs .tab.active:hover {
+  background: var(--brand); color: var(--b-on-primary, #fff);
 }
 .page-tabs .tab .badge {
   font-size: 11px; background: var(--brand); color: var(--on-accent);
   border-radius: var(--radius-full); padding: 1px 8px;
 }
+.page-tabs .tab.active .badge { background: rgba(255, 255, 255, .24); }
 .page-tabs .tab button {
   background: none; border: 0; color: inherit; opacity: .55; padding: 2px 5px;
   font-size: 13px; cursor: pointer; border-radius: var(--radius-full);
 }
 .page-tabs .tab button:hover { opacity: 1; }
 .page-tabs .add-page {
-  background: none; border: 1px dashed var(--border-default-medium); border-radius: var(--radius-full);
-  color: var(--text-body-subtle); padding: 5px 14px; font-size: 13.5px; cursor: pointer;
-  transition: color .15s, border-color .15s;
+  border: 0; background: transparent; border-radius: 6px;
+  color: var(--text-body-subtle); padding: 7px 12px; font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: color .15s, background .15s;
 }
-.page-tabs .add-page:hover { color: var(--fg-brand); border-color: var(--border-brand-subtle); }
+.page-tabs .add-page:hover { color: var(--fg-brand); }
 
 .editor-body { display: flex; gap: 24px; align-items: flex-start; }
 .canvas-col { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -141,44 +275,65 @@
   overflow-y: auto; position: sticky; top: calc(var(--header-height) + 16px);
 }
 .panel-placeholder { padding: 24px 20px; color: var(--text-body-subtle); font-size: 13.5px; margin: 0; }
+/* 標題規格＝kit b-card-head/b-card-title（tiri 不用 brand 色染卡片標題） */
 .cell-panel .panel-head {
-  padding: 14px 20px; border-bottom: 1px solid var(--border-default);
+  padding: 16px 20px; border-bottom: 1px solid var(--border-default);
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   position: sticky; top: 0; background: inherit; z-index: 3;
 }
-.cell-panel .panel-head h3 { font-size: 14.5px; font-weight: 500; color: var(--fg-brand); margin: 0; }
+.cell-panel .panel-head h3 { font-size: 16px; font-weight: 500; color: var(--text-heading); margin: 0; }
 .cell-panel .body { padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 20px; }
 .group { display: flex; flex-direction: column; gap: 10px; }
-.group > h4 {
-  font-size: 12px; color: var(--text-body-subtle); font-weight: 500;
-  letter-spacing: .08em; margin: 0;
-}
+/* 小群組標題規格＝tiri .b-pop-panel-title：12px/600、letter-spacing 0（tiri 全站禁字距） */
+.group > h4 { font-size: 12px; color: var(--text-body-subtle); font-weight: 600; letter-spacing: 0; margin: 0; }
 .group .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .group label.row { cursor: pointer; font-size: 13.5px; color: var(--text-body); }
 .group .b-textarea { width: 100%; min-height: 64px; }
 .group input[type=text].b-input, .group input[type=url].b-input { flex: 1; min-width: 160px; }
 .group input[type=number].b-input { width: 90px; flex: none; }
-.group input[type=range] { flex: 1; accent-color: var(--accent); }
+/* 滑桿自畫（同 kit .header-fs-range 的理由：原生軌道色不可控） */
+.group input[type=range] {
+  flex: 1; cursor: pointer;
+  -webkit-appearance: none; appearance: none; height: 16px; background: transparent;
+}
+.group input[type=range]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
+}
+.group input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5px;
+  border: 0; border-radius: var(--radius-full); background: var(--brand);
+}
+.group input[type=range]::-moz-range-track {
+  height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
+}
+.group input[type=range]::-moz-range-thumb {
+  width: 14px; height: 14px; border: 0; border-radius: var(--radius-full); background: var(--brand);
+}
+.group input[type=range]:focus-visible { outline: none; }
+.group input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
 .group input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .group .field-label { font-size: 13px; color: var(--text-body-subtle); flex: none; }
 .group .hint { font-size: 12px; color: var(--text-body-subtle); margin: 0; }
 
-/* segment（純色/圖片/天氣背景 等） */
-.seg-row { display: flex; gap: 6px; flex-wrap: wrap; }
+/* segment（純色/圖片/天氣背景 等）：造型＝kit .b-seg（容器＋無框子項、active 實色） */
+.seg-row {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  padding: 3px; background: var(--neutral-secondary-soft);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+}
 .seg-row .seg {
-  background: var(--neutral-primary-soft); border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm); color: var(--text-body); padding: 7px 14px;
-  font-size: 13px; cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+  border: 0; background: transparent; border-radius: var(--radius-sm);
+  color: var(--text-body); padding: 6px 14px; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: background .15s, color .15s;
 }
-.seg-row .seg:hover { background: var(--neutral-secondary-medium); }
-.seg-row .seg.active {
-  background: var(--brand-softer); border-color: var(--border-brand-subtle); color: var(--fg-brand);
-}
+.seg-row .seg:hover { color: var(--text-heading); background: var(--neutral-tertiary-medium); }
+.seg-row .seg.active, .seg-row .seg.active:hover { background: var(--brand); color: var(--b-on-primary, #fff); }
 
-/* 色票 */
+/* 色票（規格對齊 tiri .b-color：radius-md、border-default-medium） */
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
 .swatch {
-  width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+  width: 34px; height: 34px; border-radius: var(--radius-md); cursor: pointer;
   border: 2px solid var(--border-default-medium); padding: 0;
 }
 .swatch.active { border-color: var(--fg-brand); box-shadow: 0 0 0 2px var(--brand-soft); }
@@ -187,7 +342,7 @@
   font-size: 11px; width: auto; padding: 0 10px;
 }
 
-/* 圖片縮圖 */
+/* 圖片縮圖（tiri 不用虛線框 → 新增鈕改實線） */
 .thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
 .thumb {
   position: relative; width: 84px; height: 84px; border-radius: var(--radius-sm);
@@ -204,17 +359,28 @@
 }
 .add-thumb {
   width: 84px; height: 84px; border-radius: var(--radius-sm);
-  border: 1px dashed var(--border-default-medium); background: none;
+  border: 1px solid var(--border-default-medium); background: var(--neutral-primary-soft);
   color: var(--text-body-subtle); font-size: 26px; cursor: pointer;
   transition: color .15s, border-color .15s;
 }
 .add-thumb:hover { color: var(--fg-brand); border-color: var(--border-brand-subtle); }
 
 /* ── 表格頁小配件 ── */
-.table-note { font-size: 12.5px; color: var(--text-body-subtle); border-top: 1px solid var(--border-default); }
+/* 表格下方說明：12px/1.6（tiri 說明文字規格，如 figcaption） */
+.table-note { font-size: 12px; color: var(--text-body-subtle); line-height: 1.6; margin: 12px 2px 0; max-width: 720px; }
+.adduser-card { margin-top: 16px; }
 .adduser-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .adduser-row .b-input { width: 180px; }
 .device-id-dim { color: var(--text-body-subtle); }
+
+/* ══════════════════ 機器設定頁 ══════════════════ */
+/* 兩張卡並排（窄幕自動直排）；卡內欄位沿用面板 .group 規格 */
+.settings-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 480px)); gap: 16px; align-items: start; }
+.settings-card-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--text-body); }
+.group input[type=password].b-input, .group input[type=email].b-input { width: 100%; }
+.sleep-row { display: flex; gap: 10px; align-items: center; }
+.sleep-row .sleep-day { width: 44px; flex: none; }
+.group input[type=time].b-input.sleep-time { width: 112px; flex: none; }
 
 /* RWD */
 @media (max-width: 1100px) {

@@ -29,15 +29,19 @@
 
   <!-- 登入（覆蓋整個殼層；登入成功後移除） -->
   <div id="loginView" class="login-wrap hidden">
-    <form id="loginForm" class="login-card b-card">
-      <div class="login-brand">Kiosk 管理後台</div>
+    <form id="loginForm" class="login-card">
+      <div class="login-head">
+        <div class="login-mark"><i data-lucide="monitor-play"></i></div>
+        <h2 class="login-title">Kiosk 管理後台</h2>
+        <p class="login-sub">登入以管理展示機</p>
+      </div>
       <label class="b-label">帳號
         <input id="username" type="text" class="b-input" autocomplete="username" required>
       </label>
       <label class="b-label">密碼
         <input id="password" type="password" class="b-input" autocomplete="current-password" required>
       </label>
-      <button type="submit" class="b-btn b-btn-primary login-submit">登入</button>
+      <button type="submit" class="btn-login">登入</button>
       <p id="loginError" class="login-error hidden">帳號或密碼錯誤</p>
     </form>
   </div>
@@ -50,9 +54,6 @@
         <span class="logo-env">管理後台</span>
       </div>
       <div class="header-right">
-        <label class="header-device-label" for="deviceSelect">機器</label>
-        <select id="deviceSelect" class="b-select header-device-select" title="選擇要管理的機器"></select>
-        <span class="header-sep" aria-hidden="true"></span>
         <div class="header-fs-wrap">
           <button type="button" class="header-icon-btn" title="字體大小" aria-label="字體大小" aria-haspopup="true" aria-expanded="false">
             <i data-lucide="a-large-small"></i>
@@ -76,6 +77,7 @@
           <div class="header-user-menu" role="menu" hidden>
             <div class="header-user-head">
               <div class="header-user-head-name" id="whoamiMenu">—</div>
+              <div class="header-user-head-email" id="whoamiSub">—</div>
             </div>
             <div class="header-user-sep"></div>
             <button type="button" class="header-user-item is-logout" role="menuitem" id="logoutBtn">
@@ -90,6 +92,9 @@
       <div class="sidebar-nav">
         <button type="button" class="menu-item nav-item active" data-view="editor">
           <i data-lucide="layout-dashboard"></i><span class="menu-text">版面上架</span>
+        </button>
+        <button type="button" class="menu-item nav-item" data-view="settings">
+          <i data-lucide="sliders-horizontal"></i><span class="menu-text">機器設定</span>
         </button>
         <button type="button" class="menu-item nav-item" data-view="devices">
           <i data-lucide="monitor"></i><span class="menu-text">機器管理</span>
@@ -117,6 +122,9 @@
         <div class="page-header">
           <h1 class="page-title">版面上架</h1>
           <div class="page-actions">
+            <!-- 機器選擇：只有這頁用得到，放頁面動作列（不放頂欄） -->
+            <label class="device-pick-label" for="deviceSelect">機器</label>
+            <select id="deviceSelect" class="b-select device-pick" title="選擇要管理的機器"></select>
             <button id="reloadBtn" class="b-btn"><i data-lucide="refresh-cw"></i>重新載入</button>
             <button id="saveBtn" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
           </div>
@@ -149,20 +157,39 @@
         </div>
       </div>
 
+      <!-- 機器設定（每台機器的智能客服帳號、休眠時段；隨版面一起儲存發布） -->
+      <div id="settingsView" class="hidden">
+        <div class="page-header">
+          <h1 class="page-title">機器設定</h1>
+          <div class="page-actions">
+            <span class="device-pick-label">機器</span>
+            <span id="settingsDeviceName" class="device-pick-label">—</span>
+            <button id="saveBtn2" class="b-btn b-btn-primary" disabled><i data-lucide="cloud-upload"></i>儲存並發布</button>
+          </div>
+        </div>
+        <div id="settingsEmpty" class="b-card hidden">
+          <div class="b-empty">
+            <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
+            <p class="b-empty-title">尚未載入機器設定</p>
+            <p class="b-empty-sub">請先在「版面上架」選擇機器；機器需開啟「雲端同步」。</p>
+          </div>
+        </div>
+        <div id="settingsBody" class="settings-body hidden"></div>
+      </div>
+
       <!-- 機器管理 -->
       <div id="devicesView" class="hidden">
         <div class="page-header">
           <h1 class="page-title">機器管理</h1>
         </div>
-        <div class="b-card">
-          <div class="b-tbl-scroll">
-            <table class="b-tbl" id="deviceTable">
-              <thead><tr><th>名稱</th><th>編號</th><th>版本</th><th>最後更新</th><th>屬於</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div class="b-card-body table-note">機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</div>
+        <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
+        <div class="b-tbl-scroll">
+          <table class="b-tbl" id="deviceTable">
+            <thead><tr><th>名稱</th><th>編號</th><th>版本</th><th>最後更新</th><th>屬於</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
+        <p class="table-note">機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。機器第一次連上來時是「未分配」，指定給某個帳號後，該帳號登入就只會看到自己的機器。</p>
       </div>
 
       <!-- 帳號管理（限管理員） -->
@@ -170,13 +197,14 @@
         <div class="page-header">
           <h1 class="page-title">帳號管理</h1>
         </div>
-        <div class="b-card">
-          <div class="b-tbl-scroll">
-            <table class="b-tbl" id="userTable">
-              <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th class="num">機器數</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
+        <div class="b-tbl-scroll">
+          <table class="b-tbl" id="userTable">
+            <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th class="num">機器數</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <!-- 新增帳號自成一張卡（表格框不再兼作表單容器） -->
+        <div class="b-card adduser-card">
           <div class="b-card-body">
             <form id="addUserForm" class="adduser-row">
               <input id="newUsername" type="text" class="b-input" placeholder="新帳號" required>
