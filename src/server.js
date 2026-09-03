@@ -396,6 +396,10 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: String(err.message || err) });
 });
 
+// async route 裡沒接住的錯（Express 4 不會轉給錯誤中介層）與零星背景錯誤：
+// 記 log 撐住行程，別讓一次 DB 逾時弄死整個後台。
+process.on('unhandledRejection', (e) => console.error('unhandledRejection：', e && e.message ? e.message : e));
+
 db.init()
   .then(seedAdmin)
   .then(() => {

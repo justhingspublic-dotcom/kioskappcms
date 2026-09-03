@@ -402,6 +402,12 @@ html:root[data-color-mode="dark"] {
 /* 所有 modal 遮罩對齊 tiri：半黑＋背景模糊（kit 預設沒有 backdrop-filter） */
 .b-modal-overlay { backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px); }
 
+/* 收合側欄時群組含當前頁就亮母項（tiri 行為；kit 的 :has 規則只管展開狀態） */
+.sidebar.collapsed .submenu-toggle:has(+ .submenu .submenu-item.active) {
+  background: var(--brand-softer); color: var(--fg-brand); font-weight: 500;
+}
+.sidebar.collapsed .submenu-toggle:has(+ .submenu .submenu-item.active) :where(i, .lucide, svg) { color: var(--fg-brand); }
+
 /* 工作區 modal（tiri 開啟信件同款：kit 最寬 is-wide=640，這裡拉寬裝下畫布編輯器）。
    開闔動畫照 tiri inbox modal 用 @keyframes 綁 display 切換瞬間（transition 版首開會跳終態）。 */
 .b-modal.is-ws { max-width: 1240px; width: calc(100vw - 48px); }
@@ -411,7 +417,9 @@ html:root[data-color-mode="dark"] {
 #wsModal.is-shared-mode #copyLayoutBtn,
 #wsModal.is-shared-mode .page-tabs .badge { display: none; }
 #wsModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
-#wsModal.is-visible .b-modal { animation: ws-modal-in .15s ease-out both; }
+/* ⚠ box 動畫不填 fill（tiri brand.css 同款裁決）：both 會殘留 transform，
+   modal 變成 fixed 子元素的 containing block → 下拉選單全部偏位 */
+#wsModal.is-visible .b-modal { animation: ws-modal-in .15s ease-out; }
 #wsModal.is-visible.is-closing { animation: ws-overlay-out .12s ease-in both; }
 #wsModal.is-visible.is-closing .b-modal { animation: none; }
 @keyframes ws-overlay-in { from { opacity: 0; } to { opacity: 1; } }

@@ -27,6 +27,8 @@ async function init() {
   await master.close();
 
   pool = await new sql.ConnectionPool({ ...baseConfig, database: DB_NAME }).connect();
+  // 連線池斷線（DB 重啟/網路抖動）不能炸掉整個伺服器：記 log，之後的查詢會自動重連
+  pool.on('error', (e) => console.error('DB 連線池錯誤（將自動重連）：', e.message));
   await pool.request().query(`
     IF OBJECT_ID('dbo.KioskConfig') IS NULL
     CREATE TABLE dbo.KioskConfig (

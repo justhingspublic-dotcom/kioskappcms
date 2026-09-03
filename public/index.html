@@ -193,8 +193,9 @@
       </div>
     </main>
 
-    <!-- 機器工作區 modal（tiri 開啟信件同款）：單一機器的〔版面｜機器設定〕，儲存並發布只影響這一台 -->
-    <div class="b-modal-overlay" id="wsModal">
+    <!-- 機器工作區 modal（tiri 開啟信件同款）：單一機器的〔版面｜機器設定〕，儲存並發布只影響這一台。
+         data-modal-vue＝自管開闔：kit.js 的全域遮罩點擊/BModal 一律不接管（否則會跟 exitWorkspace 的確認框互搶） -->
+    <div class="b-modal-overlay" id="wsModal" data-modal-vue data-modal-anim="vue">
       <div class="b-modal is-ws" role="dialog" aria-modal="true" aria-labelledby="wsDeviceName">
         <div class="b-modal-head">
           <div class="ws-head-info">

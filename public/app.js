@@ -42,7 +42,18 @@ async function api(method, url, body, isForm) {
 // ---------- 登入 ----------
 function showLogin() { $('loginView').classList.remove('hidden'); $('mainView').classList.add('hidden'); }
 function showMain() { $('loginView').classList.add('hidden'); $('mainView').classList.remove('hidden'); }
-function logout() { token = ''; sessionStorage.removeItem('token'); showLogin(); }
+function logout() {
+  token = '';
+  sessionStorage.removeItem('token');
+  // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
+  state = null; deviceId = ''; selected = null; setDirty(false);
+  shared = null; setSharedDirty(false);
+  agentCache = { key: '', list: null, loading: false, error: '' };
+  const m = $('wsModal');
+  m.classList.remove('is-visible', 'is-closing', 'is-shared-mode');
+  document.body.classList.remove('b-modal-lock');
+  showLogin();
+}
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -57,7 +68,6 @@ $('loginForm').addEventListener('submit', async (e) => {
     if (!r.ok) throw new Error();
     token = (await r.json()).token;
     sessionStorage.setItem('token', token);
-    $('loginError').classList.add('hidden');
     btn.classList.remove('is-loading');
     btn.classList.add('is-success');
     await new Promise((res) => setTimeout(res, 320));   // 等填滿（.3s）再切主畫面
@@ -65,7 +75,7 @@ $('loginForm').addEventListener('submit', async (e) => {
     btn.classList.remove('is-success');                 // 還原，登出再進來是乾淨狀態
   } catch {
     btn.classList.remove('is-loading');
-    $('loginError').classList.remove('hidden');
+    BToast.danger('帳號或密碼錯誤');   // tiri 同款右下角 toast，取代頁內紅字
   }
 });
 
@@ -76,9 +86,13 @@ $('reloadBtn').addEventListener('click', async () => {
 });
 $('wsCloseBtn').addEventListener('click', exitWorkspace);
 $('wsModal').addEventListener('click', (e) => { if (e.target === $('wsModal')) exitWorkspace(); });
-// Esc 關工作區（BDialog 開著時它會在 capture 階段攔掉 Esc，不會關到這層）
+// Esc 分層（上層先收，工作區最後）：下拉開著→dropdown.js 自己收；
+// 對話框開著（BDialog capture 攔截、選機器對話框自己攔）→不動工作區；都沒有才關工作區。
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('wsModal').classList.contains('is-visible')) exitWorkspace();
+  if (e.key !== 'Escape') return;
+  if (document.querySelector('.b-dd.open')) return;
+  if (document.querySelector('.b-modal-overlay[data-modal-vue].is-visible:not(#wsModal)')) return;
+  if ($('wsModal').classList.contains('is-visible')) exitWorkspace();
 });
 document.querySelectorAll('.ws-tabs .seg').forEach((b) => {
   b.addEventListener('click', () => showWsTab(b.dataset.wstab));
@@ -192,8 +206,9 @@ async function saveConfig() {
 async function saveSharedLayout() {
   try {
     $('saveBtn').disabled = true;
-    shared.pages = state.config.pages;
-    shared.layoutScreen = state.config.screen;
+    // deep copy：範本與編輯器不能共用同一份物件，否則存過一次後繼續編輯會「未存先改」汙染範本
+    shared.pages = JSON.parse(JSON.stringify(state.config.pages));
+    shared.layoutScreen = state.config.screen ? { ...state.config.screen } : null;
     shared.layoutUpdatedAt = new Date().toISOString();
     await api('PUT', '/api/shared-settings', { settings: shared });
     setDirty(false);
@@ -258,6 +273,12 @@ function setStatus(msg, isErr) {
 }
 
 // ---------- 共用 ----------
+/** 進 innerHTML 的伺服器資料一律先跳脫（機器名/帳號名是自由輸入文字）。 */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
 const page = () => state.config.pages[pageIndex];
 const colorCss = (n) => '#' + (Number(n ?? 4280693304) >>> 0).toString(16).padStart(8, '0').slice(2);
 const isRemote = (uri) => /^https?:\/\//.test(uri) || uri.startsWith('/files/');
@@ -1286,6 +1307,7 @@ function pickDevicesDialog(opts) {
     function close(value) {
       if (settled) return;
       settled = true;
+      document.removeEventListener('keydown', onEsc, true);
       overlay.classList.remove('is-open');
       let removed = false;
       const fin = (e) => {
@@ -1298,6 +1320,14 @@ function pickDevicesDialog(opts) {
       setTimeout(fin, 200);
       resolve(value);
     }
+    // Esc＝取消「最上層」（capture 攔截，同 dialogs.js 的慣例；別讓底下的工作區跟著關）
+    function onEsc(e) {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      close(null);
+    }
+    document.addEventListener('keydown', onEsc, true);
     cancel.onclick = () => close(null);
     okBtn.onclick = () => close(checks.filter(([c]) => c.checked).map(([, d]) => d));
     overlay.addEventListener('click', (e) => {
@@ -1628,13 +1658,24 @@ async function renderDevicesView() {
 
   const tb = $('deviceTable').querySelector('tbody');
   tb.innerHTML = '';
+  if (!devices.length) {
+    // tiri 規範：空清單不留光禿表頭，換 b-empty 空狀態
+    tb.innerHTML =
+      '<tr><td colspan="7"><div class="b-empty">' +
+      '<span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>' +
+      '<p class="b-empty-title">還沒有機器連上來</p>' +
+      '<p class="b-empty-sub">在 kiosk 機器的 App 裡開啟「雲端同步」，機器會自動出現在這裡。</p>' +
+      '</div></td></tr>';
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
   for (const d of devices) {
     const tr = document.createElement('tr');
     tr.className = 'device-row';
     const updated = d.UpdatedAt ? new Date(d.UpdatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
     tr.innerHTML =
-      `<td class="b-th">${d.DeviceName || d.DeviceId}</td>` +
-      `<td class="device-id-dim">${d.DeviceId}</td>` +
+      `<td class="b-th">${esc(d.DeviceName || d.DeviceId)}</td>` +
+      `<td class="device-id-dim">${esc(d.DeviceId)}</td>` +
       `<td class="num">第 ${d.Version} 版</td><td class="num">${updated}</td>`;
     tr.appendChild(statusCell(d));
 
@@ -1705,7 +1746,7 @@ async function renderUsersView() {
   utb.innerHTML = '';
   for (const u of users) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="b-th">${u.Username}</td><td>${u.DisplayName || ''}</td>` +
+    tr.innerHTML = `<td class="b-th">${esc(u.Username)}</td><td>${esc(u.DisplayName || '')}</td>` +
       `<td>${u.IsAdmin ? '<span class="b-badge brand">管理員</span>' : '<span class="b-badge neutral">一般</span>'}</td>` +
       `<td class="num">${u.DeviceCount}</td>`;
     const td = document.createElement('td');
