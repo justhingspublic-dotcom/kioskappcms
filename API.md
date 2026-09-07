@@ -21,7 +21,17 @@ Body：`{ "password": "..." }` → `{ "token": "..." }`。密碼錯回 401。
 
 ### GET /api/devices（限管理網頁）
 → `[ { "DeviceId": "...", "DeviceName": "...", "Version": 3, "UpdatedAt": "...", "OwnerUserId": null, "OwnerName": null, "LastSeenAgoSec": 11 } ]`
+**所有登入者都拿到全部機器**（2026-09-07 定案：權限只分「一般／管理員」，差別只有帳號管理）。`OwnerUserId` 欄位與 `PUT /api/devices/{id}/owner` 保留但目前不做過濾。
 `LastSeenAgoSec`＝機器最後一次帶 Device Key 連線距今秒數（記憶體統計，伺服器重啟後歸 null，機器 25 秒內會再露面）；null＝重啟後尚未露面。網頁以 <60 秒視為在線。
+
+### GET /api/me（限管理網頁）
+→ `{ "username": "admin", "displayName": "系統管理員", "isAdmin": true }`（每次從 DB 讀；網頁右上角顯示 displayName，沒設就顯示 username）
+
+### 帳號管理（限管理員）
+- `GET /api/users` → `[ { "UserId", "Username", "DisplayName", "IsAdmin", "CreatedAt", "IsPrimary", "IsMe" } ]`；`IsPrimary`＝主管理員（`.env` ADMIN_USERNAME，預設 admin）、`IsMe`＝目前登入者。
+- `POST /api/users` `{ username, password, displayName?, isAdmin? }`
+- `PUT /api/users/{userId}` `{ displayName?, isAdmin? }`：帶哪個改哪個；主管理員與自己的 `isAdmin` 不能改（400）。
+- `DELETE /api/users/{userId}`：主管理員、自己不能刪（400）。
 
 ### GET /api/config/{deviceId}/version
 → `{ "version": 3 }`（該機器沒設定過則 `0`）
@@ -36,10 +46,15 @@ Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一
 **部分更新語意（淺合併）**：沒帶的頂層欄位一律沿用舊值。所以「複製/套用版面」只帶
 `pages`、「套用共用設定」只帶 `chatApi`+`sleep`、網頁存檔不帶 `activePage`（機器不跳頁）。
 
-### GET / PUT /api/shared-settings（限管理網頁，每個登入帳號一份）
-共用範本（版面清單＋客服帳號＋休眠排程）。GET → `{ "settings": {...}|null, "updatedAt" }`；
-PUT Body：`{ "settings": { "layouts": [ { "id": 1, "name": "...", "pages": [...],
-"screen": {...}, "updatedAt": "..." } ], "chatApi": {...}, "sleep": {...} } }`（欄位皆可省略）。
+### GET / PUT /api/shared-settings（限管理網頁，**全站一份**）
+共用範本（版面清單＋客服帳號＋休眠排程＋管理 PIN），2026-09-07 定案改為全站一份、不分帳號（資料列 `UserId='_global'`）。
+GET → `{ "settings": {...}|null, "updatedAt" }`；
+PUT Body：`{ "settings": { "layouts": [ { "id": 1, "name": "...", "pages": [...], "screen": {...},
+"createdBy": "系統管理員", "createdAt": "...", "updatedAt": "..." } ], "chatApi": {...}, "sleep": {...}, "adminPin": "..." } }`（欄位皆可省略）。
+- `createdBy`／`createdAt` 由伺服器在 PUT 時對「新出現的版面 id」蓋章（＝登入者顯示名稱），網頁不用帶。
+- **權限**：管理員可改全部；一般帳號的 PUT 只會套用 `sleep`（休眠排程），其他欄位一律保留現值，沒帶 `sleep` 回 403。
+  對應網頁：一般帳號的版面設定只有「加入機器」（無新增／編輯／更名／刪除），機器設定只能改休眠時段。
+- **搬移**：伺服器啟動時若還沒有 `_global` 列，把舊制各帳號的列合併成一份（版面全收、重新編號、建立者＝原帳號名稱；客服／休眠／PIN 以主管理員那份為準），舊列保留不刪。
 **一個版面＝一頁**（`pages` 長度 1；沿用陣列格式是為了與 config 的頁面格式一致）。
 （舊格式單一版面存 `pages`/`layoutScreen`/`layoutUpdatedAt`；網頁載入時自動把每頁拆成一個版面搬進 `layouts`。）
 「加入機器／套用」不經伺服器特別處理——網頁端逐台 `PUT /api/config/{id}` 帶部分欄位即可；
@@ -61,7 +76,7 @@ Body：`{ "baseUrl": "...", "email": "...", "password": "..." }`（即 config �
 ## config JSON 格式
 
 同步「版面內容」＋「機器設定」（客服帳號 `chatApi`、休眠排程 `sleep`）。
-**PIN 與雲端同步連線設定仍留在機器本機**。PUT 時沒帶 `activePage`／`deviceName`／
+**PIN 與雲端同步連線設定仍留在機器本機**。網頁「機器總覽 › 更名」只 PUT `{ "config": { "deviceName": "..." } }`，其餘欄位沿用；機器拉回後會把名稱寫進本機雲端同步設定（App v1.12 起）。PUT 時沒帶 `activePage`／`deviceName`／
 `chatApi`／`sleep` 的欄位，伺服器沿用舊值（避免舊版存檔把欄位洗掉）：
 
 ```json

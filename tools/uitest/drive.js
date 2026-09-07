@@ -157,7 +157,7 @@ function check(name, ok, extra) {
     // ── 回機器總覽 → 開機器工作區 modal ──
     await page.click('[data-view="devices"]');
     await sleep(400);
-    await page.click('#deviceTable .device-ops button');   // 2026-09-03 起整列不可點，入口＝內容管理鈕
+    await page.click('#deviceTable .device-ops button:first-child');   // 2026-09-03 起整列不可點，入口＝內容管理鈕（第二顆是「更名」）
     await sleep(700);
     check('內容管理鈕開機器工作區 modal', await page.evaluate(() => document.querySelector('#wsModal').classList.contains('is-visible')));
     check('device 模式頁籤可見', await visible('.ws-tabs'));
@@ -222,10 +222,10 @@ function check(name, ok, extra) {
     check('Esc 關閉工作區', await page.evaluate(() => !document.querySelector('#wsModal').classList.contains('is-visible')));
 
     // ── 深色模式切一下 ──
-    await page.click('.header-mode-btn');
+    await page.evaluate(() => window.setColorMode('dark', false));
     await sleep(400);
     await shot('11-dark-devices');
-    await page.click('.header-mode-btn');
+    await page.evaluate(() => window.setColorMode('light', false));
     await sleep(200);
 
     // ── 收合側欄（flyout 行為） ──

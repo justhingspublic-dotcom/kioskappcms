@@ -8,7 +8,9 @@
   /* 深淺色＋字級偏好：首繪前套用，避免載入閃色/閃字級 */
   (function () {
     try {
-      if (localStorage.getItem('adminColorMode') === 'dark') document.documentElement.setAttribute('data-color-mode', 'dark');
+      var m = localStorage.getItem('adminColorMode');
+      /* 未設定＝跟隨裝置 */
+      if (m === 'dark' || (m !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.setAttribute('data-color-mode', 'dark');
       var fs = localStorage.getItem('adminFontSize');
       if (fs === 'sm' || fs === 'lg') document.documentElement.setAttribute('data-fs', fs);
     } catch (e) { }
@@ -50,9 +52,10 @@
           <div class="header-fs-marks"><span>中</span><span class="on">大</span><span>特大</span></div>
         </div>
       </div>
-      <button type="button" class="header-icon-btn header-mode-btn" title="切換深淺色" aria-label="切換深淺色">
-        <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
+      <button type="button" class="header-icon-btn header-mode-btn" title="外觀：跟隨裝置（點擊切換）" aria-label="外觀：跟隨裝置（點擊切換）">
         <span class="mode-ic mode-ic-sun"><i data-lucide="sun"></i></span>
+        <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
+        <span class="mode-ic mode-ic-auto"><i data-lucide="sun-moon"></i></span>
       </button>
       <span class="header-sep" aria-hidden="true"></span>
       <button type="button" class="header-icon-btn" id="demo-theme-btn" title="套用/取消 TIRI 主題" aria-label="切換主題">

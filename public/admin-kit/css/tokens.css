@@ -5,8 +5,9 @@
    規則：
    - 元件碼一律 var(--token)，「絕不手動寫死 hex」。
    - 每個顏色 token 都有 light + dark 兩值；dark 由 <html data-color-mode="dark">
-     明確啟用（存 localStorage、首繪前 inline script 套用，見 README），
-     不走 prefers-color-scheme 自動跟隨。
+     明確啟用（存 localStorage、首繪前 inline script 套用，見 README）。
+     CSS 本身不寫 prefers-color-scheme；使用者選「跟隨裝置」時由 JS 讀 OS 偏好後
+     再掛同一個 attribute。
    - ★ 無預設品牌色：唯一強調色源是 --accent（預設中性深灰）。
      整個 brand token 家族由 --accent 以 color-mix / oklch 衍生，
      專案只覆寫 --accent（+--on-accent）即完成換皮；themes/tiri.css 是範例。

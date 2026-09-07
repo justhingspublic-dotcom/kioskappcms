@@ -32,6 +32,20 @@ body { animation: cms-page-in .18s ease-out; }
   .b-avatar:not(.b-avatar-square), .b-occ-track, .b-occ-fill,
   .rounded-full, .logo-env { corner-shape: round; }   /* logo-env 是 radius-full 膠囊，必須排除 squircle */
 }
+/* ── 不支援 corner-shape 的瀏覽器（Safari / Firefox）：以 Chrome 的 squircle 外觀為準（2026-09-07 指示）。
+      Chrome 上 radius-full＋squircle 看起來是「約 12px 的圓角矩形」而不是膠囊，
+      所以這裡把 radius-full 退成 12px、radius-md 退成 8px（squircle 10px 視覺上比圓角 10px 收斂）。
+      上面排除清單（Chrome 上維持真圓／真膠囊的元素）在這裡也要維持 9999px，兩邊才一致。
+      ⚠ 新增排除元素時，這份清單要跟上面同步（style.css 另有三處同款 fallback）。 ── */
+@supports not (corner-shape: squircle) {
+  :root { --radius-full: 12px; --radius-md: 8px; }
+  .header-user-avatar, .b-badge .dot,
+  input[type="radio"], input[type="checkbox"],
+  .header-user-btn, .header-icon-btn,
+  .b-badge:not(.square), .b-alert-pill, .b-ish-circle,
+  .b-avatar:not(.b-avatar-square), .b-occ-track, .b-occ-fill,
+  .rounded-full, .logo-env { --radius-full: 9999px; }
+}
 
 /* ── 無障礙 ── */
 .skip-link {
@@ -105,11 +119,14 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 }
 .header-right .header-icon-btn:hover { background: var(--neutral-secondary-medium); color: var(--fg-brand); }
 
-/* 深淺色切換鈕：月亮/太陽都先渲染、class 切換顯示（不可動態換 icon 節點） */
+/* 深淺色切換鈕：三個 icon 都先渲染、class 切換顯示「目前狀態」（不可動態換 icon 節點）
+   淺色＝太陽、深色＝月亮、跟隨裝置＝sun-moon */
 .header-mode-btn .mode-ic { display: inline-flex; align-items: center; justify-content: center; }
-.header-mode-btn .mode-ic-sun { display: none; }
-.header-mode-btn.is-dark .mode-ic-moon { display: none; }
-.header-mode-btn.is-dark .mode-ic-sun { display: inline-flex; }
+.header-mode-btn .mode-ic-moon, .header-mode-btn .mode-ic-auto { display: none; }
+.header-mode-btn.is-dark .mode-ic-sun { display: none; }
+.header-mode-btn.is-dark .mode-ic-moon { display: inline-flex; }
+.header-mode-btn.is-system .mode-ic-sun { display: none; }
+.header-mode-btn.is-system .mode-ic-auto { display: inline-flex; }
 
 /* ── 帳號下拉：頭像＋名＋caret → 點開顯示 名/email＋登出 ── */
 .header-user-wrap { position: relative; }

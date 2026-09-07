@@ -54,7 +54,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(2500);
 
   // 深色
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('dark', false));
   await sleep(600);
   await page.screenshot({ path: path.join(OUT, 'card-dark.png'), clip: await cardClip() });
 
@@ -78,7 +78,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.mouse.click(900, 500); // 點外面關
   await sleep(300);
   console.log('flyout closed:', await page.evaluate(() => !document.querySelector('.conn-flyout')));
-  await page.click('.header-mode-btn'); await sleep(400);
+  await page.evaluate(() => window.setColorMode('light', false)); await sleep(400);
   await page.screenshot({ path: path.join(OUT, 'collapsed-light.png'), clip: { x: 0, y: 700, width: 120, height: 200 } });
   await page.click('.sidebar .toggle-btn'); // 還原
   await sleep(120);

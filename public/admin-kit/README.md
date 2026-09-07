@@ -35,7 +35,8 @@ admin-kit/
 <head>
   <!-- ①（必要）深淺色＋字級偏好首繪前套用，避免閃色 -->
   <script>(function(){try{
-    if(localStorage.getItem('adminColorMode')==='dark')document.documentElement.setAttribute('data-color-mode','dark');
+    var m=localStorage.getItem('adminColorMode');
+    if(m==='dark'||(m!=='light'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.setAttribute('data-color-mode','dark');
     var fs=localStorage.getItem('adminFontSize');
     if(fs==='sm'||fs==='lg')document.documentElement.setAttribute('data-fs',fs);
   }catch(e){}})();</script>

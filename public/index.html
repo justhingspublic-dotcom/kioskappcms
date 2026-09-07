@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kiosk 管理後台</title>
+  <title>JustDisplay 管理後台</title>
   <script>
     /* 深淺色＋字級偏好：首繪前套用，避免載入閃色/閃字級（admin-kit 規範） */
     (function () {
       try {
-        if (localStorage.getItem('adminColorMode') === 'dark') document.documentElement.setAttribute('data-color-mode', 'dark');
+        var m = localStorage.getItem('adminColorMode');
+        /* 未設定＝跟隨裝置 */
+        if (m === 'dark' || (m !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.setAttribute('data-color-mode', 'dark');
         var fs = localStorage.getItem('adminFontSize');
         if (fs === 'sm' || fs === 'lg') document.documentElement.setAttribute('data-fs', fs);
       } catch (e) { }
@@ -33,17 +35,22 @@
   <div id="loginView" class="login-wrap hidden">
     <form id="loginForm" class="login-card">
       <div class="login-head">
-        <div class="login-mark"><i data-lucide="monitor-play"></i></div>
-        <h2 class="login-title">Kiosk 管理後台</h2>
+        <div class="login-mark"><img src="img/favicon.svg" alt="Justhings 標誌"></div>
+        <h2 class="login-title">JustDisplay 管理後台</h2>
         <p class="login-sub">登入以管理展示機</p>
       </div>
       <label class="b-label">帳號
         <input id="username" type="text" class="b-input" autocomplete="username" required>
       </label>
       <label class="b-label">密碼
-        <input id="password" type="password" class="b-input" autocomplete="current-password" required>
+        <!-- tiri 同款眼睛顯隱鈕（重用設定卡的 .pw-wrap/.pw-eye） -->
+        <span class="pw-wrap">
+          <input id="password" type="password" class="b-input" autocomplete="current-password" required>
+          <button type="button" id="loginPwEye" class="pw-eye" aria-label="顯示密碼" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+        </span>
       </label>
-      <button type="submit" class="btn-login">登入</button>
+      <!-- tiri 同款：icon＋<span> 文字（文字必須包元素才能壓在 ::before 填色層之上） -->
+      <button type="submit" class="btn-login"><i data-lucide="log-in" aria-hidden="true"></i><span>登入</span></button>
       <p id="loginError" class="login-error hidden">帳號或密碼錯誤</p>
     </form>
   </div>
@@ -65,9 +72,10 @@
             <div class="header-fs-marks"><span>中</span><span class="on">大</span><span>特大</span></div>
           </div>
         </div>
-        <button type="button" class="header-icon-btn header-mode-btn" title="切換深淺色" aria-label="切換深淺色">
-          <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
+        <button type="button" class="header-icon-btn header-mode-btn" title="外觀：跟隨裝置（點擊切換）" aria-label="外觀：跟隨裝置（點擊切換）">
           <span class="mode-ic mode-ic-sun"><i data-lucide="sun"></i></span>
+          <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
+          <span class="mode-ic mode-ic-auto"><i data-lucide="sun-moon"></i></span>
         </button>
         <div class="header-user-wrap">
           <button type="button" class="header-user-btn" aria-expanded="false" aria-haspopup="menu">
@@ -175,7 +183,7 @@
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
                 <p>點「內容管理」進入該機器的版面與設定。</p>
-                <p>機器名稱在 kiosk 機器的「雲端同步」設定裡填寫，會自動同步上來；沒有名稱時顯示編號。</p>
+                <p>點「更名」可直接修改機器名稱，會同步回機器；也可在 kiosk 機器的「雲端同步」設定裡填寫。沒有名稱時顯示編號。</p>
               </div>
             </div>
           </div>
@@ -207,6 +215,7 @@
                 <p>設計一次、一次塞進多台：在這裡做好版面，按「加入機器」勾選機器，就不用一台台進去畫。</p>
                 <p>「加入機器」＝複製一份接在該機現有頁面的後面並立即發布，不會覆蓋機器原本的頁面。</p>
                 <p>加進去之後各機獨立：到機器裡改那一頁不會動到這裡的版面；這裡改了也不會動到已加入的機器，要更新就再加入一次。</p>
+                <p>版面是全公司共用的清單。一般帳號只能把版面加入機器；新增、編輯、更名與刪除限管理員。</p>
               </div>
             </div>
           </div>
@@ -216,7 +225,7 @@
         </div>
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="sharedLayoutTable">
-            <thead><tr><th class="device-thumb-col"></th><th>名稱</th><th>更新時間</th><th></th></tr></thead>
+            <thead><tr><th class="device-thumb-col"></th><th>名稱</th><th>建立者</th><th>更新時間</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -236,6 +245,7 @@
                 <p>設定一次、一次套到多台：在這裡填好客服帳號與休眠時段，按「套用到機器」勾選機器。</p>
                 <p>「套用到機器」＝以這裡的設定覆蓋所選機器目前的客服帳號、休眠時段與管理 PIN 並立即發布，版面不受影響。</p>
                 <p>套用之後各機獨立：到機器裡改設定不會動到這裡；這裡改了也不會動到已套用的機器，要更新就再套用一次。</p>
+                <p>這份範本是全公司共用的。一般帳號只能修改休眠時段；客服帳號與管理 PIN 限管理員。</p>
               </div>
             </div>
           </div>
@@ -251,14 +261,46 @@
            取代原本頁尾的橫排表單卡（2026-09-03 指示，UI/UX 比照高爾夫後台的新增桿弟） -->
       <div id="usersView" class="hidden">
         <div class="page-header">
-          <h1 class="page-title">帳號管理</h1>
+          <div class="page-title-wrap">
+            <h1 class="page-title">帳號管理</h1>
+            <!-- ? 說明＝權限對照表（2026-09-07 指示）；內容對應 server.js requireAdmin／app.js meIsAdmin 的實際限制 -->
+            <div class="b-pop page-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="使用說明">
+                <i data-lucide="circle-help"></i>
+              </button>
+              <div class="b-pop-panel page-help-panel">
+                <p class="b-pop-panel-title">權限對照</p>
+                <p>管理員可以做所有事；一般帳號負責日常上架，不能動到帳號、刪除機器與安全相關設定。</p>
+                <!-- 完整表格：外框由 .help-tbl-wrap 畫（圓角要靠 wrapper，collapse 表格本身畫不出圓角） -->
+                <div class="help-tbl-wrap">
+                <table class="help-tbl" aria-label="管理員與一般帳號權限對照">
+                  <thead><tr><th>功能</th><th>管理員</th><th>一般</th></tr></thead>
+                  <tbody>
+                    <tr class="grp"><td colspan="3">機器</td></tr>
+                    <tr><td>查看機器、編輯版面、更名</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+                    <tr><td>機器設定：智能客服、休眠排程</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+                    <tr><td>機器設定：管理 PIN</td><td class="yes">✓</td><td class="no">—</td></tr>
+                    <tr><td>刪除機器</td><td class="yes">✓</td><td class="no">—</td></tr>
+                    <tr class="grp"><td colspan="3">共用設定</td></tr>
+                    <tr><td>把版面加到機器</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+                    <tr><td>新增、編輯、更名、刪除版面</td><td class="yes">✓</td><td class="no">—</td></tr>
+                    <tr><td>共用休眠排程</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+                    <tr><td>共用智能客服、管理 PIN</td><td class="yes">✓</td><td class="no">—</td></tr>
+                    <tr class="grp"><td colspan="3">帳號</td></tr>
+                    <tr><td>帳號管理（新增、編輯、刪除）</td><td class="yes">✓</td><td class="no">—</td></tr>
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="page-actions">
             <button id="addUserBtn" class="b-btn b-btn-primary"><i data-lucide="plus"></i>新增帳號</button>
           </div>
         </div>
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="userTable">
-            <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th class="num">機器數</th><th></th></tr></thead>
+            <thead><tr><th>帳號</th><th>名稱</th><th>權限</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -350,9 +392,49 @@
             <label class="b-label adduser-span">名稱
               <input id="newDisplayName" type="text" class="b-input" placeholder="選填（例：XX專案）">
             </label>
+            <!-- 權限只分兩級（2026-09-07 定案）：一般＝全部機器都能管、只是沒有帳號管理；管理員＝多帳號管理 -->
+            <div class="b-label adduser-span">權限
+              <div class="seg-row adduser-role has-ind" id="newUserRole" role="radiogroup" aria-label="權限">
+                <span class="seg-ind" aria-hidden="true"></span>
+                <button type="button" class="seg active" data-role="user" role="radio" aria-checked="true">一般</button>
+                <button type="button" class="seg" data-role="admin" role="radio" aria-checked="false">管理員</button>
+              </div>
+              <p class="b-hint">一般帳號可管理所有機器，但看不到帳號管理。</p>
+            </div>
           </div>
           <div class="b-modal-foot">
             <button type="submit" id="addUserSubmit" class="b-btn b-btn-text" disabled>新增</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 編輯帳號（2026-09-07：取代「更名」；名稱＋權限一起改。主管理員／自己：權限鎖住只能改名） -->
+    <div class="b-modal-overlay" id="editUserModal" data-modal-vue>
+      <div class="b-modal is-wide" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+        <div class="b-modal-head">
+          <h3 class="b-modal-title" id="editUserTitle">編輯帳號</h3>
+          <button type="button" class="b-modal-close" id="editUserCloseBtn" aria-label="關閉"><i data-lucide="x"></i></button>
+        </div>
+        <form id="editUserForm">
+          <div class="b-modal-body adduser-grid">
+            <label class="b-label">帳號
+              <input id="editUsername" type="text" class="b-input" disabled>
+            </label>
+            <label class="b-label">名稱
+              <input id="editDisplayName" type="text" class="b-input" placeholder="選填（例：XX專案）">
+            </label>
+            <div class="b-label adduser-span">權限
+              <div class="seg-row adduser-role has-ind" id="editUserRole" role="radiogroup" aria-label="權限">
+                <span class="seg-ind" aria-hidden="true"></span>
+                <button type="button" class="seg active" data-role="user" role="radio" aria-checked="true">一般</button>
+                <button type="button" class="seg" data-role="admin" role="radio" aria-checked="false">管理員</button>
+              </div>
+              <p class="b-hint" id="editUserRoleHint">一般帳號可管理所有機器，但看不到帳號管理。</p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <button type="submit" id="editUserSubmit" class="b-btn b-btn-text">儲存</button>
           </div>
         </form>
       </div>

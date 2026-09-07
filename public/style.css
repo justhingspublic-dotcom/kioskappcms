@@ -125,20 +125,29 @@ html:root[data-color-mode="dark"] {
   background: var(--brand-softer); color: var(--fg-brand);
 }
 .login-mark :where(i, .lucide, svg) { width: 26px; height: 26px; }
+/* 品牌 CI（img/favicon.svg＝橘底白 J 方塊）：logo 自帶圓角橘底，mark 不再畫外框與底色，
+   圖直接填滿 60px（tiri 是 .login-mark img 塞 logo，同一位置同一尺寸）。 */
+.login-mark:has(img) { border: 0; background: transparent; overflow: hidden; }
+.login-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .login-title { margin: 5px 0 0; color: var(--text-heading); font-size: 1.55rem; font-weight: 600; line-height: 1.25; }
 .login-sub { margin: 8px 0 0; color: var(--text-body-subtle); font-size: 14px; }
 .login-card .b-input { margin-top: 6px; width: 100%; }
+/* 密碼欄眼睛鈕：外層 span 接手 label 下方 6px 間距，input 歸零讓眼睛垂直置中 */
+.login-card .pw-wrap { display: block; margin-top: 6px; }
+.login-card .pw-wrap .b-input { margin-top: 0; }
 .btn-login {
   width: 100%; height: 42px; margin-top: 4px;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   border: 1px solid transparent; border-radius: var(--control-radius);
   background: var(--brand); color: var(--b-on-primary, #fff);
   font-family: inherit; font-size: .98rem; font-weight: 600; cursor: pointer;
+  box-shadow: var(--shadow-xs), var(--btn-glint);   /* tiri 原版；本站 token 已歸零＝無陰影 */
   transition: background .15s ease;
 }
-.btn-login:hover { background: var(--brand-strong); }
+.btn-login :where(i, .lucide, svg) { width: 18px; height: 18px; flex: none; }
+.btn-login:hover:not(.is-loading) { background: var(--brand-strong); }
 .btn-login:active { transform: translateY(1px); }
-.btn-login:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--brand-medium); }
+.btn-login:focus-visible { outline: none; box-shadow: var(--shadow-xs), var(--btn-glint), 0 0 0 4px var(--brand-medium); }
 /* 登入中填色動畫（tiri login.css 原版）：::before 以 --brand-strong 由左至右填色。
    送出 → is-loading 慢速填到 55% 等回應；成功 → is-success 快速補滿後進場；
    失敗 → 移除 is-loading，縮回 scaleX(0)（自帶縮回過渡）。 */
@@ -180,7 +189,9 @@ html:root[data-color-mode="dark"] {
 /* 重新載入（2026-09-07 指示）：頁籤列右側、只放 icon、灰底圓角矩形、與頁籤列同高正方形 */
 .page-tabs-reload {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
-  aspect-ratio: 1 / 1; height: auto; padding: 0; border: 0; /* 無邊框（2026-09-07 指示） */
+  /* 正方形用明確 px，不用 aspect-ratio＋stretch：Safari 算不出寬會塌成細條（2026-09-07 修）。
+     48 = 頁籤 36 + 容器 padding 5×2 + border 1×2，改頁籤高度時要一起改 */
+  width: 48px; height: 48px; padding: 0; border: 0; /* 無邊框（2026-09-07 指示） */
   border-radius: var(--radius-full); /* 圓角對齊左邊頁籤列（pill） */ background: var(--neutral-secondary-medium); color: var(--text-body-subtle);
   cursor: pointer; transition: background .15s, color .15s;
 }
@@ -214,7 +225,7 @@ html:root[data-color-mode="dark"] {
   flex: none; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
   border: 0; background: var(--neutral-secondary-medium); border-radius: var(--radius-full);
-  padding: 7px 8px 7px 14px; cursor: pointer;
+  height: 36px; padding: 0 8px 0 14px; cursor: pointer; /* 高度固定：各瀏覽器 line-height: normal 不同，不靠上下 padding 撐 */
   color: var(--text-body); font-size: 14px; font-weight: 500;
   transition: background .15s, color .15s;
 }
@@ -223,10 +234,13 @@ html:root[data-color-mode="dark"] {
   background: color-mix(in srgb, var(--brand) 12%, transparent);
   color: var(--fg-brand-strong, var(--fg-brand));
 }
+/* 重新命名／刪除：lucide icon（原本用 ✎ ✕ 字元，Safari 與 Chrome 字型不同、粗細大小都跑掉） */
 .page-tabs .tab button {
-  background: none; border: 0; color: inherit; opacity: .55; padding: 2px 5px;
-  font-size: 13px; cursor: pointer; border-radius: var(--radius-full);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; color: inherit; opacity: .55; padding: 0; width: 22px; height: 22px;
+  cursor: pointer; border-radius: var(--radius-full);
 }
+.page-tabs .tab button :where(i, svg) { width: 13px; height: 13px; }
 .page-tabs .tab button:hover { opacity: 1; }
 /* 左右捲動箭頭：只在頁籤溢出時出現（滑鼠使用者用；觸控板可直接橫滑、滾輪也轉成橫捲） */
 .page-tabs-arrow {
@@ -242,7 +256,7 @@ html:root[data-color-mode="dark"] {
 /* 新增頁面：主題色 icon 鈕，固定最右，左邊一條淡分隔線 */
 .page-tabs .add-page {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
-  align-self: stretch; height: auto; width: auto; aspect-ratio: 1 / 1; /* 與頁籤同高、正方形 */
+  width: 36px; height: 36px; /* 與頁籤同高、正方形（明確 px；aspect-ratio＋stretch 在 Safari 會塌成細條） */
   padding: 0; border: 0; border-radius: var(--radius-full);
   background: var(--brand); color: var(--b-on-primary, #fff); cursor: pointer;
   margin-left: 4px; position: relative;
@@ -255,6 +269,13 @@ html:root[data-color-mode="dark"] {
 .page-tabs .add-page :where(i, svg) { width: 16px; height: 16px; }
 .page-tabs .add-page:not(:disabled):hover { background: var(--brand-strong, var(--brand)); }
 .page-tabs .add-page:disabled { background: var(--neutral-tertiary-medium); color: var(--text-body-subtle); cursor: default; }
+/* Safari / Firefox（無 squircle）：Chrome 的 squircle 圓角會隨元素高度放大，外框看起來比裡面的頁籤更圓；
+   這裡照「同心圓角」規則補：外框圓角＝內圈圓角＋內距（12 + 5）＝17，seg-row 同理（10 + 4）＝14（2026-09-07 user 回饋「Chrome 比較和諧」）。 */
+@supports not (corner-shape: squircle) {
+  .page-tabs, .page-tabs-reload { border-radius: 17px; }
+  .seg-row:not(.ws-tabs) { border-radius: 14px; }
+  .seg-row:not(.ws-tabs) .seg, .seg-row:not(.ws-tabs) .seg-ind { border-radius: 10px; }
+}
 
 /* 編輯器垂直填滿 modal 內容區（2026-09-03 指示：上下留白一致＝body padding）：
    ws-body → layoutTab → editor 一路 flex 傳高，畫布以「高度」定尺寸。 */
@@ -512,6 +533,7 @@ html:root[data-color-mode="dark"] {
 .page-help-btn:hover, .page-help.is-open .page-help-btn { color: var(--fg-brand); }
 .page-help-btn:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--brand-medium); }
 @supports (corner-shape: squircle) { .page-help-btn { corner-shape: round; } } /* radius-full 圓鈕，照例排除 squircle */
+@supports not (corner-shape: squircle) { .page-help-btn { --radius-full: 9999px; } } /* Safari fallback（見 shell.css）：真圓維持 */
 .page-help .b-pop-panel {
   left: 0; right: auto; transform-origin: top left;
   width: max-content; min-width: 260px; max-width: min(420px, calc(100vw - 48px));
@@ -546,7 +568,7 @@ html:root[data-color-mode="dark"] {
 .settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; } /* 24→16：大字級下盡量不捲（2026-09-07） */
 .settings-body .settings-card-full { grid-column: 1 / -1; } /* 管理 PIN 卡：整條放在 API 與休眠之下 */
 /* PIN 卡＝一排：標題列左邊「管理 PIN ?」、右邊輸入框；沒有欄位區，標題列底線拿掉 */
-.settings-card-full .b-card-head { border-bottom: 0; padding: 12px 20px; }
+.settings-card-full .b-card-head { border-bottom: 0; padding: 12px 12px 12px 20px; } /* 右側＝上下同 12px，輸入框與卡框等距（2026-09-07 user 指示） */
 .settings-card-full .b-card-head .pw-wrap { width: 260px; flex: none; }
 /* 右欄卡片的 ? 說明面板往左開：往右開會超出 modal 內容區、把 body 撐出水平捲動 */
 .settings-body .settings-card:nth-child(2) .page-help .b-pop-panel { left: auto; right: 0; transform-origin: top right; }
@@ -610,6 +632,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 @supports (corner-shape: squircle) {
   input[type=checkbox].b-switch, input[type=checkbox].b-switch::after { corner-shape: round; }
 }
+@supports not (corner-shape: squircle) { input[type=checkbox].b-switch { --radius-full: 9999px; } } /* Safari fallback：真膠囊維持（::after 繼承） */
 .switch-row { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
 /* 休眠卡＝固定 7 列清單（高度不跳動；點「編輯」跳單日 modal） */
 .sleep-list.is-off { opacity: .55; }
@@ -634,6 +657,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 列＝純資訊（2026-09-03 指示）：不可點、不給 hover 反饋，入口只有「內容管理」鈕。
    下面的 transparent 蓋掉 kit 的 tr hover 與上方「對比調整」的 td hover。 */
 #deviceTable tbody tr:hover, #deviceTable tbody tr:hover td,
+#userTable tbody tr:hover, #userTable tbody tr:hover td, /* 帳號列不可點、hover 不變色（2026-09-07 指示） */
 #sharedLayoutTable tbody tr:hover, #sharedLayoutTable tbody tr:hover td { background: transparent; }
 .device-row .device-ops { text-align: right; white-space: nowrap; }
 /* 縮圖欄：固定寬（最寬縮圖 100px＋左右 padding）、縮圖置中；名稱欄緊接在後 */
@@ -681,6 +705,14 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 帳號管理：操作鈕（更名/刪除）靠最右；刪除＝全站統一紅字文字鈕（hover 透明紅底走 kit 規則） */
 #userTable .user-ops { text-align: right; white-space: nowrap; }
 #userTable .user-ops .b-btn + .b-btn { margin-left: 4px; }
+/* 每列固定畫「編輯／刪除」兩個位子；不能刪的列以 is-ghost 佔位隱藏，
+   讓每列「編輯」都對齊（2026-09-07 指示：admin 列少了刪除鈕就歪掉）。 */
+#userTable .user-ops .b-btn.is-ghost { visibility: hidden; pointer-events: none; }
+.adduser-role { display: flex; margin-top: 6px; }
+.adduser-role .seg { flex: 1; text-align: center; border-radius: var(--radius-full); }
+.adduser-role .seg-ind { border-radius: var(--radius-full); }
+.adduser-role.is-locked { opacity: .55; pointer-events: none; }
+.adduser-grid .b-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary, var(--text-body)); }
 /* 在線狀態小圓點 */
 .dev-dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-full); margin-right: 7px; vertical-align: 1px; }
 .dev-dot.on { background: var(--success, #2e9e5b); }
@@ -695,6 +727,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .ws-tabs .seg { flex: 1 1 0; min-width: 132px; text-align: center; }
 /* 標題列 seg 用真膠囊（2026-09-07 user 裁決）：只這組排除 kit 的 squircle；其他 seg/頁籤列維持 squircle 圓角矩形 */
 @supports (corner-shape: squircle) { .ws-tabs, .ws-tabs .seg, .ws-tabs .seg-ind { corner-shape: round; } }
+@supports not (corner-shape: squircle) { .ws-tabs { --radius-full: 9999px; } } /* Safari fallback：真膠囊維持（seg/seg-ind 繼承） */
 
 /* 所有 modal 遮罩對齊 tiri：半黑＋背景模糊（kit 預設沒有 backdrop-filter） */
 .b-modal-overlay { backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px); }
@@ -864,6 +897,10 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
    ⚠ 副作用：disabled 鈕上的 title 提示也不會出現（如「新增大區塊」達上限時的提示）。 */
 .b-btn:disabled, .b-btn.is-disabled, .b-btn[aria-disabled="true"], button:disabled { pointer-events: none; }
 
+/* 共用設定 › 機器設定：一般帳號鎖住的卡（客服帳號、管理 PIN）——欄位淡化不可點，標題旁「限管理員」徽章 */
+.settings-card.is-locked .settings-fields, .settings-card.is-locked .settings-foot { opacity: .55; pointer-events: none; }
+.settings-lock-badge { margin-left: 4px; }
+
 /* ── 側欄底部「機器連線資訊」卡片（2026-09-07 指示）：圓角框、位址與金鑰唯讀＋文字鈕複製（放標籤列右側對齊）；
    說明＝標題旁問號（page-help 同款，面板以卡片為基準向上開、寬度＝卡片）；收合側欄時縮成連線 icon → flyout ── */
 /* 收合/展開改淡入淡出（2026-09-07 指示）：卡片固定寬＝側欄展開寬，側欄縮小時被 overflow 裁掉而不是被壓扁；
@@ -926,3 +963,25 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   .sidebar.collapsed .sidebar-conn-mini { opacity: 0; visibility: hidden; }
 }
 }
+
+/* ── 帳號管理 ? 說明：管理員／一般帳號權限對照表（2026-09-07 user 指示）──
+   完整表格：外框＋圓角由 wrapper 畫、格線全畫、填滿面板寬（面板 width:max-content 時
+   子元素百分比寬會退成 auto，所以含表格的面板改定寬 420）；勾＝主題色、無＝次要色短橫。 */
+.page-help .b-pop-panel:has(.help-tbl) { width: 420px; }
+.page-help .help-tbl-wrap { margin-top: 12px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); overflow: hidden; }
+.page-help .help-tbl { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; line-height: 1.45; }
+.page-help .help-tbl th, .page-help .help-tbl td { padding: 6px 10px; border: 1px solid var(--border-default); vertical-align: middle; }
+/* 外圈的線交給 wrapper：最外側儲存格拿掉貼邊那條，才不會雙線 */
+.page-help .help-tbl tr > :first-child { border-left: 0; }
+.page-help .help-tbl tr > :last-child { border-right: 0; }
+.page-help .help-tbl thead tr:first-child > * { border-top: 0; }
+.page-help .help-tbl tbody tr:last-child > * { border-bottom: 0; }
+.page-help .help-tbl th { font-weight: 600; color: var(--text-heading); text-align: left; background: var(--neutral-secondary-soft); }
+.page-help .help-tbl th:not(:first-child), .page-help .help-tbl td:not(:first-child) { width: 64px; text-align: center; }
+.page-help .help-tbl .yes { color: var(--fg-brand); font-weight: 600; }
+.page-help .help-tbl .no { color: var(--text-body-subtle); }
+/* 群組標題列：灰底 hover 前後一致（特異度要壓過下面的 hover 規則） */
+.page-help .help-tbl tbody tr.grp td, .page-help .help-tbl tbody tr.grp:hover td { color: var(--text-body-subtle); font-size: 12px; background: var(--neutral-secondary-soft); }
+/* 純資訊列：不吃 .main-content tbody tr:hover 的灰底，hover 前後完全不變 */
+.page-help .help-tbl tbody tr:hover { background: transparent; }
+.page-help .help-tbl tbody tr:not(.grp):hover td { background: transparent; }

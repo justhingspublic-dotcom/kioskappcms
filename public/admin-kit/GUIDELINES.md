@@ -5,7 +5,7 @@
 ## 0. Token 紀律（最重要的一條）
 
 - **元件碼一律 `var(--token)`，絕不手動寫死 hex。**每個顏色 token 都有 light＋dark 兩值，寫死一個色＝深色模式壞一處。
-- 深色由 `<html data-color-mode="dark">` **明確啟用**（存 localStorage、⚠️ 首繪前 inline script 套用避免閃色），不走 `prefers-color-scheme` 自動跟隨——半套 token 化的頁面被 OS 翻黑會慘不忍睹。
+- 深色由 `<html data-color-mode="dark">` **明確啟用**（存 localStorage `adminColorMode` = `light`/`dark`/`system`，未設定＝`system`、⚠️ 首繪前 inline script 套用避免閃色）。CSS 不寫 `prefers-color-scheme`——半套 token 化的頁面被 OS 翻黑會慘不忍睹；「跟隨裝置」是 JS 讀 OS 偏好後掛同一個 attribute，並監聽變化即時切換。
 - **無預設品牌色**：唯一色源是 `--accent`（＋`--on-accent`）。brand 家族（`--brand`/`--brand-strong`/`--brand-soft(er)`/`--fg-brand`/`--border-brand`…）由 `--accent` 用 color-mix 自動衍生。新專案只覆寫 `--accent`；`themes/tiri.css` 是完整範例。
 - 語意色固定四組：brand（主動作/選中）、success、danger、warning，各有 soft/medium/strong＋fg＋border 階。
 
@@ -66,7 +66,7 @@
 5. **oklch 相對色 Safari 支援不全**：`oklch(from … calc(c*n) h)` 無效時整段跌回原值。正式專案把算出的深色值寫死 hex。
 6. **icon 動態注入要重渲染**（lucide）：下拉/菜單開啟後補呼叫 `renderLucideIcons()`；轉換完立刻拔掉殘留 `data-lucide`，否則之後每次呼叫整頁重畫。
 7. **Tailwind CDN（若用）首次見到新 class 會整份重編譯**＝畫面閃一下。動態元件（對話框/toast）的 class 要在首繪 markup 裡預熱亮相。
-8. **深淺色鈕的兩個 icon 都先渲染**、用 class 切換顯示，不要動態換節點。
+8. **深淺色鈕的三個 icon（太陽／月亮／sun-moon）都先渲染**、用 class（`is-dark`／`is-system`）切換顯示目前狀態，不要動態換節點。
 
 ## 5. 互動模式
 

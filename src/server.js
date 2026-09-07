@@ -94,20 +94,21 @@ function requireAdmin(req, res, next) {
   res.status(403).json({ error: '這項操作需要管理員權限。' });
 }
 
-/** 該登入者能否操作這台機器（管理員全可；一般帳號只能碰分配給自己的）。 */
-async function canAccessDevice(user, deviceId) {
-  if (user.isAdmin) return true;
-  const r = await db.getPool().request()
-    .input('id', db.sql.NVarChar(64), deviceId)
-    .query('SELECT OwnerUserId FROM dbo.KioskConfig WHERE DeviceId = @id');
-  return r.recordset[0]?.OwnerUserId === user.userId;
+/** 該登入者能否操作這台機器。權限模型（2026-09-07 user 定案）只分兩級：
+ *  管理員＝多「帳號管理」；一般＝看得到、改得動全部機器。
+ *  OwnerUserId 欄位與分配 API 保留（未來要做「只看自己的」再啟用），目前不做過濾。 */
+async function canAccessDevice(user, _deviceId) {
+  return !!user;
 }
+
+// 主管理員帳號：首次啟動自動建立；不能刪、不能降級（避免鎖死後台），帳號管理只能改它的名稱。
+const SEED_ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 
 // ---- 首次啟動：沒有任何帳號時，自動建立管理員 ----
 async function seedAdmin() {
   const r = await db.getPool().request().query('SELECT COUNT(*) AS n FROM dbo.KioskUser');
   if (r.recordset[0].n > 0) return;
-  const username = process.env.ADMIN_USERNAME || 'admin';
+  const username = SEED_ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
   if (!password) throw new Error('.env 缺 ADMIN_PASSWORD，無法建立初始管理員');
   await db.getPool().request()
@@ -138,8 +139,15 @@ app.post('/api/login', async (req, res) => {
   res.json({ token, user: { username: row.Username, displayName: row.DisplayName, isAdmin: !!row.IsAdmin } });
 });
 
-app.get('/api/me', requireUser, (req, res) => {
-  res.json({ username: req.user.username, isAdmin: req.user.isAdmin });
+// 每次都從 DB 讀：名稱／權限被別的管理員改了，重整就看到（token 只當登入憑證）
+app.get('/api/me', requireUser, async (req, res) => {
+  const r = await db.getPool().request()
+    .input('id', db.sql.NVarChar(64), req.user.userId)
+    .query('SELECT Username, DisplayName, IsAdmin FROM dbo.KioskUser WHERE UserId = @id');
+  const row = r.recordset[0];
+  if (!row) return res.status(401).json({ error: '登入已過期。請重新登入。' });
+  req.user.isAdmin = !!row.IsAdmin;
+  res.json({ username: row.Username, displayName: row.DisplayName || '', isAdmin: !!row.IsAdmin });
 });
 
 /** 機器連線資訊（側欄底部卡片）：所有登入者都可看，方便在機器上抄填。
@@ -150,12 +158,14 @@ app.get('/api/connection-info', requireUser, (req, res) => {
 });
 
 // ---- 帳號管理（限管理員）----
-app.get('/api/users', requireAdmin, async (_req, res) => {
+app.get('/api/users', requireAdmin, async (req, res) => {
   const r = await db.getPool().request().query(`
-    SELECT u.UserId, u.Username, u.DisplayName, u.IsAdmin, u.CreatedAt,
-           (SELECT COUNT(*) FROM dbo.KioskConfig c WHERE c.OwnerUserId = u.UserId) AS DeviceCount
+    SELECT u.UserId, u.Username, u.DisplayName, u.IsAdmin, u.CreatedAt
     FROM dbo.KioskUser u ORDER BY u.CreatedAt`);
-  res.json(r.recordset);
+  // IsPrimary＝主管理員（不能刪、不能改權限）；IsMe＝目前登入者（不能刪自己、不能改自己權限）
+  res.json(r.recordset.map((u) => ({
+    ...u, IsPrimary: u.Username === SEED_ADMIN_USERNAME, IsMe: u.UserId === req.user.userId,
+  })));
 });
 
 app.post('/api/users', requireAdmin, async (req, res) => {
@@ -182,22 +192,43 @@ app.post('/api/users', requireAdmin, async (req, res) => {
   }
 });
 
-// 改帳號顯示名稱（2026-09-03：帳號管理「更名」）
+// 編輯帳號（2026-09-07：帳號管理「編輯」＝名稱＋權限一次改）。
+// body 帶哪個欄位就改哪個；主管理員與自己的權限不能改。
 app.put('/api/users/:userId', requireAdmin, async (req, res) => {
-  const displayName = String(req.body?.displayName ?? '').trim();
-  if (/�/.test(displayName)) {
-    return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
+  const body = req.body || {};
+  const sets = [];
+  const q = db.getPool().request().input('id', db.sql.NVarChar(64), req.params.userId);
+  if (body.displayName !== undefined) {
+    const displayName = String(body.displayName ?? '').trim();
+    if (/\uFFFD/.test(displayName)) {
+      return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
+    }
+    q.input('n', db.sql.NVarChar(128), displayName.slice(0, 128) || null);
+    sets.push('DisplayName = @n');
   }
-  const r = await db.getPool().request()
-    .input('id', db.sql.NVarChar(64), req.params.userId)
-    .input('n', db.sql.NVarChar(128), displayName.slice(0, 128) || null)
-    .query('UPDATE dbo.KioskUser SET DisplayName = @n WHERE UserId = @id');
+  if (body.isAdmin !== undefined) {
+    if (req.params.userId === req.user.userId) return res.status(400).json({ error: '無法變更目前登入帳號的權限。' });
+    const t = await db.getPool().request().input('id', db.sql.NVarChar(64), req.params.userId)
+      .query('SELECT Username FROM dbo.KioskUser WHERE UserId = @id');
+    if (t.recordset[0]?.Username === SEED_ADMIN_USERNAME) return res.status(400).json({ error: '無法變更主管理員的權限。' });
+    q.input('a', db.sql.Bit, body.isAdmin ? 1 : 0);
+    sets.push('IsAdmin = @a');
+  }
+  if (!sets.length) return res.status(400).json({ error: '要求的格式不正確。' });
+  const r = await q.query(`UPDATE dbo.KioskUser SET ${sets.join(', ')} WHERE UserId = @id`);
   if (!r.rowsAffected[0]) return res.status(404).json({ error: '這個帳號已不存在。' });
+  // 該帳號若已登入，讓它的 token 立刻反映新權限
+  if (body.isAdmin !== undefined) {
+    for (const s of tokens.values()) if (s.userId === req.params.userId) s.isAdmin = !!body.isAdmin;
+  }
   res.json({ ok: true });
 });
 
 app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
   if (req.params.userId === req.user.userId) return res.status(400).json({ error: '這是目前登入的帳號。' });
+  const t = await db.getPool().request().input('id', db.sql.NVarChar(64), req.params.userId)
+    .query('SELECT Username FROM dbo.KioskUser WHERE UserId = @id');
+  if (t.recordset[0]?.Username === SEED_ADMIN_USERNAME) return res.status(400).json({ error: '主管理員無法刪除。' });
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.userId)
     .query(`UPDATE dbo.KioskConfig SET OwnerUserId = NULL WHERE OwnerUserId = @id;
@@ -243,16 +274,12 @@ function summarizeForList(configJson) {
   } catch { return { Screen: null, PageCount: 0, ActivePage: null }; }
 }
 
-app.get('/api/devices', requireUser, async (req, res) => {
-  const q = db.getPool().request();
-  let sqlText = `
+// 所有登入者都看得到全部機器（一般／管理員只差「帳號管理」，見 canAccessDevice 註解）
+app.get('/api/devices', requireUser, async (_req, res) => {
+  const r = await db.getPool().request().query(`
     SELECT c.DeviceId, c.DeviceName, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName, c.ConfigJson
-    FROM dbo.KioskConfig c LEFT JOIN dbo.KioskUser u ON u.UserId = c.OwnerUserId`;
-  if (!req.user.isAdmin) {
-    q.input('me', db.sql.NVarChar(64), req.user.userId);
-    sqlText += ' WHERE c.OwnerUserId = @me';
-  }
-  const r = await q.query(sqlText + ' ORDER BY c.DeviceId');
+    FROM dbo.KioskConfig c LEFT JOIN dbo.KioskUser u ON u.UserId = c.OwnerUserId
+    ORDER BY c.DeviceId`);
   res.json(r.recordset.map(({ ConfigJson, ...row }) => ({
     ...row,
     // 機器總覽列縮圖用：只帶「目前展示頁」的結構＋螢幕比例（整份 config 不外送，列表輕量）
@@ -332,6 +359,8 @@ app.put('/api/config/:deviceId', async (req, res) => {
   if (!config || typeof config !== 'object') {
     return res.status(400).json({ error: '要求的格式不正確。' });
   }
+  // 管理 PIN 限管理員（2026-09-07 定案）：一般帳號送來的 adminPin 直接剝掉，下面的淺合併會沿用舊值
+  if (!isDevice(req) && !user.isAdmin) delete config.adminPin;
   // 部分更新語意：沒帶的頂層欄位一律沿用舊值（淺合併）。所以——
   // 網頁「儲存並發布」不帶 activePage → 機器不跳頁；舊版存檔不帶 deviceName/chatApi/sleep
   // → 不會洗掉；「複製版面」只帶 pages、「套用共用設定」只帶 chatApi+sleep → 其他都不動。
@@ -364,23 +393,22 @@ app.put('/api/config/:deviceId', async (req, res) => {
   res.json({ version });
 });
 
-// ---- 共用機器設定（每個登入帳號一份：客服帳號＋休眠排程的共用範本）----
-// 「套用到機器」由網頁端逐台 PUT config（沿用欄位保留機制），這裡只存範本本身。
-app.get('/api/shared-settings', requireUser, async (req, res) => {
+// ---- 共用設定（全站一份，2026-09-07 定案：機器是全公司共用，共用版面／機器設定範本也不分帳號）----
+// 內容＝版面清單（layouts）＋客服帳號、休眠排程、管理 PIN 的共用範本。
+// 「套用／加入機器」由網頁端逐台 PUT config（沿用欄位保留機制），這裡只存範本本身。
+// 權限：管理員全可；一般帳號只能改休眠排程（sleep），其餘欄位由伺服器保留現值（版面只能「加入機器」）。
+const SHARED_KEY = '_global';
+
+async function readShared() {
   const r = await db.getPool().request()
-    .input('id', db.sql.NVarChar(64), req.user.userId)
+    .input('id', db.sql.NVarChar(64), SHARED_KEY)
     .query('SELECT SettingsJson, UpdatedAt FROM dbo.KioskSharedSettings WHERE UserId = @id');
   const row = r.recordset[0];
-  res.json(row ? { settings: JSON.parse(row.SettingsJson), updatedAt: row.UpdatedAt } : { settings: null });
-});
-
-app.put('/api/shared-settings', requireUser, async (req, res) => {
-  const settings = req.body?.settings;
-  if (!settings || typeof settings !== 'object') {
-    return res.status(400).json({ error: '要求的格式不正確。' });
-  }
+  return row ? { settings: JSON.parse(row.SettingsJson), updatedAt: row.UpdatedAt } : { settings: null, updatedAt: null };
+}
+async function writeShared(settings) {
   await db.getPool().request()
-    .input('id', db.sql.NVarChar(64), req.user.userId)
+    .input('id', db.sql.NVarChar(64), SHARED_KEY)
     .input('json', db.sql.NVarChar(db.sql.MAX), JSON.stringify(settings))
     .query(`
       MERGE dbo.KioskSharedSettings AS t
@@ -388,6 +416,63 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
       WHEN MATCHED THEN UPDATE SET SettingsJson = @json, UpdatedAt = SYSUTCDATETIME()
       WHEN NOT MATCHED THEN INSERT (UserId, SettingsJson) VALUES (@id, @json);
     `);
+}
+
+/** 一次性搬移：舊制每個帳號各一份 → 全站一份。沒有 _global 列時，把所有帳號的版面合併（重新編號、
+ *  記下建立者＝原帳號名稱），客服帳號／休眠／PIN 以主管理員那份為準（沒有就取第一份）。舊列保留不刪。 */
+async function migrateSharedToGlobal() {
+  const pool = db.getPool();
+  const exists = await pool.request().input('id', db.sql.NVarChar(64), SHARED_KEY)
+    .query('SELECT 1 AS x FROM dbo.KioskSharedSettings WHERE UserId = @id');
+  if (exists.recordset.length) return;
+  const rows = (await pool.request().query(`
+    SELECT s.UserId, s.SettingsJson, s.UpdatedAt, u.Username, u.DisplayName, u.IsAdmin
+    FROM dbo.KioskSharedSettings s LEFT JOIN dbo.KioskUser u ON u.UserId = s.UserId
+    ORDER BY CASE WHEN u.Username = '${SEED_ADMIN_USERNAME}' THEN 0 WHEN u.IsAdmin = 1 THEN 1 ELSE 2 END, s.UpdatedAt`)).recordset;
+  if (!rows.length) return;
+  const merged = { layouts: [] };
+  let nextId = 1;
+  for (const row of rows) {
+    let j; try { j = JSON.parse(row.SettingsJson || '{}'); } catch { continue; }
+    const who = row.DisplayName || row.Username || '';
+    for (const l of j.layouts || []) {
+      merged.layouts.push({ ...l, id: nextId++, createdBy: l.createdBy || who, createdAt: l.createdAt || row.UpdatedAt || null });
+    }
+    for (const k of ['chatApi', 'sleep', 'adminPin']) if (merged[k] === undefined && j[k] !== undefined) merged[k] = j[k];
+  }
+  await writeShared(merged);
+  console.log(`共用設定已合併為全站一份（來源 ${rows.length} 個帳號、${merged.layouts.length} 個版面）`);
+}
+
+app.get('/api/shared-settings', requireUser, async (_req, res) => {
+  res.json(await readShared());
+});
+
+app.put('/api/shared-settings', requireUser, async (req, res) => {
+  const incoming = req.body?.settings;
+  if (!incoming || typeof incoming !== 'object') {
+    return res.status(400).json({ error: '要求的格式不正確。' });
+  }
+  const current = (await readShared()).settings || {};
+  let next;
+  if (req.user.isAdmin) {
+    next = incoming;
+    // 建立者由伺服器蓋章（新出現的版面 id，或舊資料沒記的）：用登入者的顯示名稱
+    const known = new Map((current.layouts || []).map((l) => [l.id, l]));
+    const me = await db.getPool().request().input('id', db.sql.NVarChar(64), req.user.userId)
+      .query('SELECT Username, DisplayName FROM dbo.KioskUser WHERE UserId = @id');
+    const who = me.recordset[0]?.DisplayName || me.recordset[0]?.Username || req.user.username;
+    for (const l of next.layouts || []) {
+      const old = known.get(l.id);
+      l.createdBy = old?.createdBy || l.createdBy || who;
+      l.createdAt = old?.createdAt || l.createdAt || new Date().toISOString();
+    }
+  } else {
+    // 一般帳號：只收休眠排程，其他一律保留現值
+    if (!('sleep' in incoming)) return res.status(403).json({ error: '這項操作需要管理員權限。' });
+    next = { ...current, sleep: incoming.sleep };
+  }
+  await writeShared(next);
   res.json({ ok: true });
 });
 
@@ -474,6 +559,7 @@ app.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${P
     try {
       await db.init();
       await seedAdmin();
+      await migrateSharedToGlobal();
       console.log('資料庫連線成功');
       return;
     } catch (e) {

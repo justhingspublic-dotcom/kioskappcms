@@ -93,7 +93,7 @@ function check(name, ok, extra) {
   check('Esc 關閉', !(await panelVisible()));
 
   // 深色模式外觀
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('dark', false));
   await sleep(300);
   await page.hover('#devicesView .page-help-btn');
   await sleep(300);

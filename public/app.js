@@ -75,9 +75,16 @@ function logout() {
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  // 登入鈕填色動畫（tiri 版）：送出=慢速填 55%、成功=快速補滿再進場、失敗=縮回
+  // 登入鈕填色動畫（tiri login.html 原版流程）：送出=is-loading 慢速填 55%、字改「登入中…」、
+  // 至少爬 500ms（本機回應太快動畫才看得到）；成功=is-success 快速補滿、350ms 後進場並 toast「登入成功」；
+  // 失敗=移除 is-loading 縮回、字還原、右下角 danger toast。填色中再按無效（tiri 同款防重送）。
   const btn = e.target.querySelector('.btn-login');
+  const label = btn.querySelector('span');
+  if (btn.classList.contains('is-loading')) return;
   btn.classList.add('is-loading');
+  label.textContent = '登入中…';
+  const started = Date.now();
+  const minCrawl = () => new Promise((res) => setTimeout(res, Math.max(0, 500 - (Date.now() - started))));
   try {
     let r;
     try {
@@ -85,19 +92,33 @@ $('loginForm').addEventListener('submit', async (e) => {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: $('username').value, password: $('password').value }),
       });
-    } catch { throw new Error('無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼不正確。');
+    } catch { await minCrawl(); throw new Error('無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
+    if (!r.ok) { await minCrawl(); throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼不正確。'); }
     token = (await r.json()).token;
     sessionStorage.setItem('token', token);
-    btn.classList.remove('is-loading');
-    btn.classList.add('is-success');
-    await new Promise((res) => setTimeout(res, 320));   // 等填滿（.3s）再切主畫面
+    await minCrawl();
+    btn.classList.add('is-success');                    // 疊在 is-loading 之上補滿（tiri 同款）
+    await new Promise((res) => setTimeout(res, 350));   // 等填滿（.3s）再切主畫面
     await enterMain();
-    btn.classList.remove('is-success');                 // 還原，登出再進來是乾淨狀態
+    btn.classList.remove('is-loading', 'is-success');   // 還原，登出再進來是乾淨狀態
+    label.textContent = '登入';
+    BToast.success('登入成功。');                         // tiri：登入後右下角 flash「登入成功」
   } catch (e) {
-    btn.classList.remove('is-loading');
+    btn.classList.remove('is-loading', 'is-success');   // 回基準 scaleX(0)，自帶縮回過渡
+    label.textContent = '登入';
     BToast.danger(e.message || '帳號或密碼不正確。');   // tiri 同款右下角 toast，取代頁內紅字
   }
+});
+
+// 登入頁密碼眼睛（tiri login.html 同款：切 type、換 eye/eye-off、同步 aria）
+$('loginPwEye').addEventListener('click', () => {
+  const i = $('password'); const eye = $('loginPwEye');
+  const show = i.type === 'password';
+  i.type = show ? 'text' : 'password';
+  eye.setAttribute('aria-pressed', show ? 'true' : 'false');
+  eye.setAttribute('aria-label', show ? '隱藏密碼' : '顯示密碼');
+  eye.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}" aria-hidden="true"></i>`;
+  if (window.lucide) lucide.createIcons({ nodes: [eye] });
 });
 
 $('logoutBtn').addEventListener('click', logout);
@@ -137,14 +158,19 @@ window.addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); 
 // ---------- 載入 / 儲存 ----------
 async function enterMain() {
   showMain();
+  await refreshMe();
+  switchView(restoreView()); // 重新整理／重新登入回到原本那頁（網址 hash），沒有才回機器總覽
+  loadConnInfo();
+}
+// 右上角顯示「名稱」（沒設就退回帳號）；下拉副標＝帳號・權限（2026-09-07 指示）
+async function refreshMe() {
   const me = await api('GET', '/api/me');
-  $('whoami').textContent = me.username;
-  $('whoamiMenu').textContent = me.username;
-  $('whoamiSub').textContent = me.isAdmin ? '管理員' : '一般帳號';
+  const shown = me.displayName || me.username;
+  $('whoami').textContent = shown;
+  $('whoamiMenu').textContent = shown;
+  $('whoamiSub').textContent = `${me.username}・${me.isAdmin ? '管理員' : '一般帳號'}`;
   meIsAdmin = !!me.isAdmin;
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
-  switchView('devices'); // 首頁＝機器總覽列表，點一列進工作區
-  loadConnInfo();
 }
 
 // ---------- 側欄底部「機器連線資訊」卡片 ----------
@@ -520,7 +546,7 @@ function renderTabs() {
     name.textContent = p.name || `頁面 ${i + 1}`;
     tab.appendChild(name);
     const ren = document.createElement('button');
-    ren.textContent = '✎'; ren.title = '重新命名';
+    ren.innerHTML = '<i data-lucide="pencil"></i>'; ren.title = '重新命名'; ren.setAttribute('aria-label', '重新命名'); // icon 取代 ✎ 字元：跨瀏覽器一致
     ren.onclick = async (e) => {
       e.stopPropagation();
       const v = await BDialog.prompt({ title: '頁面名稱', value: p.name || '', placeholder: `頁面 ${i + 1}` });
@@ -529,7 +555,7 @@ function renderTabs() {
     tab.appendChild(ren);
     if (state.config.pages.length > 1) {
       const del = document.createElement('button');
-      del.textContent = '✕'; del.title = '刪除此頁';
+      del.innerHTML = '<i data-lucide="x"></i>'; del.title = '刪除此頁'; del.setAttribute('aria-label', '刪除此頁');
       del.onclick = async (e) => {
         e.stopPropagation();
         const ok = await BDialog.confirm({
@@ -1651,7 +1677,9 @@ function renderSettingsView() {
   const ctx = { cfg: state.config, markDirty: () => setDirty(true), rerender: renderSettingsView };
   body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
-  body.appendChild(pinCard(ctx)).classList.add('settings-card-full');
+  const pin = body.appendChild(pinCard(ctx));
+  pin.classList.add('settings-card-full');
+  if (!meIsAdmin) lockSettingsCard(pin); // 單機的管理 PIN 也限管理員（2026-09-07 定案）；伺服器端同步剝掉 adminPin
   if (wsMode !== 'shared' && meIsAdmin) body.appendChild(dangerZoneCard()); // 刪除機器＝限管理員、只在單機工作區
   if (window.BDropdown) BDropdown.init(body);
   if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
@@ -1960,7 +1988,7 @@ function sleepDayDialog(label, period) {
 }
 
 // ---------- 共用設定（側欄子選單兩頁：版面設定／機器設定；「套用」＝逐台發布部分 config） ----------
-let shared = null;        // /api/shared-settings 的 settings 物件（登入帳號各一份）
+let shared = null;        // /api/shared-settings 的 settings 物件（全站一份；一般帳號只能改 sleep，其餘伺服器會保留現值）
 let sharedDirty = false;
 
 function setSharedDirty(v) { sharedDirty = v; }
@@ -2032,17 +2060,18 @@ function nextSharedLayoutId() {
   return Math.max(0, ...(shared.layouts || []).map((l) => l.id || 0)) + 1;
 }
 
-/** 共用設定 › 版面設定頁：具名版面清單，逐列 編輯／加入機器／更名／刪除。 */
+/** 共用設定 › 版面設定頁：具名版面清單。管理員：編輯／加入機器／更名／刪除；一般帳號：只有加入機器（2026-09-07 定案）。 */
 async function renderSharedLayoutView() {
   if (!(await ensureSharedLoaded())) return;
+  $('addSharedLayoutBtn').classList.toggle('hidden', !meIsAdmin);
   const tb = $('sharedLayoutTable').querySelector('tbody');
   tb.innerHTML = '';
   if (!shared.layouts.length) {
     tb.innerHTML =
-      '<tr><td colspan="4"><div class="b-empty">' +
+      '<tr><td colspan="5"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="layout-template"></i></span>' +
       '<p class="b-empty-title">還沒有任何版面</p>' +
-      '<p class="b-empty-sub">點右上角「新增版面」開始設計，之後可以把版面加到任何機器。</p>' +
+      '<p class="b-empty-sub">' + (meIsAdmin ? '點右上角「新增版面」開始設計，之後可以把版面加到任何機器。' : '請管理員先在這裡新增版面，之後就能把版面加入機器。') + '</p>' +
       '</div></td></tr>';
     if (window.lucide) lucide.createIcons();
     return;
@@ -2062,7 +2091,7 @@ async function renderSharedLayoutView() {
     nameTd.className = 'b-th';
     nameTd.textContent = layout.name || '未命名版面';
     tr.appendChild(nameTd);
-    tr.insertAdjacentHTML('beforeend', `<td class="num">${updated}</td>`);
+    tr.insertAdjacentHTML('beforeend', `<td>${esc(layout.createdBy || '—')}</td><td class="num">${updated}</td>`);
 
     const opTd = document.createElement('td');
     opTd.className = 'device-ops';
@@ -2072,10 +2101,12 @@ async function renderSharedLayoutView() {
       opTd.appendChild(b);
       return b;
     };
-    mkBtn('b-btn', '編輯', () => enterSharedLayoutEditor(layout));
+    if (meIsAdmin) mkBtn('b-btn', '編輯', () => enterSharedLayoutEditor(layout));
     mkBtn('b-btn b-btn-primary', '加入機器', () => applySharedLayout(layout));
-    mkBtn('b-btn', '更名', () => renameSharedLayout(layout));
-    mkBtn('b-btn b-btn-text b-btn-text-danger', '刪除', () => deleteSharedLayout(layout));
+    if (meIsAdmin) {
+      mkBtn('b-btn', '更名', () => renameSharedLayout(layout));
+      mkBtn('b-btn b-btn-text b-btn-text-danger', '刪除', () => deleteSharedLayout(layout));
+    }
     tr.appendChild(opTd);
     // 列＝純資訊（同機器總覽 2026-09-03 指示）：不可點，入口只有操作鈕
     tb.appendChild(tr);
@@ -2199,7 +2230,7 @@ function sharedLayoutThumb(layout) {
 async function addSharedLayout() {
   if (!(await ensureSharedLoaded())) return;
   const name = await BDialog.prompt({
-    title: '新增版面', desc: '為這個版面取個名字，方便之後挑選要加到哪些機器。',
+    title: '新增版面', desc: '為這個版面取個名字。',
     placeholder: '例如：週年慶活動', confirmText: '建立',
   });
   if (name === null) return;
@@ -2308,11 +2339,23 @@ async function renderSharedSettingsView() {
   const body = $('sharedBody');
   body.innerHTML = '';
   const ctx = { cfg: shared, markDirty: scheduleSharedSave, rerender: renderSharedSettingsView };
-  body.appendChild(chatApiCard(ctx));
+  const chat = body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
-  body.appendChild(pinCard(ctx)).classList.add('settings-card-full');
+  const pin = body.appendChild(pinCard(ctx));
+  pin.classList.add('settings-card-full');
   if (window.BDropdown) BDropdown.init(body);
+  if (!meIsAdmin) { lockSettingsCard(chat); lockSettingsCard(pin); } // 一般帳號只能改休眠排程（2026-09-07 定案）
   if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
+}
+
+/** 把設定卡鎖成唯讀（限管理員）：欄位全部 disabled、淡化、標題旁掛「限管理員」徽章。伺服器端也擋，這裡只是誠實呈現。 */
+function lockSettingsCard(card) {
+  card.classList.add('is-locked');
+  card.querySelectorAll('input, select, textarea, button').forEach((el) => { if (!el.closest('.page-help')) el.disabled = true; });
+  const badge = document.createElement('span');
+  badge.className = 'b-badge neutral settings-lock-badge';
+  badge.textContent = '限管理員';
+  card.querySelector('.card-title-wrap').appendChild(badge);
 }
 
 async function applySharedSettings() {
@@ -2336,10 +2379,27 @@ async function applySharedSettings() {
 }
 
 // ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
+// 目前頁記在網址 hash（#devices／#sharedLayout／#sharedSettings／#users），重新整理不會被打回機器總覽。
+// 用 replaceState 不留歷史紀錄：上一頁仍是離開後台，不是在四個頁籤間倒退。
+const VIEWS = ['devices', 'sharedLayout', 'sharedSettings', 'users'];
+function restoreView() {
+  const want = location.hash.slice(1);
+  if (!VIEWS.includes(want)) return 'devices';
+  if (want === 'users' && !meIsAdmin) return 'devices'; // 非管理員沒有帳號管理
+  return want;
+}
 function switchView(view) {
+  history.replaceState(null, '', '#' + view);
   document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
   });
+  // 所屬群組（共用設定）跟著展開：kit 的手風琴只在載入時看 .active 一次，之後由這裡補
+  const activeSub = document.querySelector('.sidebar .submenu .nav-item.active');
+  if (activeSub) {
+    const sub = activeSub.closest('.submenu');
+    sub.classList.add('show');
+    if (sub.previousElementSibling?.classList.contains('submenu-toggle')) sub.previousElementSibling.classList.add('open');
+  }
   $('devicesView').classList.toggle('hidden', view !== 'devices');
   $('sharedLayoutView').classList.toggle('hidden', view !== 'sharedLayout');
   $('sharedSettingsView').classList.toggle('hidden', view !== 'sharedSettings');
@@ -2439,6 +2499,12 @@ async function renderDevicesView() {
     manage.className = 'b-btn b-btn-text'; manage.textContent = '內容管理'; // 主要動作＝主題色文字鈕（同帳號管理「更名」）
     manage.onclick = () => enterWorkspace(d);
     opTd.appendChild(manage);
+    // 更名（2026-09-07 指示）：網頁上直接改機器名稱，走 PUT config 的部分更新（只帶 deviceName），
+    // 伺服器同步更新 DeviceName 欄並叫醒機器，機器拉回後把名稱寫進自己的雲端同步設定（v1.12 起）
+    const rename = document.createElement("button");
+    rename.className = "b-btn b-btn-text"; rename.textContent = "更名";
+    rename.onclick = () => renameDevice(d);
+    opTd.appendChild(rename);
     // 刪除不放列表（2026-09-07 指示）：在該機器工作區「機器設定」頁籤最下面的危險區域（dangerZoneCard）
     tr.appendChild(opTd);
     // 整列點擊已移除（2026-09-03 指示）：列是純資訊，入口只有「內容管理」鈕
@@ -2446,6 +2512,18 @@ async function renderDevicesView() {
   }
   // BDropdown.init 移除：表格裡已無 select（原本是「屬於」的分配下拉）
   if (window.lucide) lucide.createIcons();
+}
+
+/** 機器更名：同版面更名的 prompt 對話框；留空＝清掉名稱，列表改顯示編號。 */
+async function renameDevice(d) {
+  const cur = d.DeviceName || "";
+  const name = await BDialog.prompt({
+    title: "機器更名", value: cur, placeholder: d.DeviceId, confirmText: "儲存",
+  });
+  if (name === null || name.trim() === cur) return;
+  try { await api("PUT", `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { deviceName: name.trim() } }); }
+  catch (e) { return setStatus("無法更名。" + e.message, true); }
+  renderDevicesView();
 }
 
 /* ---------- 危險區域：刪除機器（2026-09-07 指示） ----------
@@ -2550,42 +2628,116 @@ async function renderUsersView() {
   for (const u of users) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="b-th">${esc(u.Username)}</td><td>${esc(u.DisplayName || '')}</td>` +
-      `<td>${u.IsAdmin ? '<span class="b-badge brand">管理員</span>' : '<span class="b-badge neutral">一般</span>'}</td>` +
-      `<td class="num">${u.DeviceCount}</td>`;
+      `<td>${u.IsAdmin ? '<span class="b-badge brand">管理員</span>' : '<span class="b-badge neutral">一般</span>'}</td>`;
     const td = document.createElement('td');
-    td.className = 'user-ops'; // 靠最右（2026-09-03 指示）
-    const ren = document.createElement('button');
-    ren.className = 'b-btn b-btn-text';
-    ren.textContent = '更名';
-    ren.onclick = async () => {
-      const name = await BDialog.prompt({
-        title: `${u.Username} 的顯示名稱`, value: u.DisplayName || '',
-        placeholder: '顯示名稱（例：XX專案）', confirmText: '儲存',
+    td.className = 'user-ops'; // 靠最右（2026-09-03 指示）；兩個鈕位子固定、不能刪的列用 is-ghost 佔位（對齊）
+    const edit = document.createElement('button');
+    edit.className = 'b-btn b-btn-text';
+    edit.textContent = '編輯'; // 2026-09-07：取代「更名」，點開改名稱＋權限
+    edit.onclick = () => openEditUser(u);
+    td.appendChild(edit);
+    // 刪除：主管理員、自己不可刪 → ghost 佔位，讓每列「編輯」對齊
+    const canDelete = !u.IsPrimary && !u.IsMe;
+    const del = document.createElement('button');
+    // 危險動作標準式：紅字文字鈕、hover 透明紅底（全站刪除統一）
+    del.className = 'b-btn b-btn-text b-btn-text-danger' + (canDelete ? '' : ' is-ghost'); del.textContent = '刪除';
+    del.onclick = async () => {
+      const ok = await BDialog.confirm({
+        title: `刪除帳號 ${u.Username}？`, desc: '這個帳號將無法再登入。',
+        variant: 'danger', confirmText: '刪除',
       });
-      if (name === null || name.trim() === (u.DisplayName || '')) return;
-      try { await api('PUT', `/api/users/${u.UserId}`, { displayName: name.trim() }); renderUsersView(); }
-      catch (e) { setStatus('無法更名。' + e.message, true); }
+      if (!ok) return;
+      try { await api('DELETE', `/api/users/${u.UserId}`); renderUsersView(); }
+      catch (e) { setStatus('無法刪除帳號。' + e.message, true); }
     };
-    td.appendChild(ren);
-    if (!u.IsAdmin) {
-      const del = document.createElement('button');
-      // 危險動作標準式：紅字文字鈕、hover 透明紅底（全站刪除統一）
-      del.className = 'b-btn b-btn-text b-btn-text-danger'; del.textContent = '刪除';
-      del.onclick = async () => {
-        const ok = await BDialog.confirm({
-          title: `刪除帳號 ${u.Username}？`, desc: '該帳號的機器會變回未分配。',
-          variant: 'danger', confirmText: '刪除',
-        });
-        if (!ok) return;
-        try { await api('DELETE', `/api/users/${u.UserId}`); renderUsersView(); }
-        catch (e) { setStatus('無法刪除帳號。' + e.message, true); }
-      };
-      td.appendChild(del);
-    }
+    td.appendChild(del);
     tr.appendChild(td);
     utb.appendChild(tr);
   }
 }
+
+// 權限 segment（新增／編輯共用）：兩級 radio，膠囊＋滑動指示塊（同 segRow / ws-tabs 作法）
+function moveSegInd(row, instant) {
+  const ind = row.querySelector('.seg-ind');
+  const a = row.querySelector('.seg.active');
+  if (!ind || !a) return;
+  const place = () => {
+    ind.style.opacity = '1';
+    ind.style.left = a.offsetLeft + 'px';
+    ind.style.top = a.offsetTop + 'px';
+    ind.style.width = a.offsetWidth + 'px';
+    ind.style.height = a.offsetHeight + 'px';
+  };
+  if (!instant) return place();
+  ind.style.transition = 'none';
+  requestAnimationFrame(() => { place(); requestAnimationFrame(() => { ind.style.transition = ''; }); });
+}
+function setRoleSeg(id, role, instant) {
+  for (const b of $(id).querySelectorAll('.seg')) {
+    const on = b.dataset.role === role;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+  moveSegInd($(id), instant);
+}
+window.addEventListener('resize', () => { for (const id of ['newUserRole', 'editUserRole']) moveSegInd($(id), true); });
+function roleSegIsAdmin(id) { return !!$(id).querySelector('.seg.active[data-role="admin"]'); }
+for (const id of ['newUserRole', 'editUserRole']) {
+  for (const b of $(id).querySelectorAll('.seg')) b.onclick = () => setRoleSeg(id, b.dataset.role);
+}
+
+// 編輯帳號 modal（2026-09-07）：名稱＋權限；主管理員／自己的權限鎖住（後端也擋）
+let editingUser = null;
+function openEditUser(u) {
+  editingUser = u;
+  $('editUsername').value = u.Username;
+  $('editDisplayName').value = u.DisplayName || '';
+  const locked = !!(u.IsPrimary || u.IsMe);
+  $('editUserRole').classList.toggle('is-locked', locked);
+  $('editUserRoleHint').textContent = u.IsPrimary ? '主管理員的權限無法變更。'
+    : u.IsMe ? '無法變更目前登入帳號的權限。'
+    : '一般帳號可管理所有機器，但看不到帳號管理。';
+  BModal.open('#editUserModal');
+  setRoleSeg('editUserRole', u.IsAdmin ? 'admin' : 'user', true); // 開窗後才量得到寬度；instant 不播滑入
+  $('editDisplayName').focus();
+}
+function editUserDirty() {
+  if (!editingUser) return false;
+  return $('editDisplayName').value.trim() !== (editingUser.DisplayName || '')
+    || roleSegIsAdmin('editUserRole') !== !!editingUser.IsAdmin;
+}
+async function closeEditUserModal() {
+  if (editUserDirty()) {
+    const ok = await BDialog.confirm({
+      title: '有尚未儲存的修改', desc: '捨棄這些修改嗎？', variant: 'danger', confirmText: '捨棄',
+    });
+    if (!ok) return;
+  }
+  BModal.close('#editUserModal');
+}
+$('editUserCloseBtn').addEventListener('click', closeEditUserModal);
+$('editUserModal').addEventListener('click', (e) => { if (e.target === $('editUserModal')) closeEditUserModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('editUserModal').classList.contains('is-visible')) return;
+  if (document.querySelector('.b-modal-overlay[data-modal-vue].is-visible:not(#editUserModal)')) return;
+  closeEditUserModal();
+});
+$('editUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editingUser) return;
+  if (!editUserDirty()) { BModal.close('#editUserModal'); return; }
+  const body = { displayName: $('editDisplayName').value.trim() };
+  const locked = !!(editingUser.IsPrimary || editingUser.IsMe);
+  if (!locked && roleSegIsAdmin('editUserRole') !== !!editingUser.IsAdmin) body.isAdmin = roleSegIsAdmin('editUserRole');
+  try {
+    await api('PUT', `/api/users/${editingUser.UserId}`, body);
+    BModal.close('#editUserModal');
+    BToast.success('已更新帳號。');
+    renderUsersView();
+    if (editingUser.IsMe) refreshMe(); // 改了自己的名稱 → 右上角同步
+  } catch (e2) { BToast.danger('無法更新帳號。' + e2.message); }
+});
 
 // 新增帳號 modal：入口在頁首右上；必填（帳號＋密碼）沒填齊前送出鈕 disabled
 function refreshAddUserSubmit() {
@@ -2595,6 +2747,7 @@ $('addUserBtn').onclick = () => {
   $('addUserForm').reset();
   refreshAddUserSubmit();
   BModal.open('#addUserModal');
+  setRoleSeg('newUserRole', 'user', true); // 預設一般；開窗後才量得到寬度、instant 不播滑入
   $('newUsername').focus();
 };
 $('addUserForm').addEventListener('input', refreshAddUserSubmit);
@@ -2625,6 +2778,7 @@ $('addUserForm').addEventListener('submit', async (e) => {
       username: $('newUsername').value.trim(),
       password: $('newPassword').value,
       displayName: $('newDisplayName').value.trim(),
+      isAdmin: roleSegIsAdmin('newUserRole'),
     });
     BModal.close('#addUserModal');
     BToast.success('已新增帳號。');

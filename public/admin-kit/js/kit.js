@@ -8,7 +8,7 @@
    - .submenu-toggle + .submenu > .submenu-inner      手風琴（single-open；收合時改開 flyout 浮窗）
    - .header-user-btn + .header-user-menu             帳號下拉（enter/leave 動畫）
    - .header-fs-wrap + .header-fs-range               字級三段（html[data-fs]，localStorage: adminFontSize）
-   - .header-mode-btn                                 深淺色（html[data-color-mode]，localStorage: adminColorMode）
+   - .header-mode-btn                                 深淺色三段循環 淺色→深色→跟隨裝置，預設跟隨裝置（html[data-color-mode]，localStorage: adminColorMode = light|dark|system；window.setColorMode/getColorMode）
    - .b-pop > [data-pop]                              頁首下拉面板/菜單開合
    - [data-modal-open="#id"] / [data-modal-close]     modal 兩段式開關（window.BModal）
    - .b-seg.is-pill                                   segment 滑塊（window.bSegThumb；發 segment:change）
@@ -16,7 +16,8 @@
 
    ⚠️ 深淺色/字級「首繪前」要先套用（否則載入閃色），把這段 inline 放 <head> 最前：
    <script>(function(){try{
-     if(localStorage.getItem('adminColorMode')==='dark')document.documentElement.setAttribute('data-color-mode','dark');
+     var m=localStorage.getItem('adminColorMode');
+     if(m==='dark'||(m!=='light'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.setAttribute('data-color-mode','dark');
      var fs=localStorage.getItem('adminFontSize');
      if(fs==='sm'||fs==='lg')document.documentElement.setAttribute('data-fs',fs);
    }catch(e){}})();</script>
@@ -229,19 +230,51 @@
     }
   }
 
-  /* 深淺色切換 */
+  /* 深淺色切換：點一下循環 淺色 → 深色 → 跟隨裝置；「跟隨裝置」時再監聽 OS 變化即時套用 */
+  var MODE_ORDER = ['light', 'dark', 'system'];
+  var MODE_LABEL = { light: '淺色', dark: '深色', system: '跟隨裝置' };
+  var darkMq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   var modeBtn = document.querySelector('.header-mode-btn');
+  function getColorMode() {
+    var m = null;
+    try { m = localStorage.getItem('adminColorMode'); } catch (e) { }
+    return MODE_ORDER.indexOf(m) >= 0 ? m : 'system'; /* 未設定＝跟隨裝置 */
+  }
+  function paintMode(mode) {
+    if (!modeBtn) return;
+    modeBtn.classList.toggle('is-dark', mode === 'dark');
+    modeBtn.classList.toggle('is-system', mode === 'system');
+    var label = '外觀：' + MODE_LABEL[mode];
+    if (mode === 'system') label += '，目前' + (document.documentElement.getAttribute('data-color-mode') === 'dark' ? '深色' : '淺色');
+    label += '（點擊切換）';
+    modeBtn.title = label;
+    modeBtn.setAttribute('aria-label', label);
+  }
+  function applyColorMode(mode) {
+    var dark = mode === 'dark' || (mode === 'system' && !!(darkMq && darkMq.matches));
+    if (dark) document.documentElement.setAttribute('data-color-mode', 'dark');
+    else document.documentElement.removeAttribute('data-color-mode');
+    paintMode(mode);
+  }
+  /* setColorMode(mode, animate=true)：外部（測試／設定頁）也可直接指定 */
+  function setColorMode(mode, animate) {
+    if (MODE_ORDER.indexOf(mode) < 0) mode = 'light';
+    try { localStorage.setItem('adminColorMode', mode); } catch (e) { }
+    if (animate === false) applyColorMode(mode);
+    else softApply(function () { applyColorMode(mode); });
+  }
+  window.getColorMode = getColorMode;
+  window.setColorMode = setColorMode;
+  applyColorMode(getColorMode());
   if (modeBtn) {
-    modeBtn.classList.toggle('is-dark', document.documentElement.getAttribute('data-color-mode') === 'dark');
     modeBtn.addEventListener('click', function () {
-      softApply(function () {
-        var dark = document.documentElement.getAttribute('data-color-mode') !== 'dark';
-        if (dark) document.documentElement.setAttribute('data-color-mode', 'dark');
-        else document.documentElement.removeAttribute('data-color-mode');
-        localStorage.setItem('adminColorMode', dark ? 'dark' : 'light');
-        modeBtn.classList.toggle('is-dark', dark);
-      });
+      setColorMode(MODE_ORDER[(MODE_ORDER.indexOf(getColorMode()) + 1) % MODE_ORDER.length]);
     });
+  }
+  if (darkMq) {
+    var onMqChange = function () { if (getColorMode() === 'system') softApply(function () { applyColorMode('system'); }); };
+    if (darkMq.addEventListener) darkMq.addEventListener('change', onMqChange);
+    else if (darkMq.addListener) darkMq.addListener(onMqChange);
   }
 
   /* ════════ .b-pop 下拉（頁首篩選面板／動作菜單） ════════ */

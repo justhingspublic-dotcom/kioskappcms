@@ -92,10 +92,13 @@
 .b-btn-text-danger { color: var(--fg-danger); }
 .b-btn-text-danger:not(:disabled):hover { background: var(--danger-soft); color: var(--fg-danger-strong, var(--fg-danger)); }
 .b-btn-text-danger:focus-visible { box-shadow: 0 0 0 4px var(--danger-medium); }
+/* disabled 文字鈕：用 --fg-disabled（原 rgba(0,0,0,.1) 淺色幾乎看不見、深色底更是隱形；2026-09-07 user 指示）*/
 .b-btn-text:disabled, .b-btn-text.is-disabled, .b-btn-text[aria-disabled="true"] {
-  background: transparent; border: 0; box-shadow: none; color: rgba(0, 0, 0, .1); cursor: not-allowed;
+  background: transparent; border: 0; box-shadow: none; color: var(--fg-disabled); cursor: not-allowed;
 }
-.b-btn-text:disabled:hover, .b-btn-text.is-disabled:hover { background: transparent; box-shadow: none; color: rgba(0, 0, 0, .1); }
+.b-btn-text:disabled:hover, .b-btn-text.is-disabled:hover { background: transparent; box-shadow: none; color: var(--fg-disabled); }
+/* 危險文字鈕倒數中（刪除（3））：保留紅色但降透明度，看得出是刪除鈕在倒數 */
+.b-btn-text-danger:disabled, .b-btn-text-danger.is-disabled { color: var(--fg-danger); opacity: .55; }
 
 /* 載入 spinner */
 .b-spin { animation: b-spin 1s linear infinite; }

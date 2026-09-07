@@ -43,10 +43,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(200);
 
   // 3) dark 全頁
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('dark', false));
   await sleep(400);
   await shot('03-devices-dark');
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('light', false));
   await sleep(300);
 
   // 4) M17：展開共用設定 → 去版面設定 → 點回機器總覽（tiri 會收合群組、我們不會）
@@ -65,10 +65,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(400);
   const side = await page.$('.sidebar');
   await side.screenshot({ path: path.join(OUT, '05-m18-closed-pill-light.png') });
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('dark', false));
   await sleep(400);
   await side.screenshot({ path: path.join(OUT, '06-m18-closed-pill-dark.png') });
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('light', false));
   await sleep(300);
 
   // 6) M21：空清單 → b-empty 空狀態

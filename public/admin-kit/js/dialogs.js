@@ -14,6 +14,7 @@
      countdown    確認鈕倒數秒數(如 3):開框後確認鈕先 disabled 顯示「刪除（3）」逐秒遞減,歸零才可按(危險動作用)
      cancelText   取消鈕文字(預設「取消」)
      value / placeholder / inputType / inputMode   prompt 專用(預設 text)
+     icon         prompt 專用:預設不放圖示(取名/輸入框不該掛警示三角),傳 true 才顯示
 
    疊層防護:overlay 標 data-modal-vue + 自帶 z-index,兩個 base 的共用 modal JS 不接管;
    Esc / 遮罩點擊 = 取消,以 capture 階段攔截避免關到底下頁面自己的 modal。 */
@@ -96,6 +97,7 @@
             title: opts.title || '',
             desc: opts.desc || '',
             variant: v,
+            icon: kind !== "prompt" || !!opts.icon,
             confirmText: opts.confirmText || (kind === 'alert' ? '知道了' : '確定'),
             cancelText: opts.cancelText || '取消',
             value: opts.value == null ? '' : String(opts.value),
@@ -141,11 +143,13 @@
             var body = document.createElement('div');
             body.className = 'b-alert-body';
 
-            var icon = document.createElement('div');
-            icon.className = 'b-alert-icon ' + vr.iconCls;
-            icon.setAttribute('aria-hidden', 'true');
-            icon.innerHTML = '<i data-lucide="' + vr.icon + '"></i>';
-            body.appendChild(icon);
+            if (o.icon) {
+                var icon = document.createElement('div');
+                icon.className = 'b-alert-icon ' + vr.iconCls;
+                icon.setAttribute('aria-hidden', 'true');
+                icon.innerHTML = '<i data-lucide="' + vr.icon + '"></i>';
+                body.appendChild(icon);
+            }
 
             var h = document.createElement('h2');
             h.className = 'b-alert-title';

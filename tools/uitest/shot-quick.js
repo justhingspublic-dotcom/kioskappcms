@@ -34,7 +34,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   if (tbl) await tbl.screenshot({ path: path.join(OUT, 'table-detail-2x.png') });
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
   await sleep(200);
-  await page.click('.header-mode-btn');
+  await page.evaluate(() => window.setColorMode('dark', false));
   await sleep(400);
   await page.screenshot({ path: path.join(OUT, 'devices-dark.png') });
 
