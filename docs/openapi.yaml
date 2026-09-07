@@ -1,0 +1,923 @@
+openapi: 3.0.3
+info:
+  title: KioskAdmin API
+  version: "1.0"
+  description: |
+    KioskApp 雲端管理後台 API（第一階段：內網版）。
+
+    **呼叫者分兩種：**
+    | 呼叫者 | 驗證方式 |
+    |---|---|
+    | 管理網頁 | 先 `POST /api/login` 拿 token，之後每個請求帶 `Authorization: Bearer <token>`（12 小時失效；伺服器重啟需重新登入） |
+    | kiosk 機器 | 每個請求帶 `X-Device-Key: <DEVICE_KEY>`（值在伺服器 `.env`，App 設定頁填相同值） |
+
+    **權限只分兩級**（2026-09-07 定案）：管理員＝多「帳號管理」與管理 PIN；一般帳號看得到、改得動全部機器，共用設定只能改休眠排程。
+
+    **共通錯誤格式**：所有錯誤都回 `{ "error": "中文說明。" }`；資料庫尚未連上時任何 `/api/*` 一律回 503。
+
+    在右上角「Authorize」填入 token 或 Device Key 後即可直接「Try it out」。
+servers:
+  - url: /
+    description: 目前這台伺服器
+
+tags:
+  - name: 登入
+    description: 管理網頁登入與目前登入者資訊
+  - name: 帳號管理
+    description: 限管理員
+  - name: 機器
+    description: 機器總覽、分配、刪除
+  - name: 機器設定
+    description: 版本輪詢、長輪詢、讀寫整份設定（網頁與 kiosk 共用）
+  - name: 共用設定
+    description: 全站一份的版面清單＋客服帳號、休眠排程、管理 PIN 範本
+  - name: 檔案
+    description: 圖片／影片上傳與下載
+  - name: 智能客服
+    description: JustAI 代理
+  - name: 園區測站
+    description: 客戶感測器 API 代理（天氣格「園區測站」來源）
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 管理網頁：`POST /api/login` 回傳的 token
+    deviceKey:
+      type: apiKey
+      in: header
+      name: X-Device-Key
+      description: kiosk 機器：伺服器 `.env` 的 `DEVICE_KEY`
+
+  responses:
+    Unauthorized:
+      description: 未登入或 token 已過期
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 登入已過期。請重新登入。 }
+    Forbidden:
+      description: 權限不足
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 這項操作需要管理員權限。 }
+    BadRequest:
+      description: 要求格式不正確
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 要求的格式不正確。 }
+    DbNotReady:
+      description: 資料庫尚未連上（啟動中或公司 DB 斷線）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 正在連接資料庫。請稍候再試一次。 }
+    DeviceRemoved:
+      description: |
+        這台機器已從後台刪除（僅對帶 Device Key 的請求）。機器收到後應自行清空連線設定並關閉同步。
+        重新輸入連線資料後第一次請求帶 `X-Device-Fresh: 1` 即可解除。
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - type: object
+                properties:
+                  removed: { type: boolean, example: true }
+
+  parameters:
+    deviceId:
+      name: deviceId
+      in: path
+      required: true
+      description: 機器編號（App 設定頁的 Device ID，預設為裝置序號）
+      schema: { type: string, maxLength: 64 }
+      example: FS003-0001
+    userId:
+      name: userId
+      in: path
+      required: true
+      description: 帳號 ID（`GET /api/users` 的 `UserId`）
+      schema: { type: string, maxLength: 64 }
+    deviceFresh:
+      name: X-Device-Fresh
+      in: header
+      required: false
+      description: 機器重新輸入連線資料後的第一次請求帶 `1`，會清掉「已刪除」紀錄讓機器重新加入
+      schema: { type: string, enum: ["1"] }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: 中性口吻的中文說明，可直接顯示給使用者
+          example: 帳號或密碼不正確。
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: admin }
+        password: { type: string, format: password }
+
+    LoginResponse:
+      type: object
+      properties:
+        token: { type: string, description: "之後放在 `Authorization: Bearer <token>`，12 小時失效" }
+        user: { $ref: '#/components/schemas/Me' }
+
+    Me:
+      type: object
+      properties:
+        username: { type: string, example: admin }
+        displayName: { type: string, example: 系統管理員, description: 沒設定時為空字串，網頁改顯示 username }
+        isAdmin: { type: boolean }
+
+    ConnectionInfo:
+      type: object
+      properties:
+        serverUrl:
+          type: string
+          example: http://192.168.1.142:3000
+          description: "`.env` 的 `PUBLIC_URL`，未設定時以這次請求的 host 推算"
+        deviceKey:
+          type: string
+          description: "`.env` 的 `DEVICE_KEY`（唯讀，更換仍在 `.env` 改並重啟）"
+
+    User:
+      type: object
+      properties:
+        UserId: { type: string }
+        Username: { type: string }
+        DisplayName: { type: string, nullable: true }
+        IsAdmin: { type: boolean }
+        CreatedAt: { type: string, format: date-time }
+        IsPrimary: { type: boolean, description: 主管理員（`.env` ADMIN_USERNAME，預設 admin）：不能刪、不能改權限 }
+        IsMe: { type: boolean, description: 目前登入者：不能刪自己、不能改自己權限 }
+
+    CreateUserRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 64 }
+        password: { type: string, format: password }
+        displayName: { type: string, maxLength: 128 }
+        isAdmin: { type: boolean, default: false }
+
+    UpdateUserRequest:
+      type: object
+      description: 帶哪個欄位就改哪個；至少要帶一個
+      properties:
+        displayName: { type: string, maxLength: 128 }
+        isAdmin: { type: boolean }
+
+    Device:
+      type: object
+      properties:
+        DeviceId: { type: string }
+        DeviceName: { type: string, nullable: true, description: 機器顯示名稱（config 的 `deviceName`） }
+        Version: { type: integer, example: 3 }
+        UpdatedAt: { type: string, format: date-time }
+        OwnerUserId: { type: string, nullable: true, description: 保留欄位，目前不做過濾 }
+        OwnerName: { type: string, nullable: true }
+        Screen:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/Screen' }]
+        PageCount: { type: integer }
+        ActivePage:
+          nullable: true
+          description: 目前展示頁的結構（只留 name 與 blocks），供列縮圖
+          type: object
+          properties:
+            name: { type: string }
+            blocks:
+              type: array
+              items: { $ref: '#/components/schemas/Block' }
+        LastSeenAgoSec:
+          type: integer
+          nullable: true
+          example: 11
+          description: 機器最後一次帶 Device Key 連線距今秒數（記憶體統計；null＝伺服器重啟後尚未露面）。網頁以 <60 秒視為在線。
+
+    VersionResponse:
+      type: object
+      properties:
+        version: { type: integer, example: 3, description: 該機器沒設定過為 0 }
+
+    ConfigResponse:
+      type: object
+      properties:
+        version: { type: integer }
+        updatedAt: { type: string, format: date-time }
+        config: { $ref: '#/components/schemas/KioskConfig' }
+
+    PutConfigRequest:
+      type: object
+      required: [config]
+      properties:
+        config:
+          allOf: [{ $ref: '#/components/schemas/KioskConfig' }]
+          description: |
+            **部分更新（淺合併）**：沒帶的頂層欄位一律沿用舊值。
+            所以「更名」只帶 `deviceName`、「複製版面」只帶 `pages`、「套用共用設定」只帶 `chatApi`+`sleep`、網頁存檔不帶 `activePage`（機器不跳頁）。
+            `adminPin` 限管理員；一般帳號送來會被剝掉。
+
+    KioskConfig:
+      type: object
+      description: 與 App `LayoutTree.kt` 序列化格式一致
+      properties:
+        activePage: { type: integer, default: 0, description: 目前展示的頁面索引（0 起算） }
+        deviceName: { type: string, maxLength: 128, example: 一樓大廳 }
+        screen: { $ref: '#/components/schemas/Screen' }
+        chatApi: { $ref: '#/components/schemas/ChatApi' }
+        sleep: { $ref: '#/components/schemas/SleepSchedule' }
+        adminPin: { type: string, description: 機器管理介面 PIN（限管理員設定） }
+        pages:
+          type: array
+          maxItems: 8
+          items: { $ref: '#/components/schemas/Page' }
+
+    Screen:
+      type: object
+      properties:
+        w: { type: integer, example: 1080 }
+        h: { type: integer, example: 1920 }
+
+    ChatApi:
+      type: object
+      description: JustAI 智能客服帳號
+      properties:
+        baseUrl: { type: string, example: https://chat-api.justhings.ai }
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    SleepSchedule:
+      type: object
+      description: 與 App DataStore 的 `sleep_schedule_json` 同格式
+      properties:
+        enabled: { type: boolean }
+        sameEveryDay: { type: boolean, description: true 時 App 會把 7 天設成同一時段 }
+        experimentalSystemSleep: { type: boolean }
+        periods:
+          type: array
+          items:
+            type: object
+            properties:
+              day: { type: integer, minimum: 1, maximum: 7, description: java.time 慣例：1=週一 … 7=週日 }
+              start: { type: integer, minimum: 0, maximum: 1439, description: 凌晨起算的分鐘數 }
+              end: { type: integer, minimum: 0, maximum: 1439, description: "`start >= end` 代表跨午夜（隔日結束）" }
+            example: { day: 1, start: 1320, end: 480 }
+
+    Page:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string }
+        blocks:
+          type: array
+          description: 直向排列的大區塊
+          items: { $ref: '#/components/schemas/Block' }
+
+    Block:
+      type: object
+      properties:
+        id: { type: integer }
+        w: { type: number, description: 高度權重（相對值，最小 0.1）, example: 1.0 }
+        node: { $ref: '#/components/schemas/Node' }
+
+    Node:
+      description: "`t` 為 `cell`（內容格）或 `split`（再切一次）"
+      oneOf:
+        - $ref: '#/components/schemas/Cell'
+        - $ref: '#/components/schemas/Split'
+      discriminator:
+        propertyName: t
+        mapping:
+          cell: '#/components/schemas/Cell'
+          split: '#/components/schemas/Split'
+
+    Split:
+      type: object
+      required: [t]
+      properties:
+        t: { type: string, enum: [split] }
+        dir: { type: string, enum: [Horizontal, Vertical], description: Horizontal=上下、Vertical=左右 }
+        ratio: { type: number, minimum: 0.1, maximum: 0.9, example: 0.6 }
+        a: { $ref: '#/components/schemas/Cell' }
+        b: { $ref: '#/components/schemas/Cell' }
+
+    Cell:
+      type: object
+      required: [t]
+      properties:
+        t: { type: string, enum: [cell] }
+        bg: { type: string, enum: [Solid, Image], description: 純色／圖片 }
+        bgColor: { type: integer, format: int64, description: ARGB 十進位, example: 4280693816 }
+        bgImgs:
+          type: array
+          items: { type: string }
+          description: |
+            背景圖清單。`content://…`／`file://…`＝機器本機檔案（無法預覽）；
+            `/files/…`／`http(s)://…`＝伺服器檔案，kiosk 會先下載到本機快取再播放。
+        scale: { type: string, enum: [Crop, Fit], description: 填滿裁切／完整顯示 }
+        dur: { type: integer, description: 圖片輪播秒數, default: 8 }
+        content: { type: string, enum: [None, Marquee, Weather, Text, Web, Video] }
+        txtColor: { type: integer, format: int64, description: ARGB 十進位；省略＝自動 }
+        mqSpeed: { type: integer, default: 100, description: 跑馬燈速度 }
+        video: { type: string, description: 影片來源，媒體路徑規則同 `bgImgs` }
+        web: { type: string, description: content=Web 時的網址 }
+        text: { type: string, description: content=Text／Marquee 的文字 }
+        wAuto: { type: boolean, default: true, description: 天氣：自動定位 }
+        wCounty: { type: string, description: 天氣：縣市 }
+        wDistrict: { type: string, description: 天氣：鄉鎮區 }
+        wDynBg: { type: boolean, default: false, description: 天氣：依天況動態背景 }
+        wSrc: { type: string, enum: [Standard, Station], default: Standard, description: 天氣資料來源：一般天氣（Open-Meteo）或園區測站（客戶感測器 API） }
+        wStUrl: { type: string, description: wSrc=Station 的測站 API 網址 }
+        wStation: { type: string, description: wSrc=Station 要顯示的測站代號；空字串＝每 10 秒輪播全部 }
+        tap: { type: string, enum: [None, OpenWeb, OpenAssistant], description: 點擊動作 }
+        tapUrl: { type: string, description: tap=OpenWeb 的網址 }
+        agentId: { type: string, description: AI 客服 agent id }
+        agentName: { type: string }
+        agentAccent: { type: integer, format: int64, description: AI 客服主色 ARGB 十進位；省略＝自動 }
+        assistantLayout: { type: string, enum: [Kiosk, Mobile], description: KIOSK展示模式／手機操作模式 }
+
+    SharedSettingsResponse:
+      type: object
+      properties:
+        settings:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/SharedSettings' }]
+        updatedAt: { type: string, format: date-time, nullable: true }
+
+    PutSharedSettingsRequest:
+      type: object
+      required: [settings]
+      properties:
+        settings: { $ref: '#/components/schemas/SharedSettings' }
+
+    SharedSettings:
+      type: object
+      description: 欄位皆可省略。一般帳號的 PUT 只會套用 `sleep`，其他欄位保留現值。
+      properties:
+        layouts:
+          type: array
+          items: { $ref: '#/components/schemas/Layout' }
+        chatApi: { $ref: '#/components/schemas/ChatApi' }
+        sleep: { $ref: '#/components/schemas/SleepSchedule' }
+        adminPin: { type: string }
+
+    Layout:
+      type: object
+      description: 一個版面＝一頁（`pages` 長度 1）
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        pages:
+          type: array
+          maxItems: 1
+          items: { $ref: '#/components/schemas/Page' }
+        screen: { $ref: '#/components/schemas/Screen' }
+        createdBy: { type: string, readOnly: true, description: 伺服器在 PUT 時對新出現的版面蓋章（＝登入者顯示名稱） }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        updatedAt: { type: string, format: date-time }
+
+    JustAiAgentsRequest:
+      type: object
+      required: [baseUrl, email, password]
+      description: 即 config 裡的 `chatApi`
+      properties:
+        baseUrl: { type: string, example: https://chat-api.justhings.ai }
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    Agent:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+
+    UploadResponse:
+      type: object
+      properties:
+        id: { type: string, description: 檔案 ID（隨機 UUID） }
+        url:
+          type: string
+          example: /files/3f2a9c0d1e2f4a5b8c9d0e1f2a3b4c5d.jpg
+          description: "**相對路徑**；顯示或下載時組成 `{serverUrl}/files/<檔名>`"
+
+    Ok:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+
+paths:
+  /api/login:
+    post:
+      tags: [登入]
+      summary: 登入
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        "200":
+          description: 登入成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        "401":
+          description: 帳號或密碼不正確
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 帳號或密碼不正確。 }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/me:
+    get:
+      tags: [登入]
+      summary: 目前登入者
+      description: 每次都從 DB 讀，名稱／權限被別的管理員改了，重整就看到
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/connection-info:
+    get:
+      tags: [登入]
+      summary: 機器連線資訊
+      description: 側欄底部「機器連線資訊」卡片用，所有登入者都可看，方便在機器上抄填
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectionInfo' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/users:
+    get:
+      tags: [帳號管理]
+      summary: 帳號清單
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+    post:
+      tags: [帳號管理]
+      summary: 新增帳號
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        "200":
+          description: 已建立
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId: { type: string }
+        "400":
+          description: 缺帳號／密碼，或名稱含無效字元
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 請填寫帳號和密碼。 }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409":
+          description: 帳號名稱重複
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 這個帳號名稱已被使用。 }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/users/{userId}:
+    parameters: [{ $ref: '#/components/parameters/userId' }]
+    put:
+      tags: [帳號管理]
+      summary: 編輯帳號（名稱／權限）
+      description: 主管理員與自己的 `isAdmin` 不能改。改了權限，該帳號已登入的 token 立刻生效。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "400":
+          description: 沒帶任何欄位、名稱含無效字元、或試圖改主管理員／自己的權限
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                self: { value: { error: 無法變更目前登入帳號的權限。 } }
+                primary: { value: { error: 無法變更主管理員的權限。 } }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404":
+          description: 帳號不存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 這個帳號已不存在。 }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+    delete:
+      tags: [帳號管理]
+      summary: 刪除帳號
+      description: 主管理員、自己不能刪。該帳號名下的機器改為未分配。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "400":
+          description: 試圖刪主管理員或自己
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                self: { value: { error: 這是目前登入的帳號。 } }
+                primary: { value: { error: 主管理員無法刪除。 } }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/devices:
+    get:
+      tags: [機器]
+      summary: 機器清單
+      description: 所有登入者都拿到全部機器。每列附「目前展示頁」結構與螢幕比例供縮圖，整份 config 不外送。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Device' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/devices/{deviceId}/owner:
+    parameters: [{ $ref: '#/components/parameters/deviceId' }]
+    put:
+      tags: [機器]
+      summary: 分配機器給帳號（保留）
+      description: 目前權限模型不做過濾，此 API 保留給未來「只看自己的機器」使用。`userId` 傳 null＝收回為未分配。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/devices/{deviceId}:
+    parameters: [{ $ref: '#/components/parameters/deviceId' }]
+    delete:
+      tags: [機器]
+      summary: 刪除機器
+      description: |
+        刪掉設定列並記進「已刪除」名單；掛在 `/wait` 的機器會被叫醒，下一個請求收到 410 後自行清空連線設定。
+        機器重新輸入連線資料後帶 `X-Device-Fresh: 1` 即可重新加入。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/config/{deviceId}/version:
+    parameters:
+      - $ref: '#/components/parameters/deviceId'
+      - $ref: '#/components/parameters/deviceFresh'
+    get:
+      tags: [機器設定]
+      summary: 查版本號
+      description: kiosk 定期輪詢；版本比本機記錄的大才抓整份設定。伺服器為 0 時 kiosk 會用 PUT 上傳本機設定當初始值。
+      security: [{ bearerAuth: [] }, { deviceKey: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/config/{deviceId}/wait:
+    parameters:
+      - $ref: '#/components/parameters/deviceId'
+      - $ref: '#/components/parameters/deviceFresh'
+    get:
+      tags: [機器設定]
+      summary: 長輪詢等新版本
+      description: |
+        帶目前版本 `version`；伺服器版本不同立刻回，相同則最多掛 25 秒，網頁一發布（或機器被刪除）立刻回應。
+        逾時回目前版本，kiosk 收到後直接再掛一次。
+      security: [{ bearerAuth: [] }, { deviceKey: [] }]
+      parameters:
+        - name: version
+          in: query
+          required: false
+          description: kiosk 本機目前的版本號（省略視為 0）
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: 有新版本、機器被刪除（version 0），或逾時
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/config/{deviceId}:
+    parameters:
+      - $ref: '#/components/parameters/deviceId'
+      - $ref: '#/components/parameters/deviceFresh'
+    get:
+      tags: [機器設定]
+      summary: 讀整份設定
+      description: kiosk 拿到後先把所有遠端媒體下載到快取，全部下載完才套用（避免畫面破圖）。
+      security: [{ bearerAuth: [] }, { deviceKey: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404":
+          description: 這台機器還沒有任何設定
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 這台機器還沒有任何設定。 }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+    put:
+      tags: [機器設定]
+      summary: 存整份設定（部分更新）
+      description: |
+        版本自動 +1（第一次寫入為 1），並立刻叫醒掛在 `/wait` 的機器。
+        網頁「儲存並發布」、更名、複製版面、套用共用設定，以及 kiosk 第一次連線上傳本機設定、機器本機改設定回推，都走這支。
+
+        **淺合併**：沒帶的頂層欄位一律沿用舊值。`adminPin` 限管理員，一般帳號送來會被剝掉。
+      security: [{ bearerAuth: [] }, { deviceKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutConfigRequest' }
+            examples:
+              rename:
+                summary: 只更名
+                value: { config: { deviceName: 一樓大廳 } }
+              applyShared:
+                summary: 套用共用設定
+                value:
+                  config:
+                    chatApi: { baseUrl: https://chat-api.justhings.ai, email: a@b.c, password: "***" }
+                    sleep: { enabled: true, sameEveryDay: false, experimentalSystemSleep: false, periods: [{ day: 1, start: 1320, end: 480 }] }
+              full:
+                summary: 整份版面
+                value:
+                  config:
+                    activePage: 0
+                    screen: { w: 1080, h: 1920 }
+                    pages:
+                      - id: 1
+                        name: ""
+                        blocks:
+                          - id: 1
+                            w: 1.0
+                            node: { t: cell, bg: Image, bgImgs: ["/files/3f2a9c.jpg"], scale: Crop, dur: 8, content: None, tap: None }
+                          - id: 2
+                            w: 2.0
+                            node:
+                              t: split
+                              dir: Vertical
+                              ratio: 0.6
+                              a: { t: cell, bg: Solid, bgColor: 4280693816, content: Weather, wAuto: true }
+                              b: { t: cell, bg: Solid, bgColor: 4280693816, content: Marquee, text: 歡迎光臨, mqSpeed: 100 }
+      responses:
+        "200":
+          description: 已儲存，回傳新版本號
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+              example: { version: 4 }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/shared-settings:
+    get:
+      tags: [共用設定]
+      summary: 讀共用設定
+      description: 全站一份，不分帳號。還沒設定過時 `settings` 為 null。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SharedSettingsResponse' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+    put:
+      tags: [共用設定]
+      summary: 寫共用設定
+      description: |
+        - **管理員**：整份覆寫；新出現的版面 id 由伺服器蓋上 `createdBy`／`createdAt`。
+        - **一般帳號**：只套用 `sleep`，其他欄位保留現值；沒帶 `sleep` 回 403。
+
+        「加入機器／套用」不經伺服器特別處理，網頁端逐台 `PUT /api/config/{deviceId}` 帶部分欄位即可。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutSharedSettingsRequest' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/justai/agents:
+    post:
+      tags: [智能客服]
+      summary: 拉客服清單（伺服器代打 JustAI）
+      description: 瀏覽器直呼 JustAI 會被 CORS 擋，由伺服器登入拿 token 後轉呼 `GET /api/agents`。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JustAiAgentsRequest' }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Agent' }
+        "400":
+          description: 缺欄位或位址格式不正確
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 請填寫智能客服的伺服器位址、Email 和密碼。 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "502":
+          description: JustAI 登入失敗、無法取得清單或連不上
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 無法登入智能客服平台。請檢查帳號和密碼。 }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/station/current:
+    get:
+      tags: [園區測站]
+      summary: 代抓園區測站 API（天氣格「園區測站」來源）
+      description: |
+        後台預覽與測站清單要讀客戶的感測器 API（例：卓也小屋 joyeCloud `/api/telemetry/current`），
+        對方沒開 CORS，由伺服器代抓並快取 10 秒，原樣回傳對方的 JSON。
+        期望格式：`{ stations: [ { station_id, name, status|online, received_at_local, values: { temperature, humidity, pm25, hourly_rainfall, daily_rainfall } } ] }`。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: url
+          required: true
+          schema: { type: string, format: uri }
+          example: https://joye.justhings.com.tw/api/telemetry/current
+      responses:
+        "200":
+          description: 對方 API 的原始 JSON
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "400":
+          description: 網址格式不正確
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 測站 API 網址格式不正確。請以 http:// 或 https:// 開頭。 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "502":
+          description: 對方 API 連不上、逾時或回的不是 JSON
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 無法連接測站 API。請檢查網址和網路連線。 }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/upload:
+    post:
+      tags: [檔案]
+      summary: 上傳圖片／影片
+      description: 網頁登入者或 kiosk 機器皆可。檔名改為隨機 UUID；上限 500 MB。
+      security: [{ bearerAuth: [] }, { deviceKey: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: 已上傳
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadResponse' }
+        "400":
+          description: 沒有選擇檔案
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: 沒有選擇檔案。 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /files/{filename}:
+    get:
+      tags: [檔案]
+      summary: 下載檔案
+      description: 公開，不需驗證（檔名為隨機 UUID）。回應帶一年快取；kiosk 從這裡把媒體抓回本機。
+      security: []
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema: { type: string }
+          example: 3f2a9c0d1e2f4a5b8c9d0e1f2a3b4c5d.jpg
+      responses:
+        "200":
+          description: 檔案內容
+          content:
+            image/*: { schema: { type: string, format: binary } }
+            video/*: { schema: { type: string, format: binary } }
+        "404":
+          description: 檔案不存在

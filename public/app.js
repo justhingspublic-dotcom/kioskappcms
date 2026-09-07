@@ -292,14 +292,21 @@ function moveWsTabInd(instant) {
 window.addEventListener('resize', () => { moveWsTabInd(true); const n = $('pageTabs'); if (n && n._updateArrows) n._updateArrows(); });
 
 /** 從機器總覽點一列開啟該機器的工作區 modal（版面＋機器設定；tiri 開信件同款）。 */
+let wsOpening = false;
 async function enterWorkspace(d) {
+  if (wsOpening) return; // 載入中重複點列不再發第二次請求
+  wsOpening = true;
   wsMode = 'device';
   deviceId = d.DeviceId;
   wsDevName = d.DeviceName || d.DeviceId;
-  $('wsDeviceName').textContent = wsDevName;
-  $('wsDeviceSub').textContent = d.DeviceId;
-  openWsModal();
-  await loadConfig();
+  try {
+    // 先拉設定、成功才開 modal；連不上伺服器只留 toast，不開空的工作區（2026-09-07 指示）
+    if (!(await fetchConfig())) return;
+    $('wsDeviceName').textContent = wsDevName;
+    $('wsDeviceSub').textContent = d.DeviceId;
+    openWsModal();
+    showEditor();
+  } finally { wsOpening = false; }
 }
 
 /** 從版面設定清單點「編輯」開啟某個版面：同一套畫布編輯器，掛在虛擬 state 上。 */
@@ -405,21 +412,33 @@ function spaFade() {
   mc.classList.add('is-spa-entered');
 }
 
-async function loadConfig() {
+/** 只拉設定進 state，不碰畫面；失敗 toast 後回 false（開工作區前先呼叫，失敗就不開 modal）。 */
+async function fetchConfig() {
   try {
     state = await api('GET', `/api/config/${encodeURIComponent(deviceId)}`);
     pageIndex = Math.min(state.config.activePage || 0, state.config.pages.length - 1);
     selected = null;
     activePageTouched = false;
     setDirty(false);
-    $('emptyState').classList.add('hidden');
-    $('editor').classList.remove('hidden');
-    render();
+    return true;
   } catch (e) {
-    $('editor').classList.add('hidden');
-    $('emptyState').classList.remove('hidden');
     setStatus(`無法載入「${curDevName()}」的設定。${e.message}`, true);
+    return false;
   }
+}
+
+/** state 就緒後把編輯器亮出來並畫版面（要在 modal 已顯示後呼叫，頁籤指示塊才量得到尺寸）。 */
+function showEditor() {
+  $('emptyState').classList.add('hidden');
+  $('editor').classList.remove('hidden');
+  render();
+}
+
+/** 工作區內「重新載入」：modal 已開著，失敗就退回空狀態。 */
+async function loadConfig() {
+  if (await fetchConfig()) return showEditor();
+  $('editor').classList.add('hidden');
+  $('emptyState').classList.remove('hidden');
 }
 
 /** 機器模式的儲存並發布（共用版面模式另走 saveSharedLayout）。 */
@@ -818,6 +837,81 @@ function getWeather(cell) {
   return null;
 }
 
+// ---------- 園區測站（與 App 的 StationService 同一套：客戶感測器 API，經伺服器代抓，30 秒快取） ----------
+const stationCache = new Map(); // url -> { ts, snap, loading, error, lastTry }
+
+/** 解析測站 API（卓也小屋 joyeCloud 格式，欄位盡量寬鬆，與 App StationService.parse 一致）。 */
+function parseStations(root) {
+  const arr = Array.isArray(root?.stations) ? root.stations : null;
+  if (!arr) throw new Error('no stations');
+  return arr.map((o) => {
+    const id = String(o.station_id || o.id || '');
+    if (!id) return null;
+    const values = {};
+    for (const [k, v] of Object.entries(o.values || {})) if (Number.isFinite(Number(v))) values[k] = Number(v);
+    return {
+      id, name: o.name || id,
+      online: 'online' in o ? !!o.online : o.status === 'online',
+      values, receivedAt: o.received_at_local || o.received_at || '',
+    };
+  }).filter(Boolean);
+}
+
+/** 取快取的測站快照；沒有就在背景抓，抓到後重畫畫布並補滿編輯面板的測站下拉。回傳 null = 抓取中，{error} = 失敗。 */
+function getStations(url) {
+  url = String(url || '').trim();
+  if (!url) return null;
+  if (!/^https?:\/\/[^\s/]+\.[^\s/]+/.test(url)) return { error: true }; // 網址還沒打完整，別去打代理
+  const hit = stationCache.get(url);
+  if (hit && hit.snap && Date.now() - hit.ts < 30 * 1000) return hit.snap;
+  const mayRetry = !hit || (!hit.loading && Date.now() - (hit.lastTry || 0) > 15 * 1000);
+  if (mayRetry) {
+    stationCache.set(url, { ...(hit || {}), loading: true, lastTry: Date.now() });
+    api('GET', `/api/station/current?url=${encodeURIComponent(url)}`)
+      .then((root) => {
+        stationCache.set(url, { ts: Date.now(), snap: { stations: parseStations(root) }, loading: false, lastTry: Date.now() });
+        onWeatherUpdated();
+        document.querySelectorAll('select[data-station-url]').forEach(fillStationSelect);
+      })
+      .catch(() => {
+        stationCache.set(url, { ...(hit || {}), snap: hit?.snap || null, loading: false, error: true, lastTry: Date.now() });
+        onWeatherUpdated();
+      });
+  }
+  if (hit?.snap) return hit.snap; // 過期但先用舊資料，背景更新
+  if (hit?.error && !hit?.loading) return { error: true };
+  return null;
+}
+
+/** 測站下拉：API 有什麼站就列什麼站（清單還沒到時只有「輪播全部測站」＋目前選的站）。 */
+function fillStationSelect(sel) {
+  const url = sel.dataset.stationUrl;
+  const want = sel.dataset.stationId || '';
+  const snap = getStations(url);
+  const list = snap && !snap.error ? snap.stations : [];
+  const opts = [['', '輪播全部測站'], ...list.map((s) => [s.id, `${s.id} ${s.name}`])];
+  if (want && !list.some((s) => s.id === want)) opts.push([want, want]);
+  sel.innerHTML = '';
+  for (const [v, label] of opts) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = label; o.selected = v === want;
+    sel.appendChild(o);
+  }
+}
+
+/** 一個測站的讀數整理成天氣列用的欄位（溫度一位小數、日雨量 mm、濕度、PM2.5），同 App 的 toWeatherInfo。 */
+function stationInfo(s) {
+  const fix = (k, d) => (k in s.values ? s.values[k].toFixed(d) : '');
+  return {
+    location: s.name,
+    date: '', // 測站列不放日期：感測數字才是重點，6:1 的長條塞不下
+    temp: fix('temperature', 1) === '' ? '' : `${fix('temperature', 1)}°`,
+    humidity: fix('humidity', 0) === '' ? '' : `${fix('humidity', 0)}%`,
+    pm25: fix('pm25', 0),
+    rain: fix('daily_rainfall', 1) === '' ? '' : `${fix('daily_rainfall', 1)} mm`,
+  };
+}
+
 /** 天氣資料更新後重畫所有在畫的畫布：編輯器（有 state 時）＋縮圖預覽（開著時）。 */
 function onWeatherUpdated() {
   if (state && $('wsModal').classList.contains('is-visible')) renderCanvas();
@@ -893,36 +987,53 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     const w = document.createElement('div');
     w.className = 'pv-weather2';
     const dyn = !!cell.wDynBg;
-    if (cell.wAuto === false && !cell.wCounty) {
-      if (dyn) el.style.background = `linear-gradient(${SKY.Unknown[0]}, ${SKY.Unknown[1]})`;
-      w.style.color = dyn ? '#ffffff' : fg;
-      w.innerHTML = '<div class="pvw-hint">尚未選擇天氣地區</div>';
+    const stationMode = cell.wSrc === 'Station';
+    const locationSet = !(cell.wAuto === false && !cell.wCounty);
+    // 一般天氣：預報就是資料；園區測站：預報只拿來決定圖示與天空（感測器只有數字）
+    const forecast = locationSet ? getWeather(cell) : null; // null = 抓取中，抓到後會自動重畫
+    const kind = weatherKind(forecast?.code);
+    if (dyn) {
+      const glow = (kind === 'Sunny' || kind === 'Partly')
+        ? 'radial-gradient(circle at 88% 5%, rgba(255,237,176,.55), transparent 42%),' : '';
+      el.style.background = `${glow}linear-gradient(${SKY[kind][0]}, ${SKY[kind][1]})`;
+    }
+    // 動態天空時字色依天空決定：霧/雪黑字，其他白字（同 App weatherTextColor）
+    w.style.color = dyn ? (kind === 'Fog' || kind === 'Snow' ? '#111111' : '#ffffff') : fg;
+
+    const renderBar = (info) => {
+      const infoBits = info.date ? [`<span style="opacity:.72">${info.date}</span>`] : [];
+      if (info.high || info.low) infoBits.push(`<span>${info.high || '–'} / ${info.low || '–'}</span>`);
+      if (info.humidity) infoBits.push(`<span style="opacity:.72">濕度 </span><span>${info.humidity}</span>`);
+      if (info.pm25) infoBits.push(`<span style="opacity:.72">PM2.5 </span><span>${info.pm25}</span>`);
+      if (info.rain) infoBits.push(`<span class="material-icons pvw-drop" style="opacity:.72">water_drop</span><span>${info.rain}</span>`);
+      w.innerHTML =
+        `<div class="pvw-left">` +
+        `<div class="pvw-loc">${esc(info.location)}</div>` +
+        `<div class="pvw-info">${infoBits.join('<span style="opacity:.72"> · </span>')}</div>` +
+        `</div>` +
+        `<div class="pvw-right"><span class="material-icons pvw-icon">${COND_ICON[kind]}</span>` +
+        `<span class="pvw-temp">${info.temp}</span></div>`;
+    };
+    const renderHint = (text) => { w.innerHTML = `<div class="pvw-hint">${esc(text)}</div>`; };
+
+    if (!stationMode) {
+      if (!locationSet) renderHint('尚未選擇天氣地區');
+      else if (!forecast) renderHint('取得天氣資料中…');
+      else if (forecast.error) renderHint('天氣資料暫時無法取得');
+      else renderBar(forecast);
+    } else if (!cell.wStUrl) {
+      renderHint('尚未填寫測站 API 網址');
     } else {
-      const info = getWeather(cell); // null = 抓取中，抓到後會自動重畫
-      const kind = weatherKind(info?.code);
-      if (dyn) {
-        const glow = (kind === 'Sunny' || kind === 'Partly')
-          ? 'radial-gradient(circle at 88% 5%, rgba(255,237,176,.55), transparent 42%),' : '';
-        el.style.background = `${glow}linear-gradient(${SKY[kind][0]}, ${SKY[kind][1]})`;
-      }
-      // 動態天空時字色依天空決定：霧/雪黑字，其他白字（同 App weatherTextColor）
-      const wfg = dyn ? (kind === 'Fog' || kind === 'Snow' ? '#111111' : '#ffffff') : fg;
-      w.style.color = wfg;
-      if (!info) {
-        w.innerHTML = '<div class="pvw-hint">取得天氣資料中…</div>';
-      } else if (info.error) {
-        w.innerHTML = '<div class="pvw-hint">天氣資料暫時無法取得</div>';
-      } else {
-        const infoBits = [`<span style="opacity:.72">${info.date}</span>`];
-        if (info.high || info.low) infoBits.push(`<span>${info.high || '–'} / ${info.low || '–'}</span>`);
-        if (info.rain) infoBits.push(`<span class="material-icons pvw-drop" style="opacity:.72">water_drop</span><span>${info.rain}</span>`);
-        w.innerHTML =
-          `<div class="pvw-left">` +
-          `<div class="pvw-loc">${info.location}</div>` +
-          `<div class="pvw-info">${infoBits.join('<span style="opacity:.72"> · </span>')}</div>` +
-          `</div>` +
-          `<div class="pvw-right"><span class="material-icons pvw-icon">${COND_ICON[kind]}</span>` +
-          `<span class="pvw-temp">${info.temp}</span></div>`;
+      const snap = getStations(cell.wStUrl);
+      if (!snap) renderHint('取得測站資料中…');
+      else if (snap.error) renderHint('測站資料暫時無法取得');
+      else if (!snap.stations.length) renderHint('測站 API 沒有回傳任何測站');
+      else {
+        // 預覽不輪播：沒指定站就固定顯示第一站（機器上每 10 秒換一站）
+        const s = cell.wStation ? snap.stations.find((x) => x.id === cell.wStation) : snap.stations[0];
+        if (!s) renderHint(`找不到測站 ${cell.wStation}`);
+        else if (!s.online) renderHint(`${s.name} 測站離線`);
+        else renderBar(stationInfo(s));
       }
     }
     el.appendChild(w);
@@ -1201,7 +1312,29 @@ function renderPanel() {
       subRow('速度', range, val);
     }
     if (cell.content === 'Weather') {
-      subRow('位置', checkRow('自動偵測位置', cell.wAuto !== false, (v) => { cell.wAuto = v; setDirty(true); refresh(); }));
+      // 資料來源：一般天氣（Open-Meteo 預報）或園區測站（客戶自己的感測器 API，例如卓也小屋）
+      const stationMode = cell.wSrc === 'Station';
+      subRow('來源', segRow([
+        ['一般天氣', !stationMode, () => { cell.wSrc = 'Standard'; setDirty(true); refresh(); }],
+        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; setDirty(true); refresh(); }],
+      ]));
+      if (stationMode) {
+        // 網址打到一半先等 0.6 秒再抓清單；抓到後 fillStationSelect 會補滿下拉
+        let urlTimer = null;
+        const sel = selInput([], cell.wStation || '', (v) => { cell.wStation = v; sel.dataset.stationId = v; touch(); });
+        sel.dataset.stationUrl = cell.wStUrl || '';
+        sel.dataset.stationId = cell.wStation || '';
+        fillStationSelect(sel);
+        subRow('測站 API', txtInput(cell.wStUrl, 'https://…/api/telemetry/current', (v) => {
+          // 不走 touch()：每敲一鍵就重畫畫布會拿半截網址去打代理，等停手 0.6 秒再抓清單＋重畫
+          cell.wStUrl = v; sel.dataset.stationUrl = v.trim(); setDirty(true);
+          clearTimeout(urlTimer);
+          urlTimer = setTimeout(() => { fillStationSelect(sel); renderCanvas(); }, 600);
+        }, 'url'));
+        subRow('測站', sel);
+        subRow('', hint('測站數值每 30 秒更新；輪播時機器每 10 秒換一站。測站只提供數字，晴雨圖示與動態天空仍依下方位置判斷。'));
+      }
+      subRow(stationMode ? '圖示位置' : '位置', checkRow('自動偵測位置', cell.wAuto !== false, (v) => { cell.wAuto = v; setDirty(true); refresh(); }));
       if (cell.wAuto === false) {
         subRow('地點',
           txtInput(cell.wCounty, '縣市（例：臺北市）', (v) => { cell.wCounty = v; touch(); }),
@@ -1772,7 +1905,7 @@ function chatApiCard(ctx) {
     // 左下＝申請帳號連結（另開分頁）；右下＝tiri 文字鈕（同對話框「建立」樣式）
     const apply = document.createElement('a');
     apply.className = 'foot-link';
-    apply.href = 'https://chat.justhings.ai/';
+    apply.href = 'https://chat.justhings.ai/login'; // 登入頁才有「立即註冊」
     apply.target = '_blank';
     apply.rel = 'noopener';
     apply.innerHTML = '申請 JustAI 帳號<i data-lucide="external-link"></i>'; // 另開分頁 icon 放右側
@@ -2413,6 +2546,68 @@ function switchView(view) {
 document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
   b.addEventListener('click', () => switchView(b.dataset.view)); // 工作區是 modal，開著時側欄被遮罩擋住
 });
+// ---------- 使用說明 modal（照抄 tiri base.html：開闔＋章節導覽 scroll-spy；shell 層級，任何頁都能開） ----------
+(function () {
+  const overlay = $('guideModal');
+  const modal = overlay.querySelector('.b-modal');
+  const content = $('gd-scroll');
+  const closeBtn = $('gd-close');
+  const navBtns = Array.from(overlay.querySelectorAll('.gd-nav button'));
+  const secs = navBtns.map((b) => $('gd-sec-' + b.dataset.gdSec));
+  let lastFocus = null;
+  let spyLockUntil = 0; // 點章節的平滑捲動播放中，scroll-spy 先不搶 active
+
+  const setActive = (key) => navBtns.forEach((b) => b.classList.toggle('active', b.dataset.gdSec === key));
+
+  content.addEventListener('scroll', () => {
+    if (Date.now() < spyLockUntil) return;
+    // 捲到底時直接亮最後一章（末章太短時 offsetTop 永遠到不了判定線）
+    if (content.scrollTop + content.clientHeight >= content.scrollHeight - 4) { setActive(navBtns[navBtns.length - 1].dataset.gdSec); return; }
+    const line = content.scrollTop + 32;
+    let cur = secs[0];
+    secs.forEach((s) => { if (s && s.offsetTop <= line) cur = s; });
+    setActive(cur.id.replace('gd-sec-', ''));
+  }, { passive: true });
+
+  navBtns.forEach((b) => b.addEventListener('click', () => {
+    const sec = $('gd-sec-' + b.dataset.gdSec);
+    if (!sec) return;
+    setActive(b.dataset.gdSec);
+    spyLockUntil = Date.now() + 650;
+    content.scrollTo({ top: Math.max(0, sec.offsetTop - 16) }); // CSS scroll-behavior:smooth 補間
+  }));
+
+  window.openGuideModal = function (sectionKey) {
+    lastFocus = document.activeElement;
+    overlay.classList.remove('is-closing');
+    overlay.classList.add('is-visible');
+    document.body.classList.add('b-modal-lock');
+    if (window.lucide) lucide.createIcons({ nodes: [overlay] });
+    // 起始章節：定位不播平滑捲動（開場就在該章，不是「捲過去」）
+    const target = sectionKey ? $('gd-sec-' + sectionKey) : null;
+    spyLockUntil = Date.now() + 250;
+    content.style.scrollBehavior = 'auto';
+    content.scrollTop = target ? Math.max(0, target.offsetTop - 16) : 0;
+    content.style.scrollBehavior = '';
+    setActive(sectionKey || navBtns[0].dataset.gdSec);
+    closeBtn.focus();
+  };
+  function closeGuide() {
+    if (!overlay.classList.contains('is-visible') || overlay.classList.contains('is-closing')) return;
+    overlay.classList.add('is-closing');
+    overlay.addEventListener('animationend', function h(e) {
+      if (e.target !== overlay) return;
+      overlay.removeEventListener('animationend', h);
+      overlay.classList.remove('is-visible', 'is-closing');
+      if (!$('wsModal').classList.contains('is-visible')) document.body.classList.remove('b-modal-lock'); // 工作區開著時鎖要留著
+    });
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  closeBtn.addEventListener('click', closeGuide);
+  overlay.addEventListener('click', (e) => { if (!modal.contains(e.target)) closeGuide(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlay.classList.contains('is-visible')) closeGuide(); }, true);
+  $('manualLink').addEventListener('click', () => window.openGuideModal());
+})();
 
 // ---------- 機器總覽（首頁列表） ----------
 /** 上線狀態文字：機器每 ~25 秒會回來掛長輪詢，60 秒內有露面就當在線。 */

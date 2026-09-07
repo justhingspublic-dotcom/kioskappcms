@@ -4,6 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
+const swaggerUiDist = require('swagger-ui-dist');
 const db = require('./db');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -22,7 +23,7 @@ app.use('/api', (_req, res, next) => {
 
 // 簡易請求日誌（除錯用）：長輪詢 /wait 不印，避免洗版
 app.use((req, res, next) => {
-  if (!req.path.endsWith('/wait')) {
+  if (!req.path.endsWith('/wait') && !req.path.startsWith('/docs')) {
     res.on('finish', () => console.log(`${new Date().toISOString().slice(11, 19)} ${req.method} ${req.path} → ${res.statusCode}`));
   }
   next();
@@ -506,6 +507,30 @@ app.post('/api/justai/agents', requireUser, async (req, res) => {
 });
 
 // ---- 圖片/影片上傳（任何登入帳號皆可；檔名隨機 UUID）----
+// ---- 園區測站 API 代理（天氣格「園區測站」來源）----
+// 後台預覽與測站清單要讀客戶的感測器 API（例：卓也小屋 joyeCloud /api/telemetry/current），
+// 對方沒開 CORS，瀏覽器不能直接打；由伺服器代抓並快取 10 秒，多人同時開預覽也只打一次。
+const stationCache = new Map(); // url -> { ts, body }
+app.get('/api/station/current', requireUser, async (req, res) => {
+  const url = String(req.query.url || '').trim();
+  if (!/^https?:\/\/\S+$/.test(url)) {
+    return res.status(400).json({ error: '測站 API 網址格式不正確。請以 http:// 或 https:// 開頭。' });
+  }
+  const hit = stationCache.get(url);
+  if (hit && Date.now() - hit.ts < 10_000) return res.type('application/json').send(hit.body);
+  try {
+    const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return res.status(502).json({ error: '測站 API 目前無法回應。請稍後再試一次。' });
+    const body = await r.text();
+    JSON.parse(body); // 不是 JSON 就當連錯網址
+    stationCache.set(url, { ts: Date.now(), body });
+    res.type('application/json').send(body);
+  } catch (e) {
+    console.error('測站代理：', e.message);
+    res.status(502).json({ error: '無法連接測站 API。請檢查網址和網路連線。' });
+  }
+});
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
@@ -538,6 +563,16 @@ app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, 
   res.json({ id, url: `/files/${req.file.filename}` });
 });
 
+// ---- API 文件（Swagger UI）：/docs；規格檔在 docs/openapi.yaml，改 API 時一併更新 ----
+const DOCS_DIR = path.join(__dirname, '..', 'docs');
+app.get('/docs', (req, res) => {
+  // 頁面用相對路徑載資源，需有結尾斜線（Express 預設 /docs 與 /docs/ 同一條路由）
+  if (!req.originalUrl.startsWith('/docs/')) return res.redirect(301, '/docs/');
+  res.sendFile(path.join(DOCS_DIR, 'index.html'));
+});
+app.get('/docs/openapi.yaml', (_req, res) => res.type('text/yaml').sendFile(path.join(DOCS_DIR, 'openapi.yaml')));
+app.use('/docs', express.static(swaggerUiDist.getAbsoluteFSPath(), { index: false }));
+
 app.use('/files', express.static(UPLOAD_DIR, { maxAge: '365d', immutable: true }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -550,6 +585,44 @@ app.use((err, _req, res, _next) => {
 // async route 裡沒接住的錯（Express 4 不會轉給錯誤中介層）與零星背景錯誤：
 // 記 log 撐住行程，別讓一次 DB 逾時弄死整個後台。
 process.on('unhandledRejection', (e) => console.error('unhandledRejection：', e && e.message ? e.message : e));
+
+/** 啟動時比對「程式碼實際註冊的路由」與 docs/openapi.yaml：任一邊多了或少了就印警告，
+ *  避免改了 API 忘了更新文件。只比路徑＋方法，欄位／回應格式的差異抓不到。
+ *  /docs 與 /files（靜態）不列入比對。 */
+function checkApiDocs() {
+  const yaml = require('js-yaml');
+  let spec;
+  try {
+    spec = yaml.load(fs.readFileSync(path.join(DOCS_DIR, 'openapi.yaml'), 'utf8'));
+  } catch (e) {
+    console.warn(`⚠ API 文件檢查：docs/openapi.yaml 解析失敗（${e.message.split('\n')[0]}）`);
+    return;
+  }
+  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files');
+  const inCode = new Set();
+  for (const layer of app._router.stack) {
+    if (!layer.route) continue;
+    const p = layer.route.path.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+    if (skip(p)) continue;
+    for (const m of Object.keys(layer.route.methods)) inCode.add(`${m.toUpperCase()} ${p}`);
+  }
+  const inSpec = new Set();
+  for (const [p, item] of Object.entries(spec.paths || {})) {
+    if (skip(p)) continue;
+    for (const m of Object.keys(item)) {
+      if (['get', 'post', 'put', 'delete', 'patch', 'head', 'options'].includes(m)) inSpec.add(`${m.toUpperCase()} ${p}`);
+    }
+  }
+  const missingInSpec = [...inCode].filter((k) => !inSpec.has(k));
+  const missingInCode = [...inSpec].filter((k) => !inCode.has(k));
+  if (!missingInSpec.length && !missingInCode.length) {
+    console.log(`API 文件檢查：${inCode.size} 條路由與 docs/openapi.yaml 一致`);
+    return;
+  }
+  for (const k of missingInSpec) console.warn(`⚠ API 文件檢查：程式碼有 ${k}，但 docs/openapi.yaml 沒有 → 請補上文件`);
+  for (const k of missingInCode) console.warn(`⚠ API 文件檢查：docs/openapi.yaml 有 ${k}，但程式碼沒有這條路由 → 請移除或修正文件`);
+}
+checkApiDocs();
 
 // 先開站（DB 斷線時網頁仍載得進、看得到明確錯誤），DB 在背景重試連線，連上自動恢復。
 app.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${PORT}`));

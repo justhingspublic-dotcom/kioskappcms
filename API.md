@@ -1,6 +1,9 @@
 # KioskAdmin API 規格 v1
 
 第一階段（內網版）。伺服器位址以下以 `{BASE}` 代稱（例：`http://192.168.1.xx:3000`）。
+
+> **互動式文件（Swagger UI）**：伺服器啟動後開 `{BASE}/docs`，可直接 Authorize 後 Try it out。規格檔在 `docs/openapi.yaml`，改 API 時請一併更新；伺服器啟動時會自動比對路由與規格檔，不一致會在 log 印 ⚠ 警告（只比路徑＋方法，欄位變動要自己記得改）。
+
 **App 端與網頁端一律不得寫死位址**，都從設定值讀取，之後對外上線只要換位址。
 
 ## 身分驗證
@@ -13,7 +16,7 @@
 ## 端點
 
 ### POST /api/login
-Body：`{ "password": "..." }` → `{ "token": "..." }`。密碼錯回 401。
+Body：`{ "username": "...", "password": "..." }` → `{ "token": "...", "user": { "username", "displayName", "isAdmin" } }`。帳密錯回 401。
 
 ### GET /api/connection-info（限管理網頁，所有登入者）
 → `{ "serverUrl": "http://192.168.1.142:3000", "deviceKey": "..." }`
@@ -107,7 +110,8 @@ Body：`{ "baseUrl": "...", "email": "...", "password": "..." }`（即 config �
 cell 欄位（與 App 的 `LayoutTree.kt` 序列化一致）：
 `bg`(Solid/Image)、`bgColor`(ARGB 十進位)、`bgImgs`(字串陣列)、`scale`(Crop/Fit)、`dur`(秒)、
 `content`(None/Marquee/Weather/Text/Web/Video)、`txtColor`、`mqSpeed`、`video`、`web`、`text`、
-`wAuto`/`wCounty`/`wDistrict`/`wDynBg`(天氣)、`tap`(None/OpenWeb/OpenAssistant)、`tapUrl`、
+`wAuto`/`wCounty`/`wDistrict`/`wDynBg`(天氣)、`wSrc`(Standard/Station，天氣資料來源)、
+`wStUrl`(園區測站 API 網址)/`wStation`(測站代號，空＝輪播全部)、`tap`(None/OpenWeb/OpenAssistant)、`tapUrl`、
 `agentId`/`agentName`/`agentAccent`(ARGB 十進位，省略=自動)/`assistantLayout`(AI 客服)。
 
 `sleep` 欄位（與 App DataStore 的 `sleep_schedule_json` 同格式）：`periods[].day` 用

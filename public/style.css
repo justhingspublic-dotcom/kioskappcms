@@ -985,3 +985,146 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 純資訊列：不吃 .main-content tbody tr:hover 的灰底，hover 前後完全不變 */
 .page-help .help-tbl tbody tr:hover { background: transparent; }
 .page-help .help-tbl tbody tr:not(.grp):hover td { background: transparent; }
+
+/* ══ 使用說明 modal（照抄 tiri server/static/css/guide.css；2026-09-07）══
+   佈局＝左章節導覽（scroll-spy）＋右內容捲動；全部走 kit token，深色模式自動跟隨。
+   開闔動畫＝全站 modal 統一規格（同 #wsModal）：.15s 淡入＋scale(.98→1)；keyframes 綁 display 切換。 */
+.b-modal.is-guide {
+  max-width: 860px;
+  height: min(640px, 86vh);
+  display: flex; flex-direction: column;
+  overflow: hidden;               /* 捲動交給 .gd-content，蓋掉 kit 的 overflow:auto */
+}
+#guideModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
+#guideModal.is-visible .b-modal { animation: ws-modal-in .15s ease-out; }
+#guideModal.is-visible.is-closing { animation: ws-overlay-out .12s ease-in both; }
+#guideModal.is-visible.is-closing .b-modal { animation: none; }
+
+/* ── 左右分欄 ── */
+.gd-body { flex: 1 1 auto; display: flex; min-height: 0; }
+
+/* 左欄章節導覽（樣式語彙比照側欄 menu-item） */
+.gd-nav {
+  flex: 0 0 188px;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--border-default);
+  overflow-y: auto;
+}
+.gd-nav button {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; padding: 8px 12px;
+  border: 0; background: none; border-radius: 8px;
+  color: var(--text-body); font-size: calc(14px + var(--b-fs-boost, 0px));
+  text-align: left; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+/* hover 慣例比照全站文字類鈕：不加底、文字亮 brand */
+.gd-nav button:hover { color: var(--fg-brand); }
+.gd-nav button.active { background: var(--brand-softer); color: var(--fg-brand); font-weight: 600; }
+.gd-nav button :where(i, svg) { width: 16px; height: 16px; flex: none; }
+[data-color-mode="dark"] .gd-nav button.active { background: var(--brand); color: var(--b-on-primary); }
+
+/* 右欄內容：唯一捲動區；position:relative 讓 section.offsetTop 以此為基準（scroll-spy 用） */
+.gd-content {
+  position: relative;
+  flex: 1 1 auto; min-width: 0;
+  overflow-y: auto;
+  padding: 22px 28px 30px;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+.gd-content section + section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border-default); }
+
+/* 章節標題：品牌淡底圓角 icon 座＋標題 */
+.gd-h { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.gd-h h4 { margin: 0; font-size: calc(16px + var(--b-fs-boost, 0px)); font-weight: 600; color: var(--text-heading); }
+.gd-h-ic {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; flex: none;
+  border-radius: 8px; background: var(--brand-softer); color: var(--brand);
+}
+.gd-h-ic :where(i, svg) { width: 15px; height: 15px; }
+[data-color-mode="dark"] .gd-h-ic { background: var(--brand); color: var(--b-on-primary); }
+
+.gd-lead { margin: 0 0 12px; font-size: calc(14px + var(--b-fs-boost, 0px)); line-height: 1.75; color: var(--text-body-subtle); }
+.gd-content p { margin: 0; font-size: calc(14px + var(--b-fs-boost, 0px)); line-height: 1.75; color: var(--text-body); }
+.gd-sub { margin: 18px 0 8px; font-size: calc(14px + var(--b-fs-boost, 0px)); font-weight: 600; color: var(--text-heading); }
+.gd-content b { color: var(--text-heading); font-weight: 600; }
+
+/* 功能表格：左欄位名（灰底）／右說明 */
+.gd-tbl { margin-top: 2px; border: 1px solid var(--border-default); border-radius: 10px; overflow: hidden; }
+.gd-row { display: flex; min-width: 0; }
+.gd-row + .gd-row { border-top: 1px solid var(--border-default); }
+.gd-row > b {
+  flex: 0 0 118px; padding: 9px 12px; box-sizing: border-box;
+  background: var(--neutral-secondary-medium);
+  border-right: 1px solid var(--border-default);
+  font-size: calc(13px + var(--b-fs-boost, 0px)); font-weight: 600; color: var(--text-body-subtle);
+}
+.gd-row > span {
+  flex: 1 1 auto; min-width: 0; padding: 9px 13px;
+  font-size: calc(13.5px + var(--b-fs-boost, 0px)); line-height: 1.7; color: var(--text-body);
+}
+
+/* 步驟：圈號數字 */
+.gd-steps { list-style: none; counter-reset: gd; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.gd-steps li {
+  counter-increment: gd; position: relative; padding-left: 34px;
+  font-size: calc(14px + var(--b-fs-boost, 0px)); line-height: 1.7; color: var(--text-body);
+}
+.gd-steps li::before {
+  content: counter(gd);
+  position: absolute; left: 0; top: 1px;
+  width: 22px; height: 22px; border-radius: 999px;
+  background: var(--brand-softer); color: var(--brand);
+  font-size: 12.5px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+[data-color-mode="dark"] .gd-steps li::before { background: var(--brand); color: var(--b-on-primary); }
+
+/* 畫面上的按鈕／欄位名稱：小 chip */
+.gd-ui {
+  display: inline-block; padding: 0 7px; margin: 0 1px;
+  border: 1px solid var(--border-default); border-radius: 6px;
+  background: var(--neutral-secondary-soft);
+  font-size: .92em; color: var(--text-heading); white-space: nowrap;
+}
+
+/* 內文連結（外部頁）：brand 色＋底線 */
+.gd-link { color: var(--fg-brand); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--fg-brand) 45%, transparent); }
+.gd-link:hover { text-decoration-color: var(--fg-brand); }
+
+/* 截圖：框線圓角＋下方小字說明 */
+.gd-shot { margin: 14px 0 0; }
+.gd-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--border-default); border-radius: 10px; }
+.gd-shot-cap { margin: 6px 2px 0; font-size: calc(12.5px + var(--b-fs-boost, 0px)); color: var(--text-body-subtle); }
+/* 本站補充（tiri 只有單張整寬截圖）：兩張並排、元件／手機直式截圖限寬避免被放大成海報 */
+.gd-shot-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.gd-shot-row > .gd-shot { flex: 1 1 260px; min-width: 0; }
+.gd-shot.is-sm { max-width: 300px; }
+.gd-shot.is-md { max-width: 420px; }
+.gd-shot.is-phone { max-width: 250px; flex-grow: 0; }
+
+/* 提示框：品牌淡底 callout */
+.gd-tip {
+  display: flex; gap: 9px;
+  margin-top: 14px; padding: 10px 13px;
+  border-radius: 8px; background: var(--brand-softer);
+  font-size: calc(13.5px + var(--b-fs-boost, 0px)); line-height: 1.7; color: var(--text-body);
+}
+.gd-tip :where(i, svg) { width: 15px; height: 15px; flex: none; margin-top: 4px; color: var(--brand); }
+
+/* ── 行動版：導覽轉為頂端橫向 chips ── */
+@media (max-width: 768px) {
+  .b-modal.is-guide { height: min(640px, 92vh); }
+  .gd-body { flex-direction: column; }
+  .gd-nav {
+    flex: none; flex-direction: row; gap: 4px;
+    padding: 10px 12px;
+    border-right: 0; border-bottom: 1px solid var(--border-default);
+    overflow-x: auto; overflow-y: hidden;
+  }
+  .gd-nav button { width: auto; white-space: nowrap; padding: 7px 11px; }
+  .gd-content { padding: 18px 18px 26px; }
+}
