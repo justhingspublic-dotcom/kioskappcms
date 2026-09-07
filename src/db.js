@@ -65,6 +65,14 @@ async function init() {
       SettingsJson NVARCHAR(MAX) NOT NULL,
       UpdatedAt    DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
     );
+    -- 後台「刪除機器」的紀錄：機器全共用一把 DEVICE_KEY、編號自己報，只刪 KioskConfig 那列
+    -- 機器下一輪就會把本機設定推回來；所以刪除時同時記在這裡，機器再連上就回 410 讓它自己清空連線設定。
+    -- 機器重新輸入連線資料（請求帶 X-Device-Fresh）時才劃掉這筆。
+    IF OBJECT_ID('dbo.KioskDeviceRemoved') IS NULL
+    CREATE TABLE dbo.KioskDeviceRemoved (
+      DeviceId  NVARCHAR(64) NOT NULL PRIMARY KEY,
+      RemovedAt DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
+    );
   `);
   return pool;
 }

@@ -90,7 +90,7 @@
 .b-btn-text:hover { background: var(--brand-softer); color: var(--fg-brand-strong); }
 .b-btn-text:focus-visible { box-shadow: 0 0 0 4px var(--brand-medium); }
 .b-btn-text-danger { color: var(--fg-danger); }
-.b-btn-text-danger:hover { background: var(--danger-soft); color: var(--fg-danger-strong, var(--fg-danger)); }
+.b-btn-text-danger:not(:disabled):hover { background: var(--danger-soft); color: var(--fg-danger-strong, var(--fg-danger)); }
 .b-btn-text-danger:focus-visible { box-shadow: 0 0 0 4px var(--danger-medium); }
 .b-btn-text:disabled, .b-btn-text.is-disabled, .b-btn-text[aria-disabled="true"] {
   background: transparent; border: 0; box-shadow: none; color: rgba(0, 0, 0, .1); cursor: not-allowed;
@@ -537,7 +537,7 @@ body.b-modal-lock { overflow: hidden; }
 .b-toast-msg { flex: 1; }
 /* 狀態只染 icon 顏色（卡片維持白底淺灰框） */
 .b-toast-success .b-toast-icon { color: var(--fg-success, #047857); }
-.b-toast-danger  .b-toast-icon { color: var(--fg-danger, #BE123C); }
+.b-toast-danger  .b-toast-icon { color: var(--fg-danger, #C30F16); }
 .b-toast-warning .b-toast-icon { color: #F97316; }   /* 亮橘（--fg-warning 偏深褐，toast 用亮橘較清楚） */
 @media (prefers-reduced-motion: reduce) {
   .b-toast { animation: b-toast-fade 4.4s ease both; }

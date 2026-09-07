@@ -14,7 +14,8 @@
       } catch (e) { }
     })();
   </script>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23E07800'/%3E%3Crect x='4' y='3' width='8' height='10' rx='1.5' fill='white'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <link rel="apple-touch-icon" href="img/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -51,8 +52,7 @@
     <header class="top-header" role="banner">
       <div class="header-logo">
         <button class="mobile-menu-btn" title="開啟選單"><i data-lucide="menu"></i><span class="sr-only">Open menu</span></button>
-        <span class="logo-text">Kiosk</span>
-        <span class="logo-env">管理後台</span>
+        <span class="logo-icon"><img src="img/JustDisplay-logo.svg" alt="JustDisplay"></span>
       </div>
       <div class="header-right">
         <div class="header-fs-wrap">
@@ -113,6 +113,41 @@
           <i data-lucide="users"></i><span class="menu-text">帳號管理</span>
         </button>
       </div>
+      <!-- 機器連線資訊（2026-09-07 指示）：所有登入者可看、位址與金鑰唯讀、各自可複製；
+           說明走標題旁問號（page-help 同款，向上開）；側欄收合時縮成一個連線 icon（對齊下方伸縮鈕），點開 flyout -->
+      <div class="sidebar-conn-wrap">
+        <div class="sidebar-conn" id="connCard" hidden>
+          <div class="conn-head">
+            <span class="conn-title">機器連線資訊</span>
+            <div class="b-pop page-help conn-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>
+              <div class="b-pop-panel page-help-panel">
+                <p>在機器的「雲端同步」設定頁填入相同的伺服器位址與連線金鑰，機器就會連上這個後台。</p>
+                <p>這兩項只能在伺服器端設定，這裡僅供查看與複製。</p>
+              </div>
+            </div>
+          </div>
+          <div class="conn-item">
+            <span class="conn-label">伺服器位址</span>
+            <div class="conn-value-row">
+              <div class="conn-value" id="connUrl"></div>
+              <button type="button" class="b-btn b-btn-text conn-copy" data-copy="url">複製</button>
+            </div>
+          </div>
+          <div class="conn-item">
+            <span class="conn-label">連線金鑰</span>
+            <div class="conn-value-row">
+              <div class="conn-value" id="connKey"></div>
+              <button type="button" class="b-btn b-btn-text conn-copy" data-copy="key">複製</button>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar-conn-mini" id="connMini" hidden>
+          <button type="button" class="conn-mini-btn" id="connMiniBtn" title="機器連線資訊" aria-label="機器連線資訊" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="cable"></i>
+          </button>
+        </div>
+      </div>
       <div class="sidebar-toggle">
         <button class="toggle-btn" title="收合側邊欄">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -144,11 +179,15 @@
               </div>
             </div>
           </div>
+          <!-- 重整（2026-09-07 指示）：只放 icon，灰底方圓角，同工作區頁籤列的重新載入鈕 -->
+          <div class="page-actions">
+            <button id="devicesReloadBtn" class="icon-btn" type="button" title="重新整理" aria-label="重新整理機器清單"><i data-lucide="refresh-cw"></i></button>
+          </div>
         </div>
         <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="deviceTable">
-            <thead><tr><th>名稱</th><th>編號</th><th>最後更新</th><th>狀態</th><th></th></tr></thead>
+            <thead><tr><th class="device-thumb-col"></th><th>名稱</th><th>編號</th><th>最後更新</th><th>狀態</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -165,9 +204,9 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
-                <p>在這裡建立與維護多個版面（跟機器工作區同一套編輯器）。</p>
-                <p>「加入機器」＝把該版面的頁面加到勾選機器現有頁面的後面並立即發布，不會覆蓋機器原本的頁面。</p>
-                <p>機器上的現場修改只影響那一台，不會改動這裡的版面。</p>
+                <p>設計一次、一次塞進多台：在這裡做好版面，按「加入機器」勾選機器，就不用一台台進去畫。</p>
+                <p>「加入機器」＝複製一份接在該機現有頁面的後面並立即發布，不會覆蓋機器原本的頁面。</p>
+                <p>加進去之後各機獨立：到機器裡改那一頁不會動到這裡的版面；這裡改了也不會動到已加入的機器，要更新就再加入一次。</p>
               </div>
             </div>
           </div>
@@ -177,7 +216,7 @@
         </div>
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="sharedLayoutTable">
-            <thead><tr><th>名稱</th><th>更新時間</th><th></th></tr></thead>
+            <thead><tr><th class="device-thumb-col"></th><th>名稱</th><th>更新時間</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -194,8 +233,9 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
-                <p>大部分機器共用的客服帳號與休眠時段在這裡維護。</p>
-                <p>個別機器要不同設定，到該機器的工作區單獨調整——之後再套用共用設定會覆蓋回來。</p>
+                <p>設定一次、一次套到多台：在這裡填好客服帳號與休眠時段，按「套用到機器」勾選機器。</p>
+                <p>「套用到機器」＝以這裡的設定覆蓋所選機器目前的客服帳號、休眠時段與管理 PIN 並立即發布，版面不受影響。</p>
+                <p>套用之後各機獨立：到機器裡改設定不會動到這裡；這裡改了也不會動到已套用的機器，要更新就再套用一次。</p>
               </div>
             </div>
           </div>
@@ -234,21 +274,26 @@
             <h3 class="b-modal-title" id="wsDeviceName">—</h3>
             <p class="b-modal-sub" id="wsDeviceSub"></p>
           </div>
+          <!-- 〔版面｜機器設定〕頁籤（2026-09-07 指示）：放標題列正中、兩段均分寬、滑動指示塊切換 -->
+          <div class="seg-row ws-tabs has-ind" role="tablist">
+            <span class="seg-ind" aria-hidden="true"></span>
+            <button type="button" class="seg active" data-wstab="layout" role="tab">版面</button>
+            <button type="button" class="seg" data-wstab="settings" role="tab">機器設定</button>
+          </div>
           <div class="ws-head-actions">
-            <button id="reloadBtn" class="b-btn">重新載入</button>
             <button id="saveBtn" class="b-btn b-btn-primary" disabled>儲存並發布</button>
             <button type="button" class="b-modal-close" id="wsCloseBtn" aria-label="關閉"><i data-lucide="x"></i></button>
           </div>
         </div>
         <div class="b-modal-body ws-body">
-          <div class="seg-row ws-tabs">
-            <button type="button" class="seg active" data-wstab="layout">版面</button>
-            <button type="button" class="seg" data-wstab="settings">機器設定</button>
-          </div>
 
           <!-- 版面頁籤 -->
           <div id="layoutTab">
-            <nav id="pageTabs" class="page-tabs"></nav>
+            <!-- 頁籤列＋右側「重新載入」icon 鈕（2026-09-07 指示：灰底圓角矩形、只放 icon） -->
+            <div class="page-tabs-row">
+              <nav id="pageTabs" class="page-tabs"></nav>
+              <button id="reloadBtn" class="page-tabs-reload" type="button" title="重新載入" aria-label="重新載入"><i data-lucide="refresh-cw"></i></button>
+            </div>
 
             <div id="emptyState" class="b-card hidden">
               <div class="b-empty">
@@ -265,7 +310,7 @@
                   <div id="canvas" class="canvas"></div>
                   <div class="canvas-actions">
                     <button id="addBlockBtn" class="b-btn b-btn-sm">新增大區塊</button>
-                    <button id="copyLayoutBtn" class="b-btn b-btn-sm">複製版面到其他機器</button>
+                    <button id="copyLayoutBtn" class="b-btn b-btn-sm">加到其他機器</button>
                   </div>
                 </div>
                 <div class="panel-col">

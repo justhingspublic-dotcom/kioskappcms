@@ -15,6 +15,10 @@
 ### POST /api/login
 Body：`{ "password": "..." }` → `{ "token": "..." }`。密碼錯回 401。
 
+### GET /api/connection-info（限管理網頁，所有登入者）
+→ `{ "serverUrl": "http://192.168.1.142:3000", "deviceKey": "..." }`
+側欄底部「機器連線資訊」卡片用：`serverUrl`＝`.env` 的 `PUBLIC_URL`，未設定時以這次請求的 host 推算；`deviceKey`＝`.env` 的 `DEVICE_KEY`。兩者皆唯讀，更換金鑰仍在 `.env` 改並重啟（所有機器須重新輸入）。
+
 ### GET /api/devices（限管理網頁）
 → `[ { "DeviceId": "...", "DeviceName": "...", "Version": 3, "UpdatedAt": "...", "OwnerUserId": null, "OwnerName": null, "LastSeenAgoSec": 11 } ]`
 `LastSeenAgoSec`＝機器最後一次帶 Device Key 連線距今秒數（記憶體統計，伺服器重啟後歸 null，機器 25 秒內會再露面）；null＝重啟後尚未露面。網頁以 <60 秒視為在線。

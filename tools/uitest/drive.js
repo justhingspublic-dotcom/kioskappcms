@@ -46,6 +46,15 @@ function check(name, ok, extra) {
       .then(() => check('登入後進機器總覽、列表有資料', true))
       .catch(() => check('登入後進機器總覽、列表有資料', false));
     await shot('02-devices');
+    check('機器總覽標題列有重整 icon 鈕', await page.evaluate(() => { const b = document.querySelector('.page-actions #devicesReloadBtn'); return !!b && !!b.querySelector('svg') && b.textContent.trim() === ''; }));
+    const reloadHit = await page.evaluate(async () => {
+      const orig = window.api; let hit = false;
+      window.api = async (...a) => { if (a[1] === '/api/devices') hit = true; return orig(...a); };
+      document.querySelector('#devicesReloadBtn').click();
+      await new Promise((r) => setTimeout(r, 600));
+      window.api = orig; return hit;
+    });
+    check('重整鈕點擊重抓機器清單', reloadHit);
 
     // ── 側欄：共用設定手風琴 ──
     await page.click('#sharedGroupToggle');
@@ -129,7 +138,8 @@ function check(name, ok, extra) {
     await page.click('[data-view="sharedSettings"]');
     await sleep(300);
     check('機器設定頁顯示', await visible('#sharedSettingsView'));
-    check('客服/休眠卡片渲染', await page.evaluate(() => document.querySelectorAll('#sharedBody .settings-card').length === 2));
+    check('客服/休眠卡片渲染', await page.evaluate(() => document.querySelectorAll('#sharedBody .settings-card').length === 3));
+    check('共用設定有管理 PIN 卡（整條）', await page.evaluate(() => { const c = document.querySelector('#sharedBody .settings-card-full'); return !!c && getComputedStyle(c).gridColumnStart === '1' && c.textContent.includes('管理 PIN'); }));
     await shot('07-shared-settings');
 
     // 改個欄位 → 自動儲存（儲存鈕已移除；防抖 800ms 後 sharedDirty 應清空）
@@ -151,9 +161,28 @@ function check(name, ok, extra) {
     await sleep(700);
     check('內容管理鈕開機器工作區 modal', await page.evaluate(() => document.querySelector('#wsModal').classList.contains('is-visible')));
     check('device 模式頁籤可見', await visible('.ws-tabs'));
-    check('device 模式儲存鈕搬回 header', await page.evaluate(() =>
-      document.querySelector('#saveBtn').closest('.ws-head-actions') !== null));
-    check('device 模式底部欄隱藏', !(await visible('#wsFooter')));
+    check('device 模式儲存鈕也在底部欄', await page.evaluate(() =>
+      document.querySelector('#saveBtn').closest('#wsFooter') !== null));
+    check('device 模式底部欄可見', await visible('#wsFooter'));
+    check('頁籤在標題列內', await page.evaluate(() => !!document.querySelector('.b-modal-head .ws-tabs')));
+    check('重新載入＝頁籤列右側 icon 鈕、同高正方形', await page.evaluate(() => {
+      const r = document.querySelector('.page-tabs-row #reloadBtn'); if (!r || !r.querySelector('svg')) return false;
+      const a = r.getBoundingClientRect(), n = document.querySelector('#pageTabs').getBoundingClientRect();
+      return Math.abs(a.width - a.height) < 1 && Math.abs(a.height - n.height) < 1 && a.left > n.right;
+    }));
+    check('新增頁面＝icon 鈕在頁籤列最右', await page.evaluate(() => {
+      const nav = document.querySelector('#pageTabs'); const add = nav && nav.querySelector('.add-page');
+      if (!add || !add.querySelector('svg')) return false;
+      const a = add.getBoundingClientRect(), n = nav.getBoundingClientRect();
+      return Math.abs(n.right - a.right) < 12 && add.textContent.trim() === '';
+    }));
+    check('頁籤沒有展示中標籤', await page.evaluate(() => !document.querySelector('#pageTabs .badge')));
+    check('頁籤軌道不換行', await page.evaluate(() => getComputedStyle(document.querySelector('.page-tabs-track')).flexWrap === 'nowrap'));
+    const indBefore = await page.evaluate(() => document.querySelector('.ws-tabs .seg-ind').style.left);
+    await page.click('.ws-tabs [data-wstab="settings"]'); await sleep(250);
+    const indAfter = await page.evaluate(() => document.querySelector('.ws-tabs .seg-ind').style.left);
+    check('頁籤指示塊滑動', parseFloat(indAfter) > parseFloat(indBefore), `${indBefore} → ${indAfter}`);
+    await page.click('.ws-tabs [data-wstab="layout"]'); await sleep(250);
     const devSaveLabel = await page.evaluate(() => document.querySelector('#saveBtn').textContent.trim());
     check('儲存鈕文案＝儲存並發布', devSaveLabel.includes('發布'), devSaveLabel);
     await shot('08-device-workspace');
@@ -162,7 +191,16 @@ function check(name, ok, extra) {
     await page.click('.ws-tabs [data-wstab="settings"]');
     await sleep(300);
     check('機器設定頁籤切換', await visible('#settingsTab'));
-    check('機器設定卡片渲染', await page.evaluate(() => document.querySelectorAll('#settingsBody .settings-card').length === 2));
+    check('機器設定卡片渲染', await page.evaluate(() => document.querySelectorAll('#settingsBody .settings-card').length === 4)); // 客服/休眠/PIN/危險區域
+    // 危險區域（2026-09-07）：刪除鈕原地二段確認（tiri 收件 modal 同款），只驗 armed／取消，不真的刪
+    check('危險區域卡在最下面', await page.evaluate(() => { const c = document.querySelectorAll('#settingsBody .settings-card'); return c[c.length - 1].classList.contains('danger-zone'); }));
+    await page.click('#dzDelete');
+    await sleep(450);
+    check('刪除鈕第一下變 armed＋取消鈕滑出', await page.evaluate(() => document.querySelector('#dzDelete').classList.contains('is-armed') && document.querySelector('#dzDelete .lbl').textContent === '確認刪除？' && !document.querySelector('.dz-cancelbtn').hidden));
+    await page.click('.dz-cancelbtn');
+    await sleep(450);
+    check('取消後刪除鈕復原', await page.evaluate(() => !document.querySelector('#dzDelete').classList.contains('is-armed') && document.querySelector('#dzDelete .lbl').textContent === '刪除機器' && document.querySelector('.dz-cancelbtn').hidden));
+    check('單機設定有管理 PIN 卡（整條）', await page.evaluate(() => { const c = document.querySelector('#settingsBody .settings-card-full'); return !!c && c.textContent.includes('管理 PIN'); }));
     await shot('09-device-settings-tab');
 
     // 複製版面（只有一台 → 應跳「沒有其他機器」alert）

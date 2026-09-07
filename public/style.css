@@ -31,17 +31,17 @@
 
 /* 文字類按鈕 hover（2026-09-03 指示）＝字保持主題色＋「透明主題色」底（半透明 brand pill）；
    danger 文字鈕同型但紅系；quiet（取消）維持灰系不變主題色（半透明灰 pill）。 */
-.b-btn.b-btn-text:hover {
+.b-btn.b-btn-text:not(:disabled):hover { /* disabled（如倒數中的確認鈕）不套任何 hover */
   background: color-mix(in srgb, var(--brand) 7%, transparent); /* 12%→7%：user 嫌太深 */
   color: var(--fg-brand-strong);
 }
-.b-btn.b-btn-text.b-btn-text-danger:hover {
+.b-btn.b-btn-text.b-btn-text-danger:not(:disabled):hover { /* :not(:disabled)：倒數中不可 hover 變紅（2026-09-07） */
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--fg-danger-strong, var(--fg-danger));
 }
 .b-btn.b-btn-ghost:hover { background: transparent; color: var(--fg-brand); }
 .b-btn.b-btn-ghost:hover :where(i, .lucide, svg) { color: var(--fg-brand); }
-.b-btn.b-btn-quiet:hover {
+.b-btn.b-btn-quiet:not(:disabled):hover {
   background: color-mix(in srgb, var(--text-body) 10%, transparent);
   color: var(--text-heading);
 }
@@ -77,12 +77,13 @@ html:root[data-color-mode="dark"] {
   --border-brand: #7B5336;
   --border-brand-subtle: #472F1D;
 }
+/* 深色：主題色文字鈕（測試連線、內容管理…）直接用 --accent，與底部欄「儲存並發布」同色（2026-09-07 user 指示：提亮版 fg-brand 看起來不像主題色） */
+[data-color-mode="dark"] .b-btn.b-btn-text:not(.b-btn-text-danger):not(:disabled) { color: var(--accent); }
 /* 深色：active 一律實色＋白字（淡底 pill 在深色不夠醒目） */
 [data-color-mode="dark"] .sidebar .menu-item.active,
 [data-color-mode="dark"] .cms-flyout-item.active { background: var(--brand); color: var(--b-on-primary); }
 [data-color-mode="dark"] .sidebar .menu-item.active :where(i, .lucide, svg) { color: var(--b-on-primary); }
 [data-color-mode="dark"] .b-badge.brand { background: var(--brand); border-color: transparent; color: var(--b-on-primary); }
-[data-color-mode="dark"] .page-tabs .tab.active { background: var(--brand); color: var(--b-on-primary); }
 [data-color-mode="dark"] .seg-row .seg.active { background: var(--brand); color: var(--b-on-primary); }
 
 /* ══════════════════ 登入頁（對齊 tiri login.css） ══════════════════ */
@@ -171,40 +172,89 @@ html:root[data-color-mode="dark"] {
 .page-actions { align-items: center; }
 
 /* ── 版面上架：頁面籤（造型對齊 tiri segment「白底圓角矩形容器」裁決） ── */
+/* 頁籤列（2026-09-07 改版）：不換行、超出寬度左右捲動（軌道 .page-tabs-track），
+   「新增頁面」icon 鈕固定最右＋左側細分隔線；選中頁＝主題色字＋半透明主題色底。 */
+.page-tabs-row { display: flex; align-items: stretch; gap: 8px; margin-bottom: 16px; }
+.page-tabs-row:has(.page-tabs:empty) { display: none; }
+.page-tabs-row .page-tabs { flex: 1 1 auto; min-width: 0; }
+/* 重新載入（2026-09-07 指示）：頁籤列右側、只放 icon、灰底圓角矩形、與頁籤列同高正方形 */
+.page-tabs-reload {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  aspect-ratio: 1 / 1; height: auto; padding: 0; border: 0; /* 無邊框（2026-09-07 指示） */
+  border-radius: var(--radius-full); /* 圓角對齊左邊頁籤列（pill） */ background: var(--neutral-secondary-medium); color: var(--text-body-subtle);
+  cursor: pointer; transition: background .15s, color .15s;
+}
+.page-tabs-reload :where(i, svg) { width: 18px; height: 18px; }
+/* 標題列用的 icon 鈕（機器總覽「重整」）：同上家族、固定 36px 控件高 */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--radius-md);
+  /* 預設不畫底色（2026-09-07 user 指示），hover 才亮灰底 */
+  background: transparent; color: var(--text-body-subtle);
+  cursor: pointer; transition: background .15s, color .15s;
+}
+.icon-btn :where(i, svg) { width: 18px; height: 18px; }
+.icon-btn:hover { background: var(--neutral-quaternary); color: var(--text-heading); }
+.icon-btn.is-busy :where(i, svg) { animation: icon-spin .7s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
+.page-tabs-reload:hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
 .page-tabs {
-  display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;
-  margin-bottom: 16px;
+  display: flex; flex-wrap: nowrap; gap: 8px; align-items: center;
+  margin-bottom: 0;
   background: var(--neutral-primary-soft); border: 1px solid var(--border-default);
-  border-radius: var(--radius-md); padding: 5px;
+  border-radius: var(--radius-full); padding: 5px; /* pill（同 seg-row） */
 }
 .page-tabs:empty { display: none; }   /* 未載入設定時不畫空容器框 */
+.page-tabs-track {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; gap: 5px; align-items: center; /* 頁籤間距＝容器上下 padding 5px（2026-09-07 指示） */
+  overflow-x: auto; overscroll-behavior-x: contain;
+  border-radius: var(--radius-full); /* 與頁籤同款圓角：捲動時被截斷的頁籤邊緣是圓的（2026-09-07 user 裁決，padding 留在容器） */
+}
 .page-tabs .tab {
+  flex: none; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
-  border: 0; background: transparent; border-radius: 6px;
+  border: 0; background: var(--neutral-secondary-medium); border-radius: var(--radius-full);
   padding: 7px 8px 7px 14px; cursor: pointer;
   color: var(--text-body); font-size: 14px; font-weight: 500;
   transition: background .15s, color .15s;
 }
 .page-tabs .tab:hover { color: var(--text-heading); background: var(--neutral-tertiary-medium); }
 .page-tabs .tab.active, .page-tabs .tab.active:hover {
-  background: var(--brand); color: var(--b-on-primary, #fff);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--fg-brand-strong, var(--fg-brand));
 }
-.page-tabs .tab .badge {
-  font-size: 11px; background: var(--brand); color: var(--on-accent);
-  border-radius: var(--radius-full); padding: 1px 8px;
-}
-.page-tabs .tab.active .badge { background: rgba(255, 255, 255, .24); }
 .page-tabs .tab button {
   background: none; border: 0; color: inherit; opacity: .55; padding: 2px 5px;
   font-size: 13px; cursor: pointer; border-radius: var(--radius-full);
 }
 .page-tabs .tab button:hover { opacity: 1; }
-.page-tabs .add-page {
-  border: 0; background: transparent; border-radius: 6px;
-  color: var(--text-body-subtle); padding: 7px 12px; font-size: 14px; font-weight: 500; cursor: pointer;
-  transition: color .15s, background .15s;
+/* 左右捲動箭頭：只在頁籤溢出時出現（滑鼠使用者用；觸控板可直接橫滑、滾輪也轉成橫捲） */
+.page-tabs-arrow {
+  flex: none; display: none; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-full);
+  background: transparent; color: var(--text-body-subtle); cursor: pointer;
+  transition: background .15s, color .15s, opacity .15s;
 }
-.page-tabs .add-page:hover { color: var(--fg-brand); }
+.page-tabs.is-overflow .page-tabs-arrow { display: inline-flex; }
+.page-tabs-arrow :where(i, svg) { width: 16px; height: 16px; }
+.page-tabs-arrow:not(:disabled):hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
+.page-tabs-arrow:disabled { opacity: .3; cursor: default; }
+/* 新增頁面：主題色 icon 鈕，固定最右，左邊一條淡分隔線 */
+.page-tabs .add-page {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  align-self: stretch; height: auto; width: auto; aspect-ratio: 1 / 1; /* 與頁籤同高、正方形 */
+  padding: 0; border: 0; border-radius: var(--radius-full);
+  background: var(--brand); color: var(--b-on-primary, #fff); cursor: pointer;
+  margin-left: 4px; position: relative;
+  transition: background .15s;
+}
+.page-tabs .add-page::before {
+  content: ''; position: absolute; left: -8px; top: 4px; bottom: 4px;
+  width: 1px; background: var(--border-default);
+}
+.page-tabs .add-page :where(i, svg) { width: 16px; height: 16px; }
+.page-tabs .add-page:not(:disabled):hover { background: var(--brand-strong, var(--brand)); }
+.page-tabs .add-page:disabled { background: var(--neutral-tertiary-medium); color: var(--text-body-subtle); cursor: default; }
 
 /* 編輯器垂直填滿 modal 內容區（2026-09-03 指示：上下留白一致＝body padding）：
    ws-body → layoutTab → editor 一路 flex 傳高，畫布以「高度」定尺寸。 */
@@ -216,7 +266,7 @@ html:root[data-color-mode="dark"] {
 .canvas-col { flex-shrink: 0; height: 100%; display: flex; flex-direction: column; gap: 10px; }
 /* 右欄＝格子面板（滿高：底部對齊畫布欄；2026-09-03 指示） */
 .panel-col {
-  flex: 1; min-width: 320px; max-width: 560px; height: 100%;
+  flex: 1; min-width: 320px; height: 100%; /* 不設上限：填滿畫布右側剩餘寬度（2026-09-07 指示） */
   display: flex; flex-direction: column;
 }
 .canvas-actions { display: flex; flex-direction: column; gap: 8px; flex: none; }
@@ -384,20 +434,20 @@ html:root[data-color-mode="dark"] {
 .seg-row {
   display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;
   padding: 3px; background: var(--neutral-secondary-soft);
-  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  border: 1px solid var(--border-default); border-radius: var(--radius-full); /* pill（2026-09-07 指示：全站 segment 圓角太小） */
   position: relative;
 }
 .seg-row .seg { position: relative; z-index: 1; }
 .seg-ind {
   position: absolute; z-index: 0; opacity: 0;
-  border-radius: var(--radius-sm); background: var(--brand);
+  border-radius: var(--radius-full); background: var(--brand);
   transition: left .17s cubic-bezier(.22, 1, .36, 1), width .17s cubic-bezier(.22, 1, .36, 1),
     top .17s cubic-bezier(.22, 1, .36, 1), height .17s cubic-bezier(.22, 1, .36, 1), opacity .1s;
 }
 .seg-row.has-ind .seg.active, .seg-row.has-ind .seg.active:hover { background: transparent; color: var(--b-on-primary, #fff); }
 [data-color-mode="dark"] .seg-row.has-ind .seg.active { background: transparent; }
 .seg-row .seg {
-  border: 0; background: transparent; border-radius: var(--radius-sm);
+  border: 0; background: transparent; border-radius: var(--radius-full);
   color: var(--text-body); padding: 6px 14px; font-size: 14px; font-weight: 500;
   cursor: pointer; transition: background .15s, color .15s;
 }
@@ -447,7 +497,10 @@ html:root[data-color-mode="dark"] {
    面板規格全沿用 kit .b-pop-panel（tiri b_admin.css 同款），只改錨定方向：
    標題在頁面左側 → 面板向右開（left:0），transform-origin 跟著換角。 ── */
 .page-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.page-help { display: inline-flex; }
+/* 收起時 overflow:clip：藏著的說明面板（絕對定位、只是透明）不再把 modal 內容區撐出捲動；
+   開啟時放開、收起時延遲到淡出動畫跑完才夾回（allow-discrete 讓 overflow 也能延遲切換） */
+.page-help { display: inline-flex; overflow: clip; transition: overflow 0s .18s; transition-behavior: allow-discrete; }
+.page-help:hover:not(.is-dismissed), .page-help:focus-within:not(.is-dismissed) { overflow: visible; transition-delay: 0s; }
 .page-help-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--radius-full);
@@ -490,12 +543,18 @@ html:root[data-color-mode="dark"] {
 /* ══════════════════ 機器設定頁 ══════════════════ */
 /* 兩張卡均分並排（tiri 郵件設定同款；窄幕直排），
    卡＝b-card-head 標題列＋.settings-fields 雙欄欄位＋.settings-foot 左說明右動作 */
-.settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: stretch; }
+.settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; } /* 24→16：大字級下盡量不捲（2026-09-07） */
+.settings-body .settings-card-full { grid-column: 1 / -1; } /* 管理 PIN 卡：整條放在 API 與休眠之下 */
+/* PIN 卡＝一排：標題列左邊「管理 PIN ?」、右邊輸入框；沒有欄位區，標題列底線拿掉 */
+.settings-card-full .b-card-head { border-bottom: 0; padding: 12px 20px; }
+.settings-card-full .b-card-head .pw-wrap { width: 260px; flex: none; }
+/* 右欄卡片的 ? 說明面板往左開：往右開會超出 modal 內容區、把 body 撐出水平捲動 */
+.settings-body .settings-card:nth-child(2) .page-help .b-pop-panel { left: auto; right: 0; transform-origin: top right; }
 @media (max-width: 1100px) { .settings-body { grid-template-columns: 1fr; } }
 .settings-card { display: flex; flex-direction: column; }
 .settings-fields {
-  padding: 20px; display: grid; grid-template-columns: 1fr 1fr;
-  gap: 18px 20px; align-items: start;
+  padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr; /* 20→16：機器設定頁籤在 modal 內不捲動 */
+  gap: 14px 20px; align-items: start;
 }
 .settings-fields .field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .settings-fields .field.full { grid-column: 1 / -1; }
@@ -554,7 +613,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .switch-row { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
 /* 休眠卡＝固定 7 列清單（高度不跳動；點「編輯」跳單日 modal） */
 .sleep-list.is-off { opacity: .55; }
-.sleep-item { display: flex; align-items: center; gap: 12px; padding: 3px 0; }
+.sleep-item { display: flex; align-items: center; gap: 12px; padding: 1px 0; } /* 壓扁：設定頁籤在 modal 內不捲動 */
 .sleep-item .sleep-day { width: 40px; flex: none; font-size: 13.5px; color: var(--text-heading); }
 .sleep-item .sleep-sum { flex: 1; font-size: 13.5px; color: var(--text-body); }
 .sleep-item .sleep-sum.is-none { color: var(--text-body-subtle); }
@@ -577,6 +636,14 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 #deviceTable tbody tr:hover, #deviceTable tbody tr:hover td,
 #sharedLayoutTable tbody tr:hover, #sharedLayoutTable tbody tr:hover td { background: transparent; }
 .device-row .device-ops { text-align: right; white-space: nowrap; }
+/* 縮圖欄：固定寬（最寬縮圖 100px＋左右 padding）、縮圖置中；名稱欄緊接在後 */
+#deviceTable .device-thumb-col, #sharedLayoutTable .device-thumb-col { width: 116px; padding-right: 0; text-align: center; }
+#deviceTable td.device-thumb-col .layout-thumb, #sharedLayoutTable td.device-thumb-col .layout-thumb { display: inline-flex; vertical-align: middle; }
+/* 編號欄：等寬字＋次要字色，讓名稱成為列的主角 */
+.device-row .device-mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size: 13px; letter-spacing: .01em; }
+/* 空狀態：不留光禿表頭，空狀態自己撐整張卡（tiri inbox 同作法） */
+#deviceTable.is-empty thead { display: none; }
+#deviceTable.is-empty tbody td { padding: 0; border-bottom: 0; }
 .device-row .device-ops .b-btn + .b-btn { margin-left: 8px; }
 /* 版面清單：名稱左側的小縮圖（照版面結構縮排；區塊/分割間 1px 細縫當分隔線） */
 .layout-name-wrap { display: flex; align-items: center; gap: 12px; }
@@ -586,6 +653,28 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   overflow: hidden; background: var(--border-default);
 }
 .layout-thumb.is-blank { background: var(--neutral-tertiary); border-style: dashed; }
+/* 可點開預覽的縮圖：hover 微放大（2026-09-07 指示）；預覽開著時原縮圖隱形（畫面飛出去了） */
+.layout-thumb.is-zoomable { cursor: pointer; transition: transform .18s cubic-bezier(.22, 1, .36, 1); }
+.layout-thumb.is-zoomable:hover { transform: scale(1.08); }
+.layout-thumb.is-previewing { visibility: hidden; }
+/* 縮圖預覽 overlay：從縮圖放大成真實動態畫面（跑馬燈/天氣/輪播照編輯畫布同一套 buildCanvas 唯讀版） */
+/* 遮罩＝kit modal 同款（rgba(0,0,0,.5)＋blur(1px)）；只淡遮罩、畫布本身不淡（要看得到從縮圖長出來）；不加投影（user 嫌髒） */
+.thumb-preview {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0); backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px);
+  transition: background .2s ease, backdrop-filter .2s ease;
+}
+.thumb-preview.is-open { background: rgba(0, 0, 0, .5); backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px); }
+.thumb-preview.is-closing { background: rgba(0, 0, 0, 0); backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); }
+.thumb-preview .canvas.tp-canvas {
+  height: min(86vh, 1400px); width: auto; max-width: none; min-width: 0;
+  transform-origin: center center;
+  transition: transform .26s cubic-bezier(.22, 1, .36, 1), opacity .2s ease;
+  pointer-events: none;
+}
+.thumb-preview .canvas.tp-canvas.is-landscape { height: auto; width: min(86vw, 1600px); max-width: none; }
+.thumb-preview .canvas .cell, .thumb-preview .canvas .cell:hover { border-color: transparent; cursor: default; }
 .layout-thumb .lt-cell { background-position: center; background-repeat: no-repeat; min-width: 0; min-height: 0; }
 .layout-thumb .lt-split { display: flex; flex-direction: column; gap: 1px; min-width: 0; min-height: 0; }
 .layout-thumb .lt-split.lt-vert { flex-direction: row; }
@@ -597,11 +686,15 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .dev-dot.on { background: var(--success, #2e9e5b); }
 .dev-dot.off { background: var(--border-default-medium); }
 
-/* 工作區 header：返回鈕＋機器名同一行；頁籤沿用 seg-row 造型 */
+/* 工作區 header（2026-09-07 指示）：左＝機器名/編號、正中＝〔版面｜機器設定〕、右＝重新載入/✕。
+   左右各 flex:1 讓頁籤永遠置中；頁籤兩段均分寬（不再留一長條空白），切換由 .seg-ind 滑動。 */
 .ws-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ws-back { flex: none; padding: 0 9px; }
-.ws-tabs { margin-bottom: 16px; }
-.ws-tabs .seg { min-width: 96px; }
+.b-modal.is-ws .b-modal-head { gap: 16px; }
+.ws-tabs { margin: 0; flex: none; flex-wrap: nowrap; }
+.ws-tabs .seg { flex: 1 1 0; min-width: 132px; text-align: center; }
+/* 標題列 seg 用真膠囊（2026-09-07 user 裁決）：只這組排除 kit 的 squircle；其他 seg/頁籤列維持 squircle 圓角矩形 */
+@supports (corner-shape: squircle) { .ws-tabs, .ws-tabs .seg, .ws-tabs .seg-ind { corner-shape: round; } }
 
 /* 所有 modal 遮罩對齊 tiri：半黑＋背景模糊（kit 預設沒有 backdrop-filter） */
 .b-modal-overlay { backdrop-filter: blur(1px); -webkit-backdrop-filter: blur(1px); }
@@ -627,7 +720,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   overflow: hidden;   /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
 }
 .b-modal.is-ws .b-modal-head { flex: none; border-bottom: 0; } /* 內容不捲動 → 頂部分隔線拿掉 */
-.b-modal.is-ws .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+.b-modal.is-ws .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* modal 內一律不畫捲軸（2026-09-03 指示）：body、右側面板、設定頁、對話框清單全包；
    捲動功能不受影響（滾輪/觸控照捲）。:where 壓零特異度，之後要單點恢復好蓋回。 */
 .b-modal-overlay :where(div, aside, nav, ul, textarea, .b-modal) { scrollbar-width: none; }
@@ -638,11 +731,10 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 #wsModal.is-shared-mode #copyLayoutBtn,
 #wsModal.is-shared-mode #reloadBtn,
 #wsModal.is-shared-mode #pageTabs { display: none; }
-/* 固定底部欄：只在共用版面模式出現（儲存鈕由 openWsModal 搬進來）。
+/* 固定底部欄：兩種模式都有（2026-09-07 指示；儲存鈕由 openWsModal 搬進來）。
    modal 是 flex column（head／body 捲動區／footer），footer flex:none 就固定在底。 */
-.ws-footer { display: none; }
-#wsModal.is-shared-mode .ws-footer {
-  display: flex; flex: none; justify-content: flex-end; align-items: center;
+.ws-footer {
+  display: flex; flex: none; justify-content: flex-end; align-items: center; gap: 8px;
   padding: 12px 24px; /* 分隔線拿掉（2026-09-03：內容不捲動，不需要頂/底分界） */
 }
 /* 儲存版面鈕（footer 版）＝文字鈕：disabled 灰字、亮起用主題色、
@@ -668,8 +760,8 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 @keyframes ws-overlay-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ws-modal-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
 @keyframes ws-overlay-out { from { opacity: 1; } to { opacity: 0; } }
-.ws-head-info { min-width: 0; }
-.ws-head-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.ws-head-info { min-width: 0; flex: 1 1 0; }
+.ws-head-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex: 1 1 0; }
 
 /* 複製版面對話框：kit modal 樣式＋勾選清單 */
 .copy-modal { width: min(420px, calc(100vw - 48px)); }
@@ -725,3 +817,112 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 內滾捲軸拿掉（2026-09-03 指示，比照 modal）：滾輪/觸控照捲，不畫 bar */
 .b-tbl-scroll { scrollbar-width: none; }
 .b-tbl-scroll::-webkit-scrollbar { display: none; }
+
+/* ---------- 左上角 CI：JustDisplay wordmark（2026-09-07 換掉「Kiosk」＋「管理後台」pill；
+   img/ 內另有 JustKiosk-logo.svg，要換只改 index.html 的 src） ---------- */
+.header-logo .logo-icon { height: 30px; max-width: 140px; }
+/* kit 預設把 logo 轉純白給黑字 wordmark 用；橘色 CI 深色模式要「提亮保橘」，不要漂白 */
+[data-color-mode="dark"] .header-logo .logo-icon img { filter: brightness(1.15); }
+
+/* ══════════════════ Danger Zone（機器設定頁籤最下面；2026-09-07 指示）══════════════════
+   版型照 GitHub repo settings 的 Danger Zone：卡片外上方「Danger Zone」標題、紅框卡、
+   每列＝左粗體標題＋灰字說明、右淺底外框紅字鈕。紅＝#C30F16（user 指定）。
+   刪除鈕互動仍照 tiri 收件 modal 的單筆刪除：第一下原地變形成「確認刪除？」翻實色紅底白字、
+   左側分裂滑出取消鈕；第二下再開倒數 3 秒的警告框。寬度由 JS 量測補間、字淡出淡入。 */
+:root { --dz-red: var(--fg-danger); } /* 文字層：淺色＝#C30F16、深色＝提亮版；實色填底用 var(--danger) */
+.danger-zone-sec { grid-column: 1 / -1; }
+.dz-heading { margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--dz-red); } /* 標題也用紅（2026-09-07 user 指示） */
+.settings-card.danger-zone { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.dz-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; }
+.dz-row .dz-text { min-width: 0; }
+.dz-row .dz-title { display: block; font-size: 14px; font-weight: 600; color: var(--text-heading); margin-bottom: 2px; }
+.dz-row .dz-desc { margin: 0; font-size: 13px; color: var(--text-body-subtle); }
+.danger-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.b-btn.dz-delbtn {
+  font-weight: 600; font-size: 13px;
+  background: var(--neutral-secondary-medium); border: 1px solid var(--border-default);
+  color: var(--dz-red);
+  position: relative; white-space: nowrap; overflow: hidden;
+  transition: width .32s cubic-bezier(.22, 1, .36, 1), background-color .22s ease, color .22s ease, border-color .22s ease;
+}
+.b-btn.dz-delbtn:not(:disabled):hover, .b-btn.dz-delbtn.is-armed { background: var(--danger); border-color: var(--danger); color: #fff; } /* 填底用實色層（深色＝#B05047），不用文字層 */
+.b-btn.dz-delbtn:focus-visible { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 25%, transparent); }
+.b-btn.dz-delbtn:disabled { opacity: .6; cursor: default; }
+.b-btn.dz-delbtn .lbl { display: inline-block; transition: opacity .1s ease, transform .1s ease; }
+.b-btn.dz-delbtn .lbl.is-swap { opacity: 0; transform: translateY(-4px); }              /* 舊字上移淡出 */
+.b-btn.dz-delbtn .lbl.is-enter { opacity: 0; transform: translateY(4px); transition: none; } /* 新字下方起跑 */
+.b-btn.dz-cancelbtn { border: 0; font-weight: 600; font-size: 13px; background: transparent; color: var(--text-body-subtle); }
+.b-btn.dz-cancelbtn:hover { background: var(--neutral-secondary-medium); color: var(--text-body); }
+.b-btn.dz-cancelbtn[hidden] { display: none; }
+.b-btn.dz-cancelbtn:not([hidden]) { animation: dz-cancel-in .22s cubic-bezier(.22, 1, .36, 1); }
+.b-btn.dz-cancelbtn.is-leaving { animation: dz-cancel-out .15s ease-in both; }
+@keyframes dz-cancel-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes dz-cancel-out { from { opacity: 1; } to { opacity: 0; transform: translateX(14px); } }
+
+/* ══ 全站：disabled 的按鈕一律不能被 hover（2026-09-07 user 指示）══
+   pointer-events:none → 滑過去沒有任何 hover 樣式、游標不變、也點不到；
+   ⚠ 副作用：disabled 鈕上的 title 提示也不會出現（如「新增大區塊」達上限時的提示）。 */
+.b-btn:disabled, .b-btn.is-disabled, .b-btn[aria-disabled="true"], button:disabled { pointer-events: none; }
+
+/* ── 側欄底部「機器連線資訊」卡片（2026-09-07 指示）：圓角框、位址與金鑰唯讀＋文字鈕複製（放標籤列右側對齊）；
+   說明＝標題旁問號（page-help 同款，面板以卡片為基準向上開、寬度＝卡片）；收合側欄時縮成連線 icon → flyout ── */
+/* 收合/展開改淡入淡出（2026-09-07 指示）：卡片固定寬＝側欄展開寬，側欄縮小時被 overflow 裁掉而不是被壓扁；
+   收合→卡片先淡出、icon 隨後淡入；展開→icon 先淡出、卡片等側欄撐開後淡入。兩者疊在同一個 wrap 底部。 */
+.sidebar-conn-wrap { position: relative; }
+.sidebar-conn {
+  position: relative; margin: 8px 12px 0; padding: 10px 14px 8px;
+  width: calc(var(--sidebar-width) - 24px); box-sizing: border-box;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--neutral-secondary-soft);
+  transition: opacity .2s ease .12s, visibility 0s 0s;
+}
+.sidebar-conn[hidden], .sidebar-conn-mini[hidden] { display: none !important; }
+.conn-head { display: flex; align-items: center; gap: 2px; margin-bottom: 4px; }
+.conn-title { font-size: 13px; font-weight: 600; color: var(--text-heading); }
+.sidebar-conn .conn-help { position: static; }           /* 面板改以卡片為定位基準 */
+.sidebar-conn .conn-help .page-help-btn { width: 22px; height: 22px; }
+.sidebar-conn .conn-help .page-help-btn :where(i, .lucide, svg) { width: 15px; height: 15px; }
+.sidebar-conn .conn-help .b-pop-panel {
+  left: 0; right: 0; top: auto; bottom: calc(100% + 8px); transform-origin: bottom left;
+  min-width: 0; width: auto; max-width: none; font-size: 13px; line-height: 1.65;
+}
+.sidebar-conn .conn-help .b-pop-panel::before { top: auto; bottom: -10px; } /* hover 橋改接下緣 */
+.conn-item + .conn-item { margin-top: 6px; }
+.conn-label { display: block; font-size: 12px; color: var(--text-body-subtle); }
+/* 值＋複製同列（2026-09-07 指示：複製鈕對齊內容而非標籤）；值用等寬字、單行 */
+.conn-value-row { display: flex; align-items: center; gap: 6px; }
+.conn-value {
+  flex: 1; min-width: 0; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px; line-height: 1.45; letter-spacing: .01em; color: var(--text-heading);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* 單行不換行（2026-09-07 指示）；金鑰改由 JS 遮中段 */
+}
+.b-btn.conn-copy { flex: none; height: 26px; min-height: 26px; line-height: 24px; padding: 0 6px; margin-right: -6px; font-size: 12px; }
+/* 收合：卡片淡出（留在版面上撐高度，不可點）、露出連線 icon（32px 鈕，貼 wrap 底部、左緣對齊下方伸縮鈕） */
+.sidebar-conn-mini {
+  position: absolute; left: 12px; bottom: 0;
+  opacity: 0; visibility: hidden;
+  transition: opacity .12s ease, visibility 0s .12s;
+}
+.sidebar.collapsed .sidebar-conn {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .12s ease, visibility 0s .12s;
+}
+.sidebar.collapsed .sidebar-conn-mini {
+  opacity: 1; visibility: visible;
+  transition: opacity .2s ease .15s, visibility 0s .15s;
+}
+.conn-mini-btn {
+  width: 32px; height: 32px; padding: 0; background: transparent; border: none; border-radius: var(--radius-md);
+  color: var(--text-body); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
+}
+.conn-mini-btn :where(i, .lucide, svg) { width: 16px; height: 16px; }
+.conn-mini-btn:hover { background: var(--neutral-secondary-medium); color: var(--text-heading); }
+.conn-mini-btn.is-open { background: var(--neutral-secondary-medium); color: var(--fg-brand); }
+.conn-flyout { min-width: 236px; padding: 10px 14px 8px; }
+.conn-flyout .cms-flyout-title { padding: 0 0 4px; font-size: 13px; color: var(--text-heading); }
+@media (max-width: 1024px) {   /* 抽屜模式永遠是全寬側欄：不用 mini */
+  .sidebar.collapsed .sidebar-conn { opacity: 1; visibility: visible; pointer-events: auto; }
+  .sidebar.collapsed .sidebar-conn-mini { opacity: 0; visibility: hidden; }
+}
+}

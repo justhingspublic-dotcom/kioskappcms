@@ -11,6 +11,7 @@
      desc         次要說明(可含 \n,自動保留換行)
      variant      'danger' | 'warn'(預設 warn;圖示與確認鈕顏色)
      confirmText  確認鈕文字(confirm 預設「確定」、alert 預設「知道了」、prompt 預設「確定」)
+     countdown    確認鈕倒數秒數(如 3):開框後確認鈕先 disabled 顯示「刪除（3）」逐秒遞減,歸零才可按(危險動作用)
      cancelText   取消鈕文字(預設「取消」)
      value / placeholder / inputType / inputMode   prompt 專用(預設 text)
 
@@ -100,7 +101,8 @@
             value: opts.value == null ? '' : String(opts.value),
             placeholder: opts.placeholder || '',
             inputType: opts.inputType || 'text',
-            inputMode: opts.inputMode || ''
+            inputMode: opts.inputMode || '',
+            countdown: opts.countdown > 0 ? Math.ceil(opts.countdown) : 0
         };
     }
 
@@ -192,6 +194,21 @@
             btnOk.textContent = o.confirmText;
             foot.appendChild(btnOk);
 
+            /* 倒數確認(危險動作):確認鈕先 disabled、文字帶剩餘秒數,歸零才恢復可按 */
+            var countdownTimer = null;
+            if (o.countdown) {
+                var left = o.countdown;
+                btnOk.disabled = true;
+                btnOk.textContent = o.confirmText + '（' + left + '）';
+                countdownTimer = setInterval(function () {
+                    left -= 1;
+                    if (left > 0) { btnOk.textContent = o.confirmText + '（' + left + '）'; return; }
+                    clearInterval(countdownTimer); countdownTimer = null;
+                    btnOk.disabled = false;
+                    btnOk.textContent = o.confirmText;
+                }, 1000);
+            }
+
             modal.appendChild(body);
             modal.appendChild(foot);
             overlay.appendChild(modal);
@@ -200,6 +217,7 @@
             function settle(value) {
                 if (settled) return;
                 settled = true;
+                if (countdownTimer) clearInterval(countdownTimer);
                 var idx = openDialogs.indexOf(handle);
                 if (idx !== -1) openDialogs.splice(idx, 1);
                 /* 淡出(對齊 .b-modal-overlay 的 opacity 過渡),結束才移除節點 */
@@ -233,15 +251,16 @@
 
             var handle = {
                 cancel: function () { settle(cancelValue()); },
-                confirm: function () { settle(confirmValue()); },
+                confirm: function () { if (btnOk.disabled) return; settle(confirmValue()); },
                 root: overlay
             };
 
             btnOk.addEventListener('click', handle.confirm);
             if (btnCancel) btnCancel.addEventListener('click', handle.cancel);
+            /* Enter 不送出（2026-09-07 user 指示）：只擋掉預設行為，送出一律用滑鼠點「確定」；Esc 取消照舊 */
             if (input) {
                 input.addEventListener('keydown', function (e) {
-                    if (e.key === 'Enter') { e.preventDefault(); handle.confirm(); }
+                    if (e.key === 'Enter') e.preventDefault();
                 });
             }
             /* 點遮罩 = 取消;整個 overlay 的 click 一律不冒泡到 document,
@@ -261,7 +280,7 @@
             void overlay.offsetWidth;
             overlay.classList.add('is-open');
 
-            var focusTarget = input || btnOk;
+            var focusTarget = input || (btnOk.disabled ? btnCancel : btnOk) || btnOk;
             setTimeout(function () { try { focusTarget.focus(); } catch (e) { } }, 0);
         });
     }

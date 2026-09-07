@@ -16,7 +16,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // DB 還沒連上（啟動中或公司 DB 斷線）：API 一律回 503＋中文訊息，網頁照常載入。
 app.use('/api', (_req, res, next) => {
-  if (!db.isReady()) return res.status(503).json({ error: '資料庫連線中（公司 DB 未回應），請稍候再試' });
+  if (!db.isReady()) return res.status(503).json({ error: '正在連接資料庫。請稍候再試一次。' });
   next();
 });
 
@@ -37,6 +37,22 @@ app.use((req, _res, next) => {
     if (m) deviceLastSeen.set(decodeURIComponent(m[1]), Date.now());
   }
   next();
+});
+
+// 後台已刪除的機器（KioskDeviceRemoved）：機器帶 key 再連上一律回 410，機器收到會自己清空連線設定並關閉同步。
+// 機器重新輸入位址/編號/金鑰後第一次連線會帶 X-Device-Fresh: 1，這時才劃掉紀錄放行（等同全新機器加入）。
+app.use('/api/config/:deviceId', async (req, res, next) => {
+  if (!isDevice(req)) return next();
+  try {
+    const q = () => db.getPool().request().input('id', db.sql.NVarChar(64), req.params.deviceId);
+    const r = await q().query('SELECT 1 AS x FROM dbo.KioskDeviceRemoved WHERE DeviceId = @id');
+    if (!r.recordset.length) return next();
+    if (req.get('X-Device-Fresh') === '1') {
+      await q().query('DELETE FROM dbo.KioskDeviceRemoved WHERE DeviceId = @id');
+      return next();
+    }
+    res.status(410).json({ error: '這台機器已從後台移除。', removed: true });
+  } catch (e) { next(e); }
 });
 
 // ---- 密碼雜湊（scrypt + 隨機 salt，格式 "salt:hash"）----
@@ -70,12 +86,12 @@ function isDevice(req) {
 function requireUser(req, res, next) {
   req.user = currentUser(req);
   if (req.user) return next();
-  res.status(401).json({ error: 'unauthorized' });
+  res.status(401).json({ error: '登入已過期。請重新登入。' });
 }
 function requireAdmin(req, res, next) {
   req.user = currentUser(req);
   if (req.user?.isAdmin) return next();
-  res.status(403).json({ error: 'admin only' });
+  res.status(403).json({ error: '這項操作需要管理員權限。' });
 }
 
 /** 該登入者能否操作這台機器（管理員全可；一般帳號只能碰分配給自己的）。 */
@@ -112,7 +128,7 @@ app.post('/api/login', async (req, res) => {
     .query('SELECT UserId, Username, PasswordHash, DisplayName, IsAdmin FROM dbo.KioskUser WHERE Username = @u');
   const row = r.recordset[0];
   if (!row || !verifyPassword(String(password || ''), row.PasswordHash)) {
-    return res.status(401).json({ error: '帳號或密碼錯誤' });
+    return res.status(401).json({ error: '帳號或密碼不正確。' });
   }
   const token = crypto.randomBytes(24).toString('hex');
   tokens.set(token, {
@@ -126,6 +142,13 @@ app.get('/api/me', requireUser, (req, res) => {
   res.json({ username: req.user.username, isAdmin: req.user.isAdmin });
 });
 
+/** 機器連線資訊（側欄底部卡片）：所有登入者都可看，方便在機器上抄填。
+ *  位址優先用 .env 的 PUBLIC_URL（對外上線時填），否則以這次請求的 host 推算。金鑰唯讀，更換仍走 .env。 */
+app.get('/api/connection-info', requireUser, (req, res) => {
+  const serverUrl = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  res.json({ serverUrl, deviceKey: DEVICE_KEY || '' });
+});
+
 // ---- 帳號管理（限管理員）----
 app.get('/api/users', requireAdmin, async (_req, res) => {
   const r = await db.getPool().request().query(`
@@ -137,7 +160,7 @@ app.get('/api/users', requireAdmin, async (_req, res) => {
 
 app.post('/api/users', requireAdmin, async (req, res) => {
   const { username, password, displayName, isAdmin } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: '帳號與密碼必填' });
+  if (!username || !password) return res.status(400).json({ error: '請填寫帳號和密碼。' });
   // U+FFFD＝上游編碼壞掉的替換字元（如用非 UTF-8 terminal 打 API），擋下避免存進壞資料
   if (/�/.test(String(username) + String(displayName || ''))) {
     return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
@@ -154,7 +177,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
               VALUES (@id, @u, @h, @n, @a)`);
     res.json({ userId: id });
   } catch (e) {
-    if (/UNIQUE|duplicate/i.test(e.message)) return res.status(409).json({ error: '帳號名稱已存在' });
+    if (/UNIQUE|duplicate/i.test(e.message)) return res.status(409).json({ error: '這個帳號名稱已被使用。' });
     throw e;
   }
 });
@@ -169,12 +192,12 @@ app.put('/api/users/:userId', requireAdmin, async (req, res) => {
     .input('id', db.sql.NVarChar(64), req.params.userId)
     .input('n', db.sql.NVarChar(128), displayName.slice(0, 128) || null)
     .query('UPDATE dbo.KioskUser SET DisplayName = @n WHERE UserId = @id');
-  if (!r.rowsAffected[0]) return res.status(404).json({ error: '帳號不存在' });
+  if (!r.rowsAffected[0]) return res.status(404).json({ error: '這個帳號已不存在。' });
   res.json({ ok: true });
 });
 
 app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
-  if (req.params.userId === req.user.userId) return res.status(400).json({ error: '不能刪除自己' });
+  if (req.params.userId === req.user.userId) return res.status(400).json({ error: '這是目前登入的帳號。' });
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.userId)
     .query(`UPDATE dbo.KioskConfig SET OwnerUserId = NULL WHERE OwnerUserId = @id;
@@ -191,28 +214,49 @@ app.put('/api/devices/:deviceId/owner', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---- 刪除機器（限管理員；移除測試機或報廢機的資料）----
+// ---- 刪除機器（限管理員）----
+// 刪掉設定列並記進 KioskDeviceRemoved；叫醒掛在 /wait 的機器，它下一個請求就會收到 410 而自己清空連線設定。
 app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.deviceId)
-    .query('DELETE FROM dbo.KioskConfig WHERE DeviceId = @id');
+    .query(`DELETE FROM dbo.KioskConfig WHERE DeviceId = @id;
+            IF NOT EXISTS (SELECT 1 FROM dbo.KioskDeviceRemoved WHERE DeviceId = @id)
+              INSERT INTO dbo.KioskDeviceRemoved (DeviceId) VALUES (@id);`);
+  deviceLastSeen.delete(req.params.deviceId);
   notifyWaiters(req.params.deviceId, 0);
   res.json({ ok: true });
 });
 
 // ---- 機器清單（管理員看全部；一般帳號只看自己的）----
+/** 機器列表用的精簡摘要：screen 與 activePage 那一頁（只留 blocks），供列縮圖；壞 JSON 回空。 */
+function summarizeForList(configJson) {
+  try {
+    const cfg = JSON.parse(configJson || '{}');
+    const pages = Array.isArray(cfg.pages) ? cfg.pages : [];
+    const idx = Number.isInteger(cfg.activePage) && cfg.activePage >= 0 && cfg.activePage < pages.length ? cfg.activePage : 0;
+    const pg = pages[idx];
+    return {
+      Screen: cfg.screen && cfg.screen.w > 0 && cfg.screen.h > 0 ? { w: cfg.screen.w, h: cfg.screen.h } : null,
+      PageCount: pages.length,
+      ActivePage: pg ? { name: pg.name || '', blocks: pg.blocks || [] } : null,
+    };
+  } catch { return { Screen: null, PageCount: 0, ActivePage: null }; }
+}
+
 app.get('/api/devices', requireUser, async (req, res) => {
   const q = db.getPool().request();
   let sqlText = `
-    SELECT c.DeviceId, c.DeviceName, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName
+    SELECT c.DeviceId, c.DeviceName, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName, c.ConfigJson
     FROM dbo.KioskConfig c LEFT JOIN dbo.KioskUser u ON u.UserId = c.OwnerUserId`;
   if (!req.user.isAdmin) {
     q.input('me', db.sql.NVarChar(64), req.user.userId);
     sqlText += ' WHERE c.OwnerUserId = @me';
   }
   const r = await q.query(sqlText + ' ORDER BY c.DeviceId');
-  res.json(r.recordset.map((row) => ({
+  res.json(r.recordset.map(({ ConfigJson, ...row }) => ({
     ...row,
+    // 機器總覽列縮圖用：只帶「目前展示頁」的結構＋螢幕比例（整份 config 不外送，列表輕量）
+    ...summarizeForList(ConfigJson),
     LastSeenAgoSec: deviceLastSeen.has(row.DeviceId)
       ? Math.round((Date.now() - deviceLastSeen.get(row.DeviceId)) / 1000)
       : null,
@@ -228,7 +272,7 @@ async function readVersion(deviceId) {
 }
 
 app.get('/api/config/:deviceId/version', async (req, res) => {
-  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: 'unauthorized' });
+  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
   res.json({ version: await readVersion(req.params.deviceId) });
 });
 
@@ -247,7 +291,7 @@ function notifyWaiters(deviceId, version) {
 }
 
 app.get('/api/config/:deviceId/wait', async (req, res) => {
-  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: 'unauthorized' });
+  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
   const deviceId = req.params.deviceId;
   const since = Number(req.query.version || 0);
   const current = await readVersion(deviceId);
@@ -266,14 +310,14 @@ app.get('/api/config/:deviceId/wait', async (req, res) => {
 app.get('/api/config/:deviceId', async (req, res) => {
   const user = currentUser(req);
   if (!isDevice(req)) {
-    if (!user) return res.status(401).json({ error: 'unauthorized' });
-    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: 'not your device' });
+    if (!user) return res.status(401).json({ error: '登入已過期。請重新登入。' });
+    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: '你沒有權限管理這台機器。' });
   }
   const r = await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.deviceId)
     .query('SELECT Version, ConfigJson, UpdatedAt FROM dbo.KioskConfig WHERE DeviceId = @id');
   const row = r.recordset[0];
-  if (!row) return res.status(404).json({ error: 'no config for this device' });
+  if (!row) return res.status(404).json({ error: '這台機器還沒有任何設定。' });
   res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson) });
 });
 
@@ -281,12 +325,12 @@ app.get('/api/config/:deviceId', async (req, res) => {
 app.put('/api/config/:deviceId', async (req, res) => {
   const user = currentUser(req);
   if (!isDevice(req)) {
-    if (!user) return res.status(401).json({ error: 'unauthorized' });
-    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: 'not your device' });
+    if (!user) return res.status(401).json({ error: '登入已過期。請重新登入。' });
+    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: '你沒有權限管理這台機器。' });
   }
   let config = req.body?.config;
   if (!config || typeof config !== 'object') {
-    return res.status(400).json({ error: 'body must be { config: {...} }' });
+    return res.status(400).json({ error: '要求的格式不正確。' });
   }
   // 部分更新語意：沒帶的頂層欄位一律沿用舊值（淺合併）。所以——
   // 網頁「儲存並發布」不帶 activePage → 機器不跳頁；舊版存檔不帶 deviceName/chatApi/sleep
@@ -333,7 +377,7 @@ app.get('/api/shared-settings', requireUser, async (req, res) => {
 app.put('/api/shared-settings', requireUser, async (req, res) => {
   const settings = req.body?.settings;
   if (!settings || typeof settings !== 'object') {
-    return res.status(400).json({ error: 'body must be { settings: {...} }' });
+    return res.status(400).json({ error: '要求的格式不正確。' });
   }
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.user.userId)
@@ -352,26 +396,27 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
 app.post('/api/justai/agents', requireUser, async (req, res) => {
   const { baseUrl, email, password } = req.body || {};
   if (!baseUrl || !email || !password) {
-    return res.status(400).json({ error: '請先在「機器設定」填妥智能客服 API 帳號' });
+    return res.status(400).json({ error: '請填寫智能客服的伺服器位址、Email 和密碼。' });
   }
   const root = String(baseUrl).trim().replace(/\/+$/, '');
-  if (!/^https?:\/\//.test(root)) return res.status(400).json({ error: '伺服器位址格式不正確' });
+  if (!/^https?:\/\//.test(root)) return res.status(400).json({ error: '伺服器位址格式不正確。請以 http:// 或 https:// 開頭。' });
   try {
     const login = await fetch(root + '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    if (!login.ok) return res.status(502).json({ error: '智能客服登入失敗，請檢查帳號密碼' });
+    if (!login.ok) return res.status(502).json({ error: '無法登入智能客服平台。請檢查帳號和密碼。' });
     const jt = (await login.json()).token;
     const r = await fetch(root + '/api/agents', { headers: { Authorization: 'Bearer ' + jt } });
-    if (!r.ok) return res.status(502).json({ error: `取得客服清單失敗（HTTP ${r.status}）` });
+    if (!r.ok) return res.status(502).json({ error: '智能客服平台目前無法提供客服清單。請稍後再試一次。' });
     const arr = await r.json();
     res.json((Array.isArray(arr) ? arr : []).map((a) => ({
       id: a.id, name: a.name || '', description: a.description || '',
     })));
   } catch (e) {
-    res.status(502).json({ error: '無法連線智能客服平台：' + e.message });
+    console.error('JustAI proxy：', e.message);
+    res.status(502).json({ error: '無法連接智能客服平台。請檢查伺服器位址和網路連線。' });
   }
 });
 
@@ -391,11 +436,11 @@ const upload = multer({
 function requireUserOrDevice(req, res, next) {
   req.user = currentUser(req);
   if (req.user || isDevice(req)) return next();
-  res.status(401).json({ error: 'unauthorized' });
+  res.status(401).json({ error: '登入已過期。請重新登入。' });
 }
 
 app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'no file' });
+  if (!req.file) return res.status(400).json({ error: '沒有選擇檔案。' });
   const id = path.parse(req.file.filename).name;
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), id)
@@ -413,7 +458,8 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({ error: String(err.message || err) });
+  // 原始錯誤只留在伺服器 log，畫面上一律給中性說法（detail 供開發者用 DevTools 查）
+  res.status(500).json({ error: '伺服器暫時無法處理這項要求。請稍後再試一次。', detail: String(err.message || err) });
 });
 
 // async route 裡沒接住的錯（Express 4 不會轉給錯誤中介層）與零星背景錯誤：

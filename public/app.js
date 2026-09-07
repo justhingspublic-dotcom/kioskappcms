@@ -6,6 +6,7 @@
 const $ = (id) => document.getElementById(id);
 let token = sessionStorage.getItem('token') || '';
 let deviceId = '';
+let wsDevName = ''; // 進工作區時機器列表上的名稱（config 沒帶 deviceName 時的後備）
 let state = null;         // { version, config: { pages:[...], activePage } }
 let pageIndex = 0;
 let selected = null;      // { bi, sub: null|'a'|'b' }
@@ -31,12 +32,28 @@ const DEFAULT_CELL = () => ({
 });
 
 // ---------- API ----------
+// 錯誤文字口吻（2026-09-07 指示＝Apple 中性口吻）：句號結尾、不用驚嘆號、不責怪使用者、不出現技術字眼；
+// api() 只丟「原因句」（請檢查…／請稍後再試…），toast 由呼叫端補主詞「無法○○。」再接原因。
+const NET_ERROR = '目前無法連接伺服器。請檢查網路連線後再試一次。';
+const GENERIC_ERROR = '請稍後再試一次。';
+function reasonFor(status, serverMsg) {
+  if (serverMsg) return serverMsg;
+  switch (status) {
+    case 403: return '你沒有權限進行這項操作。';
+    case 404: return '找不到這個項目。';
+    case 413: return '檔案太大，無法上傳。';
+    default: return status >= 500 ? '伺服器暫時無法處理這項要求。請稍後再試一次。' : GENERIC_ERROR;
+  }
+}
 async function api(method, url, body, isForm) {
   const headers = { Authorization: 'Bearer ' + token };
   if (body && !isForm) headers['Content-Type'] = 'application/json';
-  const res = await fetch(url, { method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined });
-  if (res.status === 401) { logout(); throw new Error('請重新登入'); }
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  let res;
+  try {
+    res = await fetch(url, { method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined });
+  } catch { throw new Error(NET_ERROR); }
+  if (res.status === 401) { logout(); throw new Error('登入已過期。請重新登入。'); }
+  if (!res.ok) throw new Error(reasonFor(res.status, (await res.json().catch(() => ({}))).error));
   return res.json();
 }
 
@@ -62,11 +79,14 @@ $('loginForm').addEventListener('submit', async (e) => {
   const btn = e.target.querySelector('.btn-login');
   btn.classList.add('is-loading');
   try {
-    const r = await fetch('/api/login', {
+    let r;
+    try {
+      r = await fetch('/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: $('username').value, password: $('password').value }),
-    });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼錯誤');
+      });
+    } catch { throw new Error('無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼不正確。');
     token = (await r.json()).token;
     sessionStorage.setItem('token', token);
     btn.classList.remove('is-loading');
@@ -76,7 +96,7 @@ $('loginForm').addEventListener('submit', async (e) => {
     btn.classList.remove('is-success');                 // 還原，登出再進來是乾淨狀態
   } catch (e) {
     btn.classList.remove('is-loading');
-    BToast.danger(e.message || '帳號或密碼錯誤');   // tiri 同款右下角 toast，取代頁內紅字
+    BToast.danger(e.message || '帳號或密碼不正確。');   // tiri 同款右下角 toast，取代頁內紅字
   }
 });
 
@@ -124,7 +144,94 @@ async function enterMain() {
   meIsAdmin = !!me.isAdmin;
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
   switchView('devices'); // 首頁＝機器總覽列表，點一列進工作區
+  loadConnInfo();
 }
+
+// ---------- 側欄底部「機器連線資訊」卡片 ----------
+// 位址與金鑰都唯讀（金鑰是全機共用一把、只活在伺服器 .env；網頁上改會讓所有機器同時斷線，故不開放）。
+let connInfo = null;
+async function loadConnInfo() {
+  const card = $('connCard');
+  try {
+    connInfo = await api('GET', '/api/connection-info');
+  } catch { card.hidden = true; $('connMini').hidden = true; return; }   // 拿不到就整張不顯示，不擋登入流程
+  $('connUrl').textContent = connInfo.serverUrl || '—';
+  $('connUrl').title = connInfo.serverUrl || '';
+  $('connKey').textContent = connInfo.deviceKey ? maskKey(connInfo.deviceKey) : '（伺服器尚未設定）';
+  card.hidden = false;
+  $('connMini').hidden = false;
+}
+/** 金鑰單行顯示、中間以 * 遮住（頭 6 尾 4）；複製仍是完整值。 */
+function maskKey(k) {
+  if (k.length <= 12) return k;
+  return k.slice(0, 6) + '****' + k.slice(-4);
+}
+/** 內網多半走 http（非安全來源）沒有 navigator.clipboard，退回 execCommand。 */
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+// 側欄收合時：底部連線 icon → 右側 flyout（同 kit 子選單 flyout 的殼與進退場），底邊對齊按鈕
+let connFlyout = null;
+function closeConnFlyout() {
+  if (!connFlyout) return;
+  const f = connFlyout; connFlyout = null;
+  $('connMiniBtn').classList.remove('is-open');
+  $('connMiniBtn').setAttribute('aria-expanded', 'false');
+  f.classList.add('flyout-leave-active', 'flyout-leave-to');
+  setTimeout(() => f.remove(), 110);
+}
+/* 底邊對齊 icon 底邊、左緣離側欄 10px（同 kit flyout） */
+function placeConnFlyout(f, btn) {
+  const r = btn.getBoundingClientRect();
+  f.style.left = (r.right + 10) + 'px';
+  f.style.top = Math.max(8, r.bottom - f.offsetHeight) + 'px';
+}
+function openConnFlyout(btn) {
+  if (connFlyout) { closeConnFlyout(); return; }
+  if (!connInfo) return;
+  const f = document.createElement('div');
+  f.className = 'cms-flyout conn-flyout';
+  const item = (label, value, key) =>
+    '<div class="conn-item"><span class="conn-label">' + label + '</span><div class="conn-value-row">' +
+    '<div class="conn-value">' + esc(value || '—') + '</div>' +
+    '<button type="button" class="b-btn b-btn-text conn-copy" data-copy="' + key + '">複製</button></div></div>';
+  f.innerHTML = '<div class="cms-flyout-title">機器連線資訊</div>' +
+    item('伺服器位址', connInfo.serverUrl, 'url') +
+    item('連線金鑰', connInfo.deviceKey ? maskKey(connInfo.deviceKey) : '（伺服器尚未設定）', 'key');
+  f.classList.add('flyout-enter-active', 'flyout-enter-from');
+  document.body.appendChild(f);
+  placeConnFlyout(f, btn);
+  requestAnimationFrame(() => f.classList.remove('flyout-enter-from'));
+  btn.classList.add('is-open'); btn.setAttribute('aria-expanded', 'true');
+  connFlyout = f;
+}
+$('connMiniBtn').addEventListener('click', (e) => { e.stopPropagation(); openConnFlyout(e.currentTarget); });
+document.addEventListener('click', (e) => {
+  if (connFlyout && !e.target.closest('.conn-flyout') && !e.target.closest('.conn-mini-btn')) closeConnFlyout();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeConnFlyout(); });
+window.addEventListener('resize', () => { if (connFlyout) placeConnFlyout(connFlyout, $('connMiniBtn')); });
+
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('.conn-copy');
+  if (!b || !connInfo) return;
+  const isUrl = b.dataset.copy === 'url';
+  const text = isUrl ? connInfo.serverUrl : connInfo.deviceKey;
+  if (!text) return BToast.danger('目前沒有可複製的內容。');
+  const ok = await copyText(text);
+  if (ok) BToast.success(isUrl ? '已複製伺服器位址。' : '已複製連線金鑰。');
+  else BToast.danger('無法複製。請直接選取文字後手動複製。');
+});
 
 function openWsModal() {
   const m = $('wsModal');
@@ -133,18 +240,37 @@ function openWsModal() {
   m.classList.add('is-visible');
   document.body.classList.add('b-modal-lock');
   $('saveBtn').textContent = wsMode === 'shared' ? '儲存版面' : '儲存並發布';
-  // 儲存鈕位置依模式搬家：shared＝固定底部欄；device＝header（✕ 前面）
-  if (wsMode === 'shared') $('wsFooter').appendChild($('saveBtn'));
-  else m.querySelector('.ws-head-actions').insertBefore($('saveBtn'), $('wsCloseBtn'));
+  // 儲存鈕兩種模式都在固定底部欄（2026-09-07 指示：device 模式也從 header 搬下來）
+  $('wsFooter').appendChild($('saveBtn'));
   if (window.lucide) lucide.createIcons();
-  showWsTab('layout');
+  showWsTab('layout', { instant: true }); // 剛開啟：指示塊直接就位不播滑動
 }
+
+/** 標題列〔版面｜機器設定〕的滑動指示塊定位（同 segRow 的 .seg-ind 作法）。 */
+function moveWsTabInd(instant) {
+  const row = document.querySelector('.ws-tabs');
+  const ind = row && row.querySelector('.seg-ind');
+  const a = row && row.querySelector('.seg.active');
+  if (!ind || !a) return;
+  const place = () => {
+    ind.style.opacity = '1';
+    ind.style.left = a.offsetLeft + 'px';
+    ind.style.top = a.offsetTop + 'px';
+    ind.style.width = a.offsetWidth + 'px';
+    ind.style.height = a.offsetHeight + 'px';
+  };
+  if (!instant) return place();
+  ind.style.transition = 'none';
+  requestAnimationFrame(() => { place(); requestAnimationFrame(() => { ind.style.transition = ''; }); });
+}
+window.addEventListener('resize', () => { moveWsTabInd(true); const n = $('pageTabs'); if (n && n._updateArrows) n._updateArrows(); });
 
 /** 從機器總覽點一列開啟該機器的工作區 modal（版面＋機器設定；tiri 開信件同款）。 */
 async function enterWorkspace(d) {
   wsMode = 'device';
   deviceId = d.DeviceId;
-  $('wsDeviceName').textContent = d.DeviceName || d.DeviceId;
+  wsDevName = d.DeviceName || d.DeviceId;
+  $('wsDeviceName').textContent = wsDevName;
   $('wsDeviceSub').textContent = d.DeviceId;
   openWsModal();
   await loadConfig();
@@ -220,7 +346,7 @@ async function saveConfig() {
 /** 共用版面：存回清單裡對應的版面（不發布到任何機器）。 */
 async function saveSharedLayout() {
   const layout = currentSharedLayout();
-  if (!layout) return setStatus('這個版面已被刪除，無法儲存', true);
+  if (!layout) return setStatus('無法儲存。這個版面已被刪除。', true);
   try {
     $('saveBtn').disabled = true;
     // deep copy：範本與編輯器不能共用同一份物件，否則存過一次後繼續編輯會「未存先改」汙染範本
@@ -229,16 +355,17 @@ async function saveSharedLayout() {
     layout.updatedAt = new Date().toISOString();
     await api('PUT', '/api/shared-settings', { settings: shared });
     setDirty(false);
-    setStatus(`已儲存版面「${layout.name || '未命名版面'}」（到版面設定按「加入機器」才會發布）`);
+    setStatus(`已儲存「${layout.name || '未命名版面'}」。若要發布到機器，請使用「加入機器」。`);
     exitWorkspace(); // 儲存即完成 → 關閉編輯器回清單（2026-09-03 指示）；dirty 已清不會跳確認
-  } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
+  } catch (e) { setDirty(true); setStatus('無法儲存版面。' + e.message, true); }
 }
 
 /** 工作區內的〔版面｜機器設定〕頁籤切換。 */
-function showWsTab(tab) {
+function showWsTab(tab, opts) {
   document.querySelectorAll('.ws-tabs .seg').forEach((b) => {
     b.classList.toggle('active', b.dataset.wstab === tab);
   });
+  moveWsTabInd(!!(opts && opts.instant));
   $('layoutTab').classList.toggle('hidden', tab !== 'layout');
   $('settingsTab').classList.toggle('hidden', tab !== 'settings');
   if (tab === 'settings') renderSettingsView();
@@ -265,7 +392,7 @@ async function loadConfig() {
   } catch (e) {
     $('editor').classList.add('hidden');
     $('emptyState').classList.remove('hidden');
-    setStatus(String(e.message), true);
+    setStatus(`無法載入「${curDevName()}」的設定。${e.message}`, true);
   }
 }
 
@@ -280,8 +407,8 @@ async function savePublish() {
     state.version = r.version;
     activePageTouched = false;
     setDirty(false);
-    setStatus('已發布，機器將在一分鐘內更新'); // 不寫版號（2026-09-03 指示）
-  } catch (e) { setDirty(true); setStatus('儲存失敗：' + e.message, true); }
+    setStatus(`已發布。「${curDevName()}」會在一分鐘內更新。`); // 不寫版號（2026-09-03 指示）
+  } catch (e) { setDirty(true); setStatus(`無法發布到「${curDevName()}」。${e.message}`, true); }
 }
 $('saveBtn').addEventListener('click', () => saveConfig());
 
@@ -289,6 +416,13 @@ function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; }
 function setStatus(msg, isErr) {
   if (window.BToast) (isErr ? BToast.danger : BToast.success)(msg);
 }
+/** 目前工作區機器的顯示名（toast 一律指名是哪一台，2026-09-07 指示）；機器設定頁改名後立即反映。 */
+function curDevName() {
+  const n = state && state.config && typeof state.config.deviceName === 'string' ? state.config.deviceName.trim() : '';
+  return n || wsDevName || deviceId;
+}
+/** 多台機器的顯示名清單（「A、B」）。 */
+function devNames(list) { return list.map((d) => d.DeviceName || d.DeviceId).join('、'); }
 
 // ---------- 共用 ----------
 /** 進 innerHTML 的伺服器資料一律先跳脫（機器名/帳號名是自由輸入文字）。 */
@@ -345,17 +479,46 @@ function render() {
 function renderTabs() {
   const nav = $('pageTabs');
   nav.innerHTML = '';
+  // 2026-09-07 改版：頁籤放在可左右捲動的軌道（不換行），「新增頁面」icon 鈕固定最右、左側細分隔線；
+  // 「展示中」標籤拿掉（機器總覽列縮圖已反映展示頁）。
+  const track = document.createElement('div');
+  track.className = 'page-tabs-track';
+  // 滑鼠使用者：垂直滾輪轉成橫向捲動（觸控板本來就能橫滑）；有捲動空間才吃掉事件
+  // 只接手「純垂直」的滾輪（滑鼠）；觸控板橫滑有 deltaX，交給瀏覽器原生捲動（慣性/手感才對）
+  track.addEventListener('wheel', (e) => {
+    if (track.scrollWidth <= track.clientWidth) return;
+    if (e.deltaX !== 0 || e.deltaY === 0) return;
+    e.preventDefault();
+    track.scrollLeft += e.deltaY;
+  }, { passive: false });
+  // 溢出時左右箭頭（只在有得捲的方向亮起）；捲動/視窗改變時更新
+  const mkArrow = (dir) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'page-tabs-arrow is-' + dir; b.tabIndex = -1;
+    b.title = dir === 'prev' ? '往左捲' : '往右捲';
+    b.innerHTML = '<i data-lucide="chevron-' + (dir === 'prev' ? 'left' : 'right') + '"></i>';
+    b.onclick = () => { track.scrollBy({ left: (dir === 'prev' ? -1 : 1) * Math.max(120, track.clientWidth * 0.6), behavior: 'smooth' }); };
+    return b;
+  };
+  const prev = mkArrow('prev'), next = mkArrow('next');
+  const updateArrows = () => {
+    const over = track.scrollWidth > track.clientWidth + 1;
+    nav.classList.toggle('is-overflow', over);
+    prev.disabled = !over || track.scrollLeft <= 1;
+    next.disabled = !over || track.scrollLeft + track.clientWidth >= track.scrollWidth - 1;
+  };
+  track.addEventListener('scroll', updateArrows, { passive: true });
+  nav.appendChild(prev);
+  nav.appendChild(track);
+  nav.appendChild(next);
+  nav._updateArrows = updateArrows;
+  requestAnimationFrame(updateArrows);
   state.config.pages.forEach((p, i) => {
     const tab = document.createElement('div');
     tab.className = 'tab' + (i === pageIndex ? ' active' : '');
     const name = document.createElement('span');
     name.textContent = p.name || `頁面 ${i + 1}`;
     tab.appendChild(name);
-    if ((state.config.activePage || 0) === i) {
-      const b = document.createElement('span');
-      b.className = 'badge'; b.textContent = '展示中';
-      tab.appendChild(b);
-    }
     const ren = document.createElement('button');
     ren.textContent = '✎'; ren.title = '重新命名';
     ren.onclick = async (e) => {
@@ -382,11 +545,18 @@ function renderTabs() {
       tab.appendChild(del);
     }
     tab.onclick = () => { pageIndex = i; selected = null; render(); };
-    nav.appendChild(tab);
+    track.appendChild(tab);
   });
-  if (state.config.pages.length < MAX_PAGES) {
+  // 目前頁籤若被捲出視野就捲到看得見（只捲軌道本身）
+  const act = track.querySelector('.tab.active');
+  if (act) requestAnimationFrame(() => act.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' }));
+  {
+    const full = state.config.pages.length >= MAX_PAGES;
     const add = document.createElement('button');
-    add.className = 'add-page'; add.textContent = '＋ 新增頁面';
+    add.className = 'add-page'; add.setAttribute('aria-label', '新增頁面');
+    add.title = full ? `已達 ${MAX_PAGES} 頁上限` : '新增頁面';
+    add.disabled = full;
+    add.innerHTML = '<i data-lucide="plus"></i>';
     add.onclick = () => {
       const nextId = Math.max(0, ...state.config.pages.map((p) => p.id || 0)) + 1;
       state.config.pages.push({ id: nextId, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] });
@@ -395,14 +565,17 @@ function renderTabs() {
     };
     nav.appendChild(add);
   }
+  if (window.lucide) lucide.createIcons({ nodes: [nav] });
+  {
+  }
 }
 
 // 「在機器上展示此頁」鈕先拿掉（2026-09-03 指示）：activePageTouched 機制保留，
-// 沒人設 true → 儲存永不送 activePage，機器維持自己目前顯示的頁；「展示中」badge 仍照雲端值顯示
+// 沒人設 true → 儲存永不送 activePage，機器維持自己目前顯示的頁；頁籤上的「展示中」標籤已拿掉（2026-09-07），展示頁只在機器總覽縮圖反映
 
 $('addBlockBtn').addEventListener('click', () => {
   const blocks = page().blocks;
-  if (blocks.length >= MAX_BLOCKS) return setStatus(`最多 ${MAX_BLOCKS} 個大區塊`, true);
+  if (blocks.length >= MAX_BLOCKS) return setStatus(`一頁最多可放 ${MAX_BLOCKS} 個大區塊。`, true);
   blocks.push({ id: Math.max(0, ...blocks.map((b) => b.id || 0)) + 1, w: 1, node: DEFAULT_CELL() });
   setDirty(true); render();
 });
@@ -412,18 +585,29 @@ function renderCanvas() {
   const canvas = $('canvas');
   previewTimers.forEach(clearInterval);
   previewTimers = [];
+  const blocks = page().blocks;
+  const addFull = blocks.length >= MAX_BLOCKS;
+  $('addBlockBtn').disabled = addFull;
+  $('addBlockBtn').title = addFull ? `最多 ${MAX_BLOCKS} 個大區塊，已達上限` : '';
+  buildCanvas(canvas, page(), state.config.screen, { timers: previewTimers });
+  requestAnimationFrame(() => fitPreview(canvas));
+}
+
+/**
+ * 把一頁畫進 canvas 元素（編輯畫布與縮圖預覽共用）。
+ * opts.readonly＝唯讀預覽：不畫分隔把手/角標、格子不可點；opts.timers＝輪播計時器要收進哪個陣列。
+ */
+function buildCanvas(canvas, pg, screen, opts) {
+  opts = opts || {};
   canvas.innerHTML = '';
   // 用機器上報的真實螢幕比例畫預覽（沒有就用 9:16 直式）
-  const scr = state.config.screen;
+  const scr = screen;
   const SW = scr && scr.w > 0 ? scr.w : 1080;
   const SH = scr && scr.h > 0 ? scr.h : 1920;
   canvas.style.aspectRatio = `${SW} / ${SH}`;
   canvas.classList.toggle('is-landscape', SW > SH); // 橫式改以寬度定尺寸（CSS .is-landscape）
-  const blocks = page().blocks;
-  const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0);
-  const addFull = blocks.length >= MAX_BLOCKS;
-  $('addBlockBtn').disabled = addFull;
-  $('addBlockBtn').title = addFull ? `最多 ${MAX_BLOCKS} 個大區塊，已達上限` : '';
+  const blocks = pg.blocks || [];
+  const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0) || 1;
 
   // 與 App cellPixelSize 相同：格子的「實際機器像素」尺寸，顯示在右上角標籤
   const splitChildPx = (px, node, second) => {
@@ -442,16 +626,15 @@ function renderCanvas() {
     const node = block.node;
     if (node.t === 'split') {
       el.style.flexDirection = node.dir === 'Vertical' ? 'row' : 'column';
-      el.appendChild(cellDiv(node.a, { bi, sub: 'a' }, node.ratio, splitChildPx(blockPx, node, false)));
-      el.appendChild(splitDivider(bi, node));
-      el.appendChild(cellDiv(node.b, { bi, sub: 'b' }, 1 - node.ratio, splitChildPx(blockPx, node, true)));
+      el.appendChild(cellDiv(node.a, { bi, sub: 'a' }, node.ratio, splitChildPx(blockPx, node, false), opts));
+      if (!opts.readonly) el.appendChild(splitDivider(bi, node));
+      el.appendChild(cellDiv(node.b, { bi, sub: 'b' }, 1 - node.ratio, splitChildPx(blockPx, node, true), opts));
     } else {
-      el.appendChild(cellDiv(node, { bi, sub: null }, 1, blockPx));
+      el.appendChild(cellDiv(node, { bi, sub: null }, 1, blockPx, opts));
     }
     canvas.appendChild(el);
-    if (bi < blocks.length - 1) canvas.appendChild(blockDivider(bi));
+    if (!opts.readonly && bi < blocks.length - 1) canvas.appendChild(blockDivider(bi));
   });
-  requestAnimationFrame(fitPreview);
 }
 
 /**
@@ -459,13 +642,14 @@ function renderCanvas() {
  * 跑馬燈字高 = 格高 55%、等速滑動（≈90dp/s 換算）；天氣字級 = min(格高比, 格寬比)；
  * 文字內容字級相對整個畫面寬（App 用固定 headlineMedium）。
  */
-function fitPreview() {
-  const canvas = $('canvas');
-  const cw = canvas.getBoundingClientRect().width;
+function fitPreview(canvasEl) {
+  const canvas = canvasEl || $('canvas');
+  // 用 offsetWidth/Height（排版尺寸）而不是 getBoundingClientRect：縮圖預覽用 transform 縮放做開闔動畫，
+  // 動畫中量到的 rect 是縮小後的值，字級會被算成超小（2026-09-07 user 回報）
+  const cw = canvas.offsetWidth;
   if (!cw) return;
   canvas.querySelectorAll('.cell').forEach((el) => {
-    const r = el.getBoundingClientRect();
-    const h = r.height, w = r.width;
+    const h = el.offsetHeight, w = el.offsetWidth;
 
     const text = el.querySelector('.pv-text');
     if (text) { text.style.fontSize = `${cw * 0.07}px`; text.style.padding = `${cw * 0.04}px`; }
@@ -597,15 +781,21 @@ function getWeather(cell) {
   if (mayRetry) {
     weatherCache.set(key, { ...(hit || {}), loading: true, lastTry: Date.now() });
     fetchRealWeather(auto, cell.wCounty, cell.wDistrict)
-      .then((info) => { weatherCache.set(key, { ts: Date.now(), info, loading: false, lastTry: Date.now() }); renderCanvas(); })
+      .then((info) => { weatherCache.set(key, { ts: Date.now(), info, loading: false, lastTry: Date.now() }); onWeatherUpdated(); })
       .catch(() => {
         weatherCache.set(key, { ...(hit || {}), info: hit?.info || null, loading: false, error: true, lastTry: Date.now() });
-        renderCanvas();
+        onWeatherUpdated();
       });
   }
   if (hit?.info) return hit.info; // 過期但先顯示舊資料，背景更新
   if (hit?.error && !hit?.loading) return { error: true };
   return null;
+}
+
+/** 天氣資料更新後重畫所有在畫的畫布：編輯器（有 state 時）＋縮圖預覽（開著時）。 */
+function onWeatherUpdated() {
+  if (state && $('wsModal').classList.contains('is-visible')) renderCanvas();
+  if (thumbPreview) thumbPreview.rerender();
 }
 
 /** 依背景亮度自動選黑/白字（與 App 的 auto contrast 行為一致）。 */
@@ -617,12 +807,14 @@ function autoTextColor(bg) {
 
 let previewTimers = [];
 
-function cellDiv(cell, sel, flex, sizePx) {
+function cellDiv(cell, sel, flex, sizePx, opts) {
+  opts = opts || {};
+  const timers = opts.timers || previewTimers;
   const el = document.createElement('div');
   el.className = 'cell';
   el.dataset.bi = sel.bi;
   el.dataset.sub = sel.sub || '';
-  if (selected && selected.bi === sel.bi && selected.sub === sel.sub) el.classList.add('selected');
+  if (!opts.readonly && selected && selected.bi === sel.bi && selected.sub === sel.sub) el.classList.add('selected');
   el.style.flex = String(flex);
   el.style.background = colorCss(cell.bgColor);
   if (cell.bg === 'Image') {
@@ -644,7 +836,7 @@ function cellDiv(cell, sel, flex, sizePx) {
         b.style.opacity = '0';
         el.appendChild(b);
         let idx = 0, front = a;
-        previewTimers.push(setInterval(() => {
+        timers.push(setInterval(() => {
           idx = (idx + 1) % imgs.length;
           const back = front === a ? b : a;
           back.style.backgroundImage = `url(${imgs[idx]})`;
@@ -721,6 +913,8 @@ function cellDiv(cell, sel, flex, sizePx) {
     v.innerHTML = `<span class="material-icons">language</span> ${host}`;
     el.appendChild(v);
   }
+
+  if (opts.readonly) return el; // 唯讀預覽：沒有角標、不可點
 
   // 右上角標籤：類型 · 實際像素尺寸（與 App 管理預覽的 CellChip 角標相同）
   const typeLabel = cell.content !== 'None' ? (CONTENT_NAMES[cell.content] || cell.content)
@@ -1026,7 +1220,7 @@ function renderPanel() {
         if (agentCache.loading) {
           subRow('客服', hint('載入客服清單中…'));
         } else if (agentCache.error) {
-          subRow('客服', hint('清單載入失敗：' + agentCache.error), btn('重試', () => { fetchAgents(true); renderPanel(); }));
+          subRow('客服', hint('無法載入客服清單。' + agentCache.error), btn('重試', () => { fetchAgents(true); renderPanel(); }));
         } else if (agentCache.list) {
           const opts = [['', '（從清單選擇…）']];
           for (const a of agentCache.list) opts.push([a.id, a.name || a.id]);
@@ -1250,13 +1444,13 @@ function pickAndUpload(accept, onDone, beforeUpload) {
     if (!f) return;
     if (beforeUpload && !(await beforeUpload(f))) return;
     try {
-      setStatus(`上傳中：${f.name} …`);
+      setStatus(`正在上傳「${f.name}」…`);
       const form = new FormData();
       form.append('file', f);
       const r = await api('POST', '/api/upload', form, true);
       onDone(r.url);
-      setStatus('上傳完成（記得按「儲存並發布」）');
-    } catch (e) { setStatus('上傳失敗：' + e.message, true); }
+      setStatus('已上傳。儲存並發布後，機器上才會顯示。');
+    } catch (e) { setStatus(`無法上傳「${f.name}」。${e.message}`, true); }
   };
   input.click();
 }
@@ -1264,46 +1458,40 @@ function pickAndUpload(accept, onDone, beforeUpload) {
 // ---------- 複製版面到其他機器 ----------
 // 語意＝一次性複製（蓋過目標機器的版面）；目標機器自己的客服帳號、休眠、
 // 展示頁與機器名都不動（伺服器 PUT 沒帶的欄位沿用舊值）。
+// 「加到其他機器」（2026-09-07 改版）：原本是整包覆蓋對方的頁面（user 實測被嚇到），
+// 改成與版面設定的「加入機器」同一套語意＝接在對方現有頁面後面，對方原有頁面/設定/展示頁都不動。
 $('copyLayoutBtn').addEventListener('click', async () => {
   if (!state) return;
-  let devices;
-  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
-  const targets = devices.filter((d) => d.DeviceId !== deviceId);
-  if (!targets.length) {
-    return BDialog.alert({ title: '沒有其他機器', desc: '目前帳號下只有這一台機器，沒有可複製的對象。' });
-  }
-  // 抓每台的螢幕方向：直橫互套會整個變形，要標警告
-  const src = state.config.screen;
-  const srcPortrait = !src || src.h >= src.w;
-  const infos = await Promise.all(targets.map(async (d) => {
-    try {
-      const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
-      const scr = cfg.config.screen;
-      return { d, portrait: !scr || scr.h >= scr.w };
-    } catch { return { d, portrait: srcPortrait }; }
-  }));
-  const picked = await pickDevicesDialog({
-    title: '複製版面到其他機器',
-    desc: '會以目前畫面上的版面（含未發布的修改）覆蓋所選機器並立即發布；各機器自己的客服帳號、休眠時段與展示頁不受影響。',
-    confirmText: '複製並發布',
-    items: infos.map(({ d, portrait }) => ({ d, warn: portrait !== srcPortrait ? '⚠ 螢幕方向不同' : '' })),
+  await appendPagesToDevices({
+    pages: state.config.pages, screen: state.config.screen, fallbackName: '',
+    excludeDeviceId: deviceId,
+    title: '把目前版面加到其他機器',
+    desc: '會把這台目前畫面上的頁面（含未發布的修改）接在所選機器現有頁面後面並立即發布；對方原有的頁面、設定與展示頁都不會被改動。',
+    noTargetsTitle: '沒有其他機器', noTargetsDesc: '目前帳號下只有這一台機器，沒有可加入的對象。',
+    verb: '加到',
   });
-  if (!picked || !picked.length) return;
-  await publishToDevices(picked, { pages: state.config.pages }, '複製');
 });
+
+/** 批次發布結果 toast：指名每一台（成功清單＋失敗清單）。 */
+function reportBatch(done, failed, verb) {
+  // 例：「已套用到「大廳、櫃台」並發布。」／「已加到「大廳」並發布。無法發布到「櫃台」。」／「無法發布到「大廳、櫃台」。」
+  const okPart = done.length ? `已${verb}「${devNames(done)}」並發布。` : '';
+  if (!failed.length) return setStatus(okPart);
+  const failPart = `無法發布到「${failed.join('、')}」。`;
+  setStatus(okPart ? `${okPart}${failPart}` : `${failPart}請稍後再試一次。`, true);
+}
 
 /** 逐台 PUT 部分 config（伺服器淺合併，其他欄位不動）並回報結果。 */
 async function publishToDevices(targets, partialConfig, verb) {
-  let ok = 0;
+  const done = [];
   const failed = [];
   for (const d of targets) {
     try {
       await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: partialConfig });
-      ok++;
+      done.push(d);
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
-  if (failed.length) setStatus(`已${verb}到 ${ok} 台；失敗：${failed.join('、')}`, true);
-  else setStatus(`已${verb}並發布到 ${ok} 台機器`);
+  reportBatch(done, failed, verb);
 }
 
 /** 勾選目標機器的小對話框（BDialog 沒有多選，沿用 kit modal 樣式自建）。
@@ -1463,6 +1651,8 @@ function renderSettingsView() {
   const ctx = { cfg: state.config, markDirty: () => setDirty(true), rerender: renderSettingsView };
   body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
+  body.appendChild(pinCard(ctx)).classList.add('settings-card-full');
+  if (wsMode !== 'shared' && meIsAdmin) body.appendChild(dangerZoneCard()); // 刪除機器＝限管理員、只在單機工作區
   if (window.BDropdown) BDropdown.init(body);
   if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
 }
@@ -1565,14 +1755,36 @@ function chatApiCard(ctx) {
   });
 }
 
+/* 管理 PIN 卡（2026-09-07）：整條跨兩欄放在客服 API 與休眠卡之下，共用設定與單機設定都有。
+ * 規則同 App PinSheet：只收數字、最長 8 碼；空白＝機器端用預設 PIN 0000。 */
+function pinCard(ctx) {
+  return settingsCard('管理 PIN', [
+    '在機器畫面上長按或點角落進入管理畫面時要輸入的 PIN，與機器上「設定 → 管理 PIN」相同。',
+    '只能輸入數字，最長 8 碼；留空＝使用預設 PIN 0000。',
+  ], (g) => {
+    const cur = typeof ctx.cfg.adminPin === 'string' ? ctx.cfg.adminPin : '';
+    const wrap = pwInput(cur, '4～8 位數字', (v) => {
+      const clean = String(v).replace(/\D/g, '').slice(0, 8);
+      ctx.cfg.adminPin = clean; ctx.markDirty();
+    });
+    const inp = wrap.querySelector('input');
+    inp.inputMode = 'numeric'; inp.autocomplete = 'off'; inp.maxLength = 8;
+    inp.addEventListener('input', () => { const c = inp.value.replace(/\D/g, '').slice(0, 8); if (c !== inp.value) inp.value = c; });
+    // 一排就好（2026-09-07 user 指示）：標題在左、輸入框在右，沒有欄位區也沒有說明字
+    const card = g.parentElement;
+    card.querySelector('.b-card-head').appendChild(wrap);
+    g.remove();
+  });
+}
+
 async function testChatApi(holder) {
   const c = holder.chatApi;
-  if (!c || !c.baseUrl || !c.email || !c.password) return setStatus('請先填妥伺服器位址、Email 與密碼', true);
+  if (!c || !c.baseUrl || !c.email || !c.password) return setStatus('請填寫伺服器位址、Email 和密碼後再測試連線。', true);
   try {
     const list = await api('POST', '/api/justai/agents', { baseUrl: c.baseUrl, email: c.email, password: c.password });
     agentCache = { key: agentKeyOf(c), list, loading: false, error: '' };
-    setStatus(`連線成功，載入 ${list.length} 個客服（可到機器版面的格子選用）`);
-  } catch (e) { setStatus('連線失敗：' + e.message, true); }
+    setStatus(`連線成功。已載入 ${list.length} 個客服，可在版面的格子中選用。`);
+  } catch (e) { setStatus('連線測試未成功。' + e.message, true); }
 }
 
 /* 休眠卡（2026-09-03 再改版＝共用版面同邏輯）：卡片只放固定 7 列清單（高度不再跳動），
@@ -1766,9 +1978,9 @@ async function saveShared(quiet) {
   try {
     await api('PUT', '/api/shared-settings', { settings: shared || {} });
     setSharedDirty(false);
-    if (!quiet) setStatus('已儲存共用設定');
+    if (!quiet) setStatus('已儲存。');
     return true;
-  } catch (e) { setStatus('儲存失敗：' + e.message, true); return false; }
+  } catch (e) { setStatus('無法儲存共用設定。' + e.message, true); return false; }
 }
 $('addSharedLayoutBtn').addEventListener('click', () => addSharedLayout());
 $('applySharedSettingsBtn').addEventListener('click', () => applySharedSettings());
@@ -1781,7 +1993,7 @@ async function ensureSharedLoaded() {
     shared = (await api('GET', '/api/shared-settings')).settings || {};
     migrateSharedLayouts();
     return true;
-  } catch (e) { setStatus(String(e.message), true); return false; }
+  } catch (e) { setStatus('無法載入共用設定。' + e.message, true); return false; }
 }
 
 /** 舊格式（單一共用版面存在 shared.pages）→ 新格式（shared.layouts 清單）。
@@ -1827,7 +2039,7 @@ async function renderSharedLayoutView() {
   tb.innerHTML = '';
   if (!shared.layouts.length) {
     tb.innerHTML =
-      '<tr><td colspan="3"><div class="b-empty">' +
+      '<tr><td colspan="4"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="layout-template"></i></span>' +
       '<p class="b-empty-title">還沒有任何版面</p>' +
       '<p class="b-empty-sub">點右上角「新增版面」開始設計，之後可以把版面加到任何機器。</p>' +
@@ -1839,15 +2051,16 @@ async function renderSharedLayoutView() {
     const tr = document.createElement('tr');
     tr.className = 'device-row';
     const updated = layout.updatedAt ? new Date(layout.updatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
+    // 縮圖獨立欄（無標題、欄內置中）＋名稱獨立欄：與機器總覽同款（2026-09-07 指示）
+    const thumbTd = document.createElement('td');
+    thumbTd.className = 'device-thumb-col';
+    const thumb = sharedLayoutThumb(layout);
+    makeThumbZoomable(thumb, () => ({ page: layout.pages && layout.pages[0], screen: layout.screen }));
+    thumbTd.appendChild(thumb);
+    tr.appendChild(thumbTd);
     const nameTd = document.createElement('td');
     nameTd.className = 'b-th';
-    const nameWrap = document.createElement('div');
-    nameWrap.className = 'layout-name-wrap';
-    nameWrap.appendChild(sharedLayoutThumb(layout));
-    const nm = document.createElement('span');
-    nm.textContent = layout.name || '未命名版面';
-    nameWrap.appendChild(nm);
-    nameTd.appendChild(nameWrap);
+    nameTd.textContent = layout.name || '未命名版面';
     tr.appendChild(nameTd);
     tr.insertAdjacentHTML('beforeend', `<td class="num">${updated}</td>`);
 
@@ -1872,6 +2085,85 @@ async function renderSharedLayoutView() {
 
 /** 版面小縮圖：照第一頁的區塊結構縮排（純色底色／第一張遠端底圖；比例照 screen，
  *  預設直式 9:16）。只畫結構不畫內容——夠認得出是哪個版面就好。 */
+// ---------- 縮圖預覽（2026-09-07）：點縮圖→從縮圖位置放大成真實動態預覽；關閉→縮回縮圖 ----------
+let thumbPreview = null; // { rerender, close }
+
+/** 讓縮圖可點開預覽：hover 微放大（CSS .is-zoomable），點擊開 overlay。 */
+function makeThumbZoomable(thumbEl, getData) {
+  thumbEl.classList.add('is-zoomable');
+  thumbEl.title = '點擊放大預覽';
+  thumbEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (thumbPreview) return;
+    const d = getData();
+    if (!d || !d.page) return;
+    openThumbPreview(thumbEl, d.page, d.screen);
+  });
+}
+
+function openThumbPreview(thumbEl, pg, screen) {
+  const ov = document.createElement('div');
+  ov.className = 'thumb-preview';
+  const canvas = document.createElement('div');
+  canvas.className = 'canvas tp-canvas';
+  ov.appendChild(canvas);
+  document.body.appendChild(ov);
+  let timers = [];
+  const rerender = () => {
+    timers.forEach(clearInterval); timers = [];
+    buildCanvas(canvas, pg, screen, { readonly: true, timers });
+    fitPreview(canvas);
+  };
+  rerender();
+
+  // FLIP：先量好終點（置中的大畫布），把它 transform 到縮圖的位置/大小，下一幀放開 → 看起來從縮圖長出來
+  const layoutRect = () => ({ width: canvas.offsetWidth, height: canvas.offsetHeight, cx: window.innerWidth / 2, cy: window.innerHeight / 2 });
+  const from = thumbEl.getBoundingClientRect();
+  const to = layoutRect();
+  const sx = from.width / to.width, sy = from.height / to.height;
+  const dx = from.left + from.width / 2 - to.cx;
+  const dy = from.top + from.height / 2 - to.cy;
+  const shrunk = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+  canvas.style.transition = 'none';
+  canvas.style.transform = shrunk;
+  thumbEl.classList.add('is-previewing'); // 原縮圖先隱形：畫面「飛出去」了
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    canvas.style.transition = '';
+    canvas.style.transform = 'none';
+    ov.classList.add('is-open');
+    fitPreview(canvas); // 跑馬燈用實際尺寸重算
+  }));
+
+  let closing = false;
+  const close = () => {
+    if (closing) return;
+    closing = true;
+    // 縮圖可能已被重畫（列表重新 render）：找不到就直接淡出
+    const f = thumbEl.isConnected ? thumbEl.getBoundingClientRect() : null;
+    const t = layoutRect();
+    if (f) {
+      const sx2 = f.width / t.width, sy2 = f.height / t.height;
+      const dx2 = f.left + f.width / 2 - t.cx;
+      const dy2 = f.top + f.height / 2 - t.cy;
+      canvas.style.transform = `translate(${dx2}px, ${dy2}px) scale(${sx2}, ${sy2})`;
+    } else canvas.style.opacity = '0';
+    ov.classList.remove('is-open');
+    ov.classList.add('is-closing');
+    const done = () => {
+      timers.forEach(clearInterval);
+      ov.remove();
+      thumbEl.classList.remove('is-previewing');
+      document.removeEventListener('keydown', onKey, true);
+      thumbPreview = null;
+    };
+    setTimeout(done, 260);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  ov.addEventListener('click', close);
+  thumbPreview = { rerender, close };
+}
+
 function sharedLayoutThumb(layout) {
   const box = document.createElement('div');
   box.className = 'layout-thumb';
@@ -1919,7 +2211,7 @@ async function addSharedLayout() {
   };
   shared.layouts.push(layout);
   try { await api('PUT', '/api/shared-settings', { settings: shared }); }
-  catch (e) { shared.layouts.pop(); return setStatus('建立失敗：' + e.message, true); }
+  catch (e) { shared.layouts.pop(); return setStatus('無法建立版面。' + e.message, true); }
   renderSharedLayoutView();
   enterSharedLayoutEditor(layout);
 }
@@ -1932,7 +2224,7 @@ async function renameSharedLayout(layout) {
   const prev = layout.name;
   layout.name = name.trim();
   try { await api('PUT', '/api/shared-settings', { settings: shared }); }
-  catch (e) { layout.name = prev; return setStatus('更名失敗：' + e.message, true); }
+  catch (e) { layout.name = prev; return setStatus('無法更名。' + e.message, true); }
   renderSharedLayoutView();
 }
 
@@ -1947,17 +2239,33 @@ async function deleteSharedLayout(layout) {
   if (idx < 0) return;
   shared.layouts.splice(idx, 1);
   try { await api('PUT', '/api/shared-settings', { settings: shared }); }
-  catch (e) { shared.layouts.splice(idx, 0, layout); return setStatus('刪除失敗：' + e.message, true); }
+  catch (e) { shared.layouts.splice(idx, 0, layout); return setStatus('無法刪除版面。' + e.message, true); }
   renderSharedLayoutView();
 }
 
 /** 把一個版面「加入」勾選的機器：頁面附加在該機現有頁面後面（不覆蓋），逐台發布。 */
 async function applySharedLayout(layout) {
   if (!layout.pages || !layout.pages.length) return;
+  const name = layout.name || '未命名版面';
+  await appendPagesToDevices({
+    pages: layout.pages, screen: layout.screen, fallbackName: layout.name || '',
+    title: `把「${name}」加入機器`,
+    desc: '會把這個版面加成所選機器的新頁面（接在現有頁面後面）並立即發布；機器原有的頁面與設定都不會被改動。',
+    noTargetsTitle: '沒有機器', noTargetsDesc: '目前帳號下沒有任何機器。',
+    verb: `把「${name}」加入`,
+  });
+}
+
+/** 把一組頁面「接在」所選機器現有頁面後面並發布（版面設定「加入機器」與工作區「加到其他機器」共用）。
+ *  opts = { pages, screen, fallbackName, excludeDeviceId?, title, desc, noTargetsTitle, noTargetsDesc, verb } */
+async function appendPagesToDevices(opts) {
+  const srcPages = opts.pages || [];
+  if (!srcPages.length) return;
   let devices;
-  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
-  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
-  const srcPortrait = !layout.screen || layout.screen.h >= layout.screen.w;
+  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus('無法取得機器清單。' + e.message, true); }
+  if (opts.excludeDeviceId) devices = devices.filter((d) => d.DeviceId !== opts.excludeDeviceId);
+  if (!devices.length) return BDialog.alert({ title: opts.noTargetsTitle, desc: opts.noTargetsDesc });
+  const srcPortrait = !opts.screen || opts.screen.h >= opts.screen.w;
   const infos = await Promise.all(devices.map(async (d) => {
     try {
       const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
@@ -1965,39 +2273,33 @@ async function applySharedLayout(layout) {
       const pages = cfg.config.pages || [];
       const warns = [];
       if ((!scr || scr.h >= scr.w) !== srcPortrait) warns.push('⚠ 螢幕方向不同');
-      if (pages.length + layout.pages.length > MAX_PAGES) warns.push(`⚠ 加入後超過 ${MAX_PAGES} 頁上限`);
+      if (pages.length + srcPages.length > MAX_PAGES) warns.push(`⚠ 加入後超過 ${MAX_PAGES} 頁上限`);
       return { d, warn: warns.join('　'), pages };
     } catch { return { d, warn: '', pages: [] }; }
   }));
-  const picked = await pickDevicesDialog({
-    title: `把「${layout.name || '未命名版面'}」加入機器`,
-    desc: '會把這個版面加成所選機器的新頁面（接在現有頁面後面）並立即發布；機器原有的頁面與設定都不會被改動。',
-    confirmText: '加入並發布',
-    items: infos,
-  });
+  const picked = await pickDevicesDialog({ title: opts.title, desc: opts.desc, confirmText: '加入並發布', items: infos });
   if (!picked || !picked.length) return;
 
-  let ok = 0;
+  const done = [];
   const failed = [];
   for (const d of picked) {
     const info = infos.find((i) => i.d === d);
     const existing = info ? info.pages : [];
-    if (existing.length + layout.pages.length > MAX_PAGES) {
+    if (existing.length + srcPages.length > MAX_PAGES) {
       failed.push(`${d.DeviceName || d.DeviceId}（超過 ${MAX_PAGES} 頁上限）`);
       continue;
     }
     // 頁面 id 在同一台機器的 config 裡要唯一 → 附加時重新編號；
     // 頁面沒取名就帶版面名，機器的頁籤/admin-pager 上才認得出來
     let nextId = Math.max(0, ...existing.map((p) => p.id || 0));
-    const appended = JSON.parse(JSON.stringify(layout.pages))
-      .map((p) => ({ ...p, id: ++nextId, name: p.name || layout.name || '' }));
+    const appended = JSON.parse(JSON.stringify(srcPages))
+      .map((p) => ({ ...p, id: ++nextId, name: p.name || opts.fallbackName || '' }));
     try {
       await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: [...existing, ...appended] } });
-      ok++;
+      done.push(d);
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
-  if (failed.length) setStatus(`已加入 ${ok} 台；失敗：${failed.join('、')}`, true);
-  else setStatus(`已把「${layout.name || '未命名版面'}」加入 ${ok} 台機器並發布`);
+  reportBatch(done, failed, opts.verb);
 }
 
 /** 共用設定 › 機器設定頁：共用的客服帳號＋休眠卡片。 */
@@ -2008,19 +2310,20 @@ async function renderSharedSettingsView() {
   const ctx = { cfg: shared, markDirty: scheduleSharedSave, rerender: renderSharedSettingsView };
   body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
+  body.appendChild(pinCard(ctx)).classList.add('settings-card-full');
   if (window.BDropdown) BDropdown.init(body);
   if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
 }
 
 async function applySharedSettings() {
-  if (!shared.chatApi && !shared.sleep) return setStatus('請先填寫共用的客服帳號或休眠時段', true);
+  if (!shared.chatApi && !shared.sleep && !shared.adminPin) return setStatus('請先設定客服帳號、休眠時段或管理 PIN，再套用到機器。', true);
   if (sharedDirty && !(await saveShared(true))) return; // 自動存檔還沒跑完就先 flush，套用的內容＝存下來的內容
   let devices;
-  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus(e.message, true); }
+  try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus('無法取得機器清單。' + e.message, true); }
   if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
   const picked = await pickDevicesDialog({
     title: '套用共用設定到機器',
-    desc: '會以共用的客服帳號與休眠時段覆蓋所選機器並立即發布；版面不受影響。',
+    desc: '會以共用的客服帳號、休眠時段與管理 PIN 覆蓋所選機器並立即發布；版面不受影響。',
     confirmText: '套用並發布',
     items: devices.map((d) => ({ d })),
   });
@@ -2028,7 +2331,8 @@ async function applySharedSettings() {
   const partial = {};
   if (shared.chatApi) partial.chatApi = shared.chatApi;
   if (shared.sleep) partial.sleep = shared.sleep;
-  await publishToDevices(picked, partial, '套用');
+  if (shared.adminPin) partial.adminPin = shared.adminPin; // 共用 PIN 留空＝不覆蓋機器的 PIN
+  await publishToDevices(picked, partial, '套用到');
 }
 
 // ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
@@ -2053,22 +2357,24 @@ document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
 // ---------- 機器總覽（首頁列表） ----------
 /** 上線狀態文字：機器每 ~25 秒會回來掛長輪詢，60 秒內有露面就當在線。 */
 function statusCell(d) {
+  // tiri 收件列表同款：狀態＝b-badge 帶小圓點（在線綠 / 離線灰），離線附「多久沒回報」
   const td = document.createElement('td');
+  const badge = document.createElement('span');
   const dot = document.createElement('span');
-  const txt = document.createElement('span');
+  dot.className = 'dot';
+  badge.appendChild(dot);
   if (d.LastSeenAgoSec == null) {
-    dot.className = 'dev-dot off';
-    txt.className = 'device-id-dim';
-    txt.textContent = '—';
+    badge.className = 'b-badge neutral';
+    badge.append('尚未回報');
+    badge.title = '伺服器啟動後這台機器還沒連線過';
   } else if (d.LastSeenAgoSec < 60) {
-    dot.className = 'dev-dot on';
-    txt.textContent = '在線';
+    badge.className = 'b-badge ok';
+    badge.append('在線');
   } else {
-    dot.className = 'dev-dot off';
-    txt.className = 'device-id-dim';
-    txt.textContent = `離線 ${agoText(d.LastSeenAgoSec)}`;
+    badge.className = 'b-badge neutral';
+    badge.append(`離線 ${agoText(d.LastSeenAgoSec)}`);
   }
-  td.append(dot, txt);
+  td.appendChild(badge);
   return td;
 }
 function agoText(sec) {
@@ -2080,15 +2386,23 @@ function agoText(sec) {
   return `${Math.round(h / 24)} 天`;
 }
 
+$('devicesReloadBtn').addEventListener('click', async () => {
+  const b = $('devicesReloadBtn');
+  if (b.classList.contains('is-busy')) return;
+  b.classList.add('is-busy');
+  try { await renderDevicesView(); } finally { setTimeout(() => b.classList.remove('is-busy'), 400); }
+});
+
 async function renderDevicesView() {
   const devices = await api('GET', '/api/devices');
 
   const tb = $('deviceTable').querySelector('tbody');
   tb.innerHTML = '';
+  $('deviceTable').classList.toggle('is-empty', !devices.length); // 空狀態不留光禿表頭
   if (!devices.length) {
     // tiri 規範：空清單不留光禿表頭，換 b-empty 空狀態
     tb.innerHTML =
-      '<tr><td colspan="5"><div class="b-empty">' +
+      '<tr><td colspan="6"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>' +
       '<p class="b-empty-title">還沒有機器連上來</p>' +
       '<p class="b-empty-sub">在 kiosk 機器的 App 裡開啟「雲端同步」，機器會自動出現在這裡。</p>' +
@@ -2100,10 +2414,21 @@ async function renderDevicesView() {
     const tr = document.createElement('tr');
     tr.className = 'device-row';
     const updated = d.UpdatedAt ? new Date(d.UpdatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
-    tr.innerHTML =
-      `<td class="b-th">${esc(d.DeviceName || d.DeviceId)}</td>` +
-      `<td class="device-id-dim">${esc(d.DeviceId)}</td>` +
-      `<td class="num">${updated}</td>`;
+    // 縮圖欄（無標題、欄內置中）＝該機「目前展示頁」結構縮圖（沿用版面清單的 sharedLayoutThumb）；
+    // 名稱獨立一欄（2026-09-07 指示：不同螢幕比例的縮圖寬度不一，同格會把名稱推歪）
+    const thumbTd = document.createElement('td');
+    thumbTd.className = 'device-thumb-col';
+    const thumb = sharedLayoutThumb({ screen: d.Screen, pages: d.ActivePage ? [d.ActivePage] : [] });
+    makeThumbZoomable(thumb, () => ({ page: d.ActivePage, screen: d.Screen }));
+    thumbTd.appendChild(thumb);
+    tr.appendChild(thumbTd);
+    const nameTd = document.createElement('td');
+    nameTd.className = 'b-th';
+    nameTd.textContent = d.DeviceName || d.DeviceId;
+    tr.appendChild(nameTd);
+    tr.insertAdjacentHTML('beforeend',
+      `<td class="device-id-dim device-mono">${esc(d.DeviceId)}</td>` +
+      `<td class="num device-id-dim">${updated}</td>`);
     tr.appendChild(statusCell(d));
     // 「版本」「屬於（帳號分配）」欄先不放（2026-09-03 指示）；
     // 分配 API（PUT /api/devices/:id/owner）與後端過濾邏輯保留，之後要加回來只補 UI
@@ -2111,16 +2436,109 @@ async function renderDevicesView() {
     const opTd = document.createElement('td');
     opTd.className = 'device-ops';
     const manage = document.createElement('button');
-    manage.className = 'b-btn'; manage.textContent = '內容管理';
+    manage.className = 'b-btn b-btn-text'; manage.textContent = '內容管理'; // 主要動作＝主題色文字鈕（同帳號管理「更名」）
     manage.onclick = () => enterWorkspace(d);
     opTd.appendChild(manage);
-    // 刪除鈕先拿掉（2026-09-03 指示）；DELETE /api/devices API 仍在，之後要加回來直接補鈕
+    // 刪除不放列表（2026-09-07 指示）：在該機器工作區「機器設定」頁籤最下面的危險區域（dangerZoneCard）
     tr.appendChild(opTd);
     // 整列點擊已移除（2026-09-03 指示）：列是純資訊，入口只有「內容管理」鈕
     tb.appendChild(tr);
   }
   // BDropdown.init 移除：表格裡已無 select（原本是「屬於」的分配下拉）
   if (window.lucide) lucide.createIcons();
+}
+
+/* ---------- 危險區域：刪除機器（2026-09-07 指示） ----------
+ * 放在該機器工作區「機器設定」頁籤最下面、整條跨欄的紅框卡，不放在機器總覽列表。
+ * 互動照 tiri 收件 modal 的單筆刪除＝按鈕原地二段確認（dialog 疊 modal 太重）：
+ * 第一下「刪除機器」原地變形成「確認刪除？」翻實色紅底白字、左側分裂滑出「取消」；再按一下才真的刪。
+ * 伺服器刪掉設定並記為「已移除」，機器下次連上收到 410 會自己清空連線資料並停止同步；
+ * 要再接回來得在機器上重新輸入位址/編號/金鑰（跟第一次設定一樣）。 */
+function dangerZoneCard() {
+  // 版型照 GitHub repo settings 的 Danger Zone（2026-09-07 user 指示）：卡片外上方「Danger Zone」標題、
+  // 紅框卡（#C30F16）、列＝左粗體標題＋灰字說明／右淺底外框紅字鈕；不放 ?、盡量不讓頁籤捲動
+    const sec = document.createElement('section');
+    sec.className = 'danger-zone-sec';
+    const heading = document.createElement('h3');
+    heading.className = 'dz-heading'; heading.textContent = 'Danger Zone';
+    const card = document.createElement('div');
+    card.className = 'b-card settings-card settings-card-full danger-zone';
+    const row = document.createElement('div');
+    row.className = 'dz-row';
+    const text = document.createElement('div');
+    text.className = 'dz-text';
+    text.innerHTML = '<span class="dz-title">刪除這台機器</span>' +
+      `<p class="dz-desc">從後台移除「${esc(curDevName())}」並停止同步；機器端需重新輸入連線資料才能再接回來。</p>`;
+    const actions = document.createElement('div');
+    actions.className = 'danger-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button'; cancel.className = 'b-btn b-btn-sm dz-cancelbtn'; cancel.textContent = '取消'; cancel.hidden = true;
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'b-btn b-btn-sm dz-delbtn'; del.id = 'dzDelete';
+    del.innerHTML = '<span class="lbl">刪除機器</span>';
+    actions.append(cancel, del);
+    row.append(text, actions);
+    card.appendChild(row);
+    sec.append(heading, card);
+
+    del.onclick = async () => {
+      if (del.classList.contains('is-armed')) {
+        // 第二下再彈警告框、確認鈕倒數 3 秒才可按（2026-09-07 user 指示）；取消就把鈕退回未確認態
+        const ok = await BDialog.confirm({
+          title: `要刪除「${curDevName()}」嗎？`,
+          desc: '機器會從後台移除並停止同步，畫面照常播放。\n' +
+            '機器端的連線資料會一併清除，之後需在機器上重新輸入伺服器位址、機器編號與金鑰才能再接回來。\n' +
+            '此動作無法復原。',
+          variant: 'danger', confirmText: '刪除', countdown: 3,
+        });
+        if (!ok) { cancel.click(); return; }
+        del.disabled = true; cancel.disabled = true;
+        await deleteCurrentDevice();
+        return;
+      }
+      morphDelBtn(del, '確認刪除？', true);
+      cancel.hidden = false; // keyframes 進場：左側分裂滑出
+    };
+    cancel.onclick = () => {
+      cancel.classList.add('is-leaving');
+      setTimeout(() => { cancel.classList.remove('is-leaving'); cancel.hidden = true; }, 150);
+      morphDelBtn(del, '刪除機器', false);
+    };
+  return sec;
+}
+
+/** tiri morphIm 同款：寬度由量尺補間、舊字上移淡出／新字下方淡入交叉進行、armed 翻實色——三者同步不跳字。 */
+function morphDelBtn(b, text, armed) {
+  const lbl = b.querySelector('.lbl');
+  const probe = document.createElement('span');
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:inherit;';
+  probe.textContent = text;
+  b.appendChild(probe);
+  const w0 = b.offsetWidth;
+  const w1 = probe.offsetWidth + (w0 - lbl.offsetWidth);
+  probe.remove();
+  b.classList.toggle('is-armed', armed);
+  b.style.width = w0 + 'px';
+  void b.offsetWidth;            // 強制 reflow，讓補間從 w0 起跑
+  b.style.width = w1 + 'px';     // 寬度與底色同幀開跑
+  lbl.classList.add('is-swap');
+  setTimeout(() => {
+    lbl.textContent = text;
+    lbl.classList.remove('is-swap');
+    lbl.classList.add('is-enter');
+    void lbl.offsetWidth;
+    lbl.classList.remove('is-enter');
+  }, 100);
+  setTimeout(() => { b.style.width = ''; }, 340);
+}
+
+async function deleteCurrentDevice() {
+  const name = curDevName();
+  try { await api('DELETE', `/api/devices/${encodeURIComponent(deviceId)}`); }
+  catch (e) { setStatus(`無法刪除「${name}」。` + e.message, true); renderSettingsView(); return; }
+  setDirty(false);        // 未發布的修改隨機器一起作廢，關窗不再問要不要放棄
+  await exitWorkspace();  // 退場動畫後回機器總覽重整
+  setStatus(`已刪除「${name}」。`);
 }
 
 // ---------- 帳號管理 ----------
@@ -2146,7 +2564,7 @@ async function renderUsersView() {
       });
       if (name === null || name.trim() === (u.DisplayName || '')) return;
       try { await api('PUT', `/api/users/${u.UserId}`, { displayName: name.trim() }); renderUsersView(); }
-      catch (e) { setStatus(e.message, true); }
+      catch (e) { setStatus('無法更名。' + e.message, true); }
     };
     td.appendChild(ren);
     if (!u.IsAdmin) {
@@ -2160,7 +2578,7 @@ async function renderUsersView() {
         });
         if (!ok) return;
         try { await api('DELETE', `/api/users/${u.UserId}`); renderUsersView(); }
-        catch (e) { setStatus(e.message, true); }
+        catch (e) { setStatus('無法刪除帳號。' + e.message, true); }
       };
       td.appendChild(del);
     }
@@ -2211,7 +2629,7 @@ $('addUserForm').addEventListener('submit', async (e) => {
     BModal.close('#addUserModal');
     BToast.success('已新增帳號。');
     renderUsersView();
-  } catch (e2) { BToast.danger(e2.message); }   // 留在 modal 裡讓使用者改完重送
+  } catch (e2) { BToast.danger('無法新增帳號。' + e2.message); }   // 留在 modal 裡讓使用者改完重送
 });
 
 // ---------- 自動同步：機器（或其他人）發布新版時，網頁 5 秒內自動載入 ----------
@@ -2226,7 +2644,7 @@ setInterval(async () => {
     pageIndex = Math.min(keepPage, state.config.pages.length - 1);
     selected = keepSel && getCell(keepSel) ? keepSel : null;
     render();
-    setStatus('機器上有新修改，已自動載入');
+    setStatus(`「${curDevName()}」有新的變更，已自動更新。`);
   } catch { /* 網路暫時異常就等下一輪 */ }
 }, 5000);
 

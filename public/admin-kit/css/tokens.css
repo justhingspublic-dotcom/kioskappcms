@@ -23,16 +23,17 @@
   --b-on-primary: var(--on-accent);
 
   /* ── 背景：中性 ── */
-  --neutral-primary-soft: #FFFFFF;
-  --neutral-primary: #FFFFFF;
-  --neutral-primary-medium: #FFFFFF;
-  --neutral-secondary-soft: #F9FAFB;
-  --neutral-secondary-medium: #F9FAFB;
-  --neutral-secondary-strong: #F9FAFB;
-  --neutral-tertiary-soft: #F3F4F6;
-  --neutral-tertiary: #F3F4F6;
-  --neutral-tertiary-medium: #F3F4F6;
-  --neutral-quaternary: #E5E7EB;
+  /* 中性色（2026-09-07 user 指定）：頁面底 #F8F8F6／#171717，其餘灰階由此推；卡片與 modal 不用純白純黑 */
+  --neutral-primary-soft: #FCFCFA;
+  --neutral-primary: #FCFCFA;
+  --neutral-primary-medium: #FCFCFA;
+  --neutral-secondary-soft: #F8F8F6;
+  --neutral-secondary-medium: #F2F2EF;
+  --neutral-secondary-strong: #EDEDE9;
+  --neutral-tertiary-soft: #F0F0EC;
+  --neutral-tertiary: #EAEAE5;
+  --neutral-tertiary-medium: #E4E4DE;
+  --neutral-quaternary: #DADAD3;
   --gray: #D1D5DC;
 
   /* ── 背景：brand 家族（由 --accent 衍生，light＝往白調） ── */
@@ -51,10 +52,10 @@
   --success: #007A55;
   --success-medium: #D0FAE5;
   --success-strong: #006045;
-  --danger-soft: #FEF0F2;
-  --danger: #C70036;
-  --danger-medium: #FFE4E6;
-  --danger-strong: #A50036;
+  --danger-soft: #FDECEC;      /* 紅系全改 #C30F16 家族（2026-09-07 user 指定） */
+  --danger: #C30F16;
+  --danger-medium: #F7CACB;
+  --danger-strong: #9E0C12;
   --warning-soft: #FFF7ED;
   --warning: #F97316;
   --warning-medium: #FFEDD5;
@@ -71,20 +72,20 @@
   --text-body-subtle: #6B7280;
   --fg-success: #047857;
   --fg-success-strong: #065F46;
-  --fg-danger: #BE123C;
-  --fg-danger-strong: #881337;
+  --fg-danger: #C30F16;
+  --fg-danger-strong: #9E0C12;
   --fg-warning: #7C2D12;
   --fg-warning-subtle: #EA580C;
   --fg-disabled: #9CA3AF;
 
   /* ── 邊框 ── */
-  --border-default: #E5E7EB;
-  --border-default-medium: #E5E7EB;
-  --border-default-strong: #E5E7EB;
+  --border-default: #E6E5E0;
+  --border-default-medium: #DCDBD5;
+  --border-default-strong: #CFCEC7;
   --border-success: #047857;
   --border-success-subtle: #A7F3D0;
-  --border-danger: #BE123C;
-  --border-danger-subtle: #FECDD3;
+  --border-danger: #C30F16;
+  --border-danger-subtle: #F0B4B6;
   --border-warning: #EA580C;
   --border-warning-subtle: #FED7AA;
   --border-buffer: #FFFFFF;
@@ -117,7 +118,10 @@
   --sidebar-width: 256px;
 
   /* ── 字型（Noto Sans TC webfont：各平台一致，Windows 不退微軟正黑） ── */
-  --font-admin: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  /* 字體堆疊（2026-09-07 user 指示）：Apple 裝置優先用系統字（SF Pro 拉丁＋PingFang TC 中文），
+     其他平台走 Noto Sans TC（Google Fonts 網路字型），再退 Microsoft JhengHei。
+     -apple-system / BlinkMacSystemFont 只有 Apple 平台認得，Windows 會直接跳過。 */
+  --font-admin: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
 
   /* ── ★ 表單欄位統一參數（全站輸入/下拉/選擇器共用，改一處全站一致）
         杜絕「某欄 41、某欄 36」對不齊。 ── */
@@ -151,16 +155,16 @@
 :root[data-color-mode="dark"] {
   color-scheme: dark;
 
-  --neutral-primary-soft: #1C1C1C;
-  --neutral-primary: #0F0F0F;
-  --neutral-primary-medium: #262626;
-  --neutral-secondary-soft: #141414;
-  --neutral-secondary-medium: #232323;
+  --neutral-primary-soft: #1E1E1E;
+  --neutral-primary: #222222;
+  --neutral-primary-medium: #282828;
+  --neutral-secondary-soft: #171717;
+  --neutral-secondary-medium: #262626;
   --neutral-secondary-strong: #2E2E2E;
-  --neutral-tertiary-soft: #171717;
-  --neutral-tertiary: #262626;
-  --neutral-tertiary-medium: #303030;
-  --neutral-quaternary: #363636;
+  --neutral-tertiary-soft: #1B1B1B;
+  --neutral-tertiary: #2A2A2A;
+  --neutral-tertiary-medium: #333333;
+  --neutral-quaternary: #3B3B3B;
   --gray: #4D4D4D;
 
   /* brand 家族：oklch 相對色從 --accent 取色相、拉亮度。
@@ -181,10 +185,13 @@
   --success: #009966;
   --success-medium: #004F3B;
   --success-strong: #007A55;
-  --danger-soft: #4D0218;
-  --danger: #C70036;
-  --danger-medium: #8B0836;
-  --danger-strong: #A50036;
+  /* 深色紅＝#C24E3A（2026-09-07 user 指定，#C30F16 在深底太刺眼）：實色與文字都用它；
+     其餘層以它為基準照 brand 深色公式的相對比例推算（strong L.60｜medium L.40 c×.68｜soft L.31 c×.52｜
+     fg-strong L.85 c×.68｜border L.48 c×.68｜border-subtle L.33 c×.45） */
+  --danger-soft: #521D15;
+  --danger: #C24E3A;
+  --danger-medium: #762D22;
+  --danger-strong: #CC5543;
   --warning-soft: #7C2D12;
   --warning: #F97316;
   --warning-medium: #7C2D12;
@@ -199,19 +206,19 @@
   --text-body-subtle: #8C8C8C;
   --fg-success: #065F46;
   --fg-success-strong: #10B981;
-  --fg-danger: #F43F5E;
-  --fg-danger-strong: #F87171;
+  --fg-danger: #C24E3A;
+  --fg-danger-strong: #FFB4A4;
   --fg-warning: #FBBF24;
   --fg-warning-subtle: #F97316;
   --fg-disabled: #6B7280;
 
-  --border-default: #2B2B2B;
-  --border-default-medium: #3A3A3A;
-  --border-default-strong: #4A4A4A;
+  --border-default: #2A2A2A;
+  --border-default-medium: #383838;
+  --border-default-strong: #474747;
   --border-success: #065F46;
   --border-success-subtle: #064E3B;
-  --border-danger: #BE123C;
-  --border-danger-subtle: #881337;
+  --border-danger: #904438;
+  --border-danger-subtle: #54261E;
   --border-warning: #F97316;
   --border-warning-subtle: #7C2D12;
   --border-buffer: #0F0F0F;
