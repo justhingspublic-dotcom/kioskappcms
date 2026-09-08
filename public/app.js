@@ -744,7 +744,15 @@ function fitPreview(canvasEl) {
     const h = el.offsetHeight, w = el.offsetWidth;
 
     const text = el.querySelector('.pv-text');
-    if (text) { text.style.fontSize = `${cw * 0.07 * (Number(text.dataset.size || 100) / 100)}px`; text.style.padding = `${cw * 0.04}px`; }
+    if (text) {
+      // 字級 = 畫面寬 7% × 字級%，但只是上限：格子放不下（例：300% 塞進矮格）就等比縮到剛好放得下，
+      // 否則字會被格子裁掉只剩中間一條（user 2026-09-08 回報「文字不見了」）。App 端用 autoSize 做同樣的事。
+      // 內距跟著字級走（預設 4/7），縮字時內距一起縮，矮格才有空間放字。
+      let fs = cw * 0.07 * (Number(text.dataset.size || 100) / 100);
+      const apply = () => { text.style.fontSize = `${fs}px`; text.style.padding = `${fs * 4 / 7}px`; };
+      apply();
+      for (let i = 0; i < 16 && fs > 4 && (text.scrollHeight > h || text.scrollWidth > w); i++) { fs *= 0.88; apply(); }
+    }
 
     const mq = el.querySelector('.pv-marquee span');
     if (mq) {
@@ -1000,7 +1008,8 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
         l.className = 'pv-img-layer';
         l.style.backgroundImage = `url(${mediaSrc(src)})`;
         l.style.backgroundSize = size;
-        if (blur > 0) l.style.filter = `blur(${blurPx.toFixed(2)}px)`;
+        // 模糊會讓圖的邊緣淡出成透明、露出底色變成一圈白邊／色邊：把圖層往外撐兩倍模糊半徑，淡出的部分被格子裁掉（user 2026-09-08 回報白邊）
+        if (blur > 0) { l.style.filter = `blur(${blurPx.toFixed(2)}px)`; l.style.inset = `-${(blurPx * 2).toFixed(1)}px`; }
         return l;
       };
       const a = mkLayer(imgs[0]);

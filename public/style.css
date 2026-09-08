@@ -362,7 +362,7 @@ html:root[data-color-mode="dark"] {
 }
 
 /* 畫布內容真實預覽（模擬機器畫面；字級由 fitPreview 依格子尺寸套用） */
-.pv-text { text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; text-shadow: none; }
+.pv-text { position: relative; z-index: 1; text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; text-shadow: none; }
 .pv-marquee { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; }
 .pv-marquee span { white-space: nowrap; font-weight: 600; will-change: transform; }
 .pv-img-layer {
