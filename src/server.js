@@ -177,6 +177,14 @@ app.post('/api/login', async (req, res) => {
   res.json({ token, user: { username: row.Username, displayName: row.DisplayName, isAdmin: !!row.IsAdmin } });
 });
 
+// ---- 重啟後台（限管理員；2026-09-08）----
+// 正式站由 run.cmd 迴圈拉起 Node，程序一結束 5 秒內就重拉。部署蓋完檔案後呼叫這支即可，不必登入伺服器砍程序。
+app.post('/api/restart', requireAdmin, (req, res) => {
+  console.log(`收到重啟要求（${req.user.username}），0.5 秒後結束程序，由 run.cmd 重拉`);
+  res.json({ ok: true });
+  setTimeout(() => process.exit(0), 500);
+});
+
 // 每次都從 DB 讀：名稱／權限被別的管理員改了，重整就看到（token 只當登入憑證）
 app.get('/api/me', requireUser, async (req, res) => {
   const r = await db.getPool().request()

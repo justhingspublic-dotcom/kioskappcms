@@ -657,6 +657,23 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "503": { $ref: '#/components/responses/DbNotReady' }
 
+  /api/restart:
+    post:
+      tags: [登入]
+      summary: 重啟後台（限管理員）
+      description: |
+        回 200 後 0.5 秒結束 Node 程序；正式站由 run.cmd 迴圈在 5 秒內重拉（本機直接跑 node 的話就只是關掉）。
+        部署蓋完檔案後呼叫這支即可，工具：`node tools/restart-prod.js`。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 已排定重啟
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
   /api/config/{deviceId}/version:
     parameters:
       - $ref: '#/components/parameters/deviceId'

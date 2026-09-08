@@ -18,7 +18,7 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 1. **本機檢查**：`node --check src/server.js`、`node --check public/app.js`；有改 openapi.yaml 就 `node -e "require('js-yaml').load(...)"`。要實測子路徑：`MSYS_NO_PATHCONV=1 PORT=3199 BASE_PATH=/joye node src/server.js`，curl `localhost:3199/joye/`。
 2. **蓋檔（SMB）**：用 PowerShell `Copy-Item` 把改過的檔案複製到 `\192.168.1.82\D$\WebSite\JustDisplay\KioskAdmin\<相對路徑>`。範圍：`src\`、`public\`、`docs\`、`API.md`、`DEPLOY.md`、`.env.example`、`tools\`、`package.json`；`deploy\web.config` → 站台根的 `web.config`。**不碰 `.env`、`uploads\`**。package-lock.json 有變才連 `node_modules\` 一起蓋（很大，用 robocopy）。
 3. **.env 要改時**：用 `[IO.File]::ReadAllText` / `WriteAllText(..., UTF8Encoding($false))` 做 regex 取代，別用 Get-Content/Set-Content（PS 5.1 會用 CP950 讀壞中文）。改完把非密碼的 key 印出來核對。
-4. **重啟**：只改 `public\`（靜態檔）不用重啟，瀏覽器重新整理即可。改了 `src\` 或 `.env` 就要重啟：**請 user 在伺服器開命令提示字元跑 `taskkill /F /IM node.exe`**（伺服器上只有這一個 node；run.cmd 5 秒內重拉）。我自己遠端砍會被擋。
+4. **重啟**：只改 `public\`（靜態檔）不用重啟，瀏覽器重新整理即可。改了 `src\` 或 `.env` 就要重啟：跑 **`node tools/restart-prod.js`**（用本機 .env 的 ADMIN_USERNAME/ADMIN_PASSWORD 登入正式站 → `POST /api/restart` → Node 自己結束 → run.cmd 5 秒內重拉 → 腳本會等到站台回來並印出結果）。**不要**嘗試遠端砍程序（DCOM Terminate 會被安全檢查擋）；只有在 restart API 本身壞掉時才請 user 到伺服器跑 `taskkill /F /IM node.exe`。
 5. **驗證**（重啟後等 10 秒）：
    - `curl -s -o /dev/null -w "%{http_code}" https://justdisplay.justhings.com.tw/joye/` → 200；`/joye/api/me` → 401；`/` → 200（入口登入頁）。
    - 看 log：`tail -20 "//192.168.1.82/D\$/WebSite/JustDisplay/logs/server.log"`，要有「資料庫連線成功」。

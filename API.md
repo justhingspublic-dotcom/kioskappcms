@@ -18,6 +18,9 @@
 ### POST /api/login
 Body：`{ "username": "...", "password": "..." }` → `{ "token": "...", "user": { "username", "displayName", "isAdmin" } }`。帳密錯回 401。
 
+### POST /api/restart（限管理員）
+→ `{ "ok": true }`，0.5 秒後 Node 程序結束；正式站由 run.cmd 在 5 秒內重拉。部署後用 `node tools/restart-prod.js` 呼叫（讀 `.env` 的 ADMIN_USERNAME/ADMIN_PASSWORD 登入正式站）。
+
 ### GET /api/connection-info（限管理網頁，所有登入者）
 → `{ "serverUrl": "http://192.168.1.142:3000", "deviceKey": "..." }`
 側欄底部「機器連線資訊」卡片用：`serverUrl`＝`.env` 的 `PUBLIC_URL`（要含子路徑，正式站＝`https://justdisplay.justhings.com.tw/joye`），未設定時以這次請求的 host 推算；`deviceKey`＝`.env` 的 `DEVICE_KEY`。兩者皆唯讀，更換金鑰仍在 `.env` 改並重啟（所有機器須重新輸入）。
