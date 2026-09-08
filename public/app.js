@@ -1109,7 +1109,7 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     el.appendChild(v);
   }
   // 園區資訊：標題＋「點我查看」按鈕，版面規則與 App ParkCellOverlay 相同（直橫自動、字級以 28/40sp 為上限縮放）
-  if (cell.content === 'ParkInfo' || cell.tap === 'OpenParkInfo' || cell.tap === 'OpenWeb') renderParkOverlay(el, cell, sizePx, fg);
+  if (cell.content === 'ParkInfo' || cell.tap === 'OpenParkInfo') renderParkOverlay(el, cell, sizePx, fg);
 
   if (opts.readonly) return el; // 唯讀預覽：沒有角標、不可點
 
@@ -1515,7 +1515,6 @@ function renderPanel() {
     ));
     if (cell.tap === 'OpenWeb') {
       subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
-      subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => { cell.parkFx = v; touch(); }));
     }
     if (cell.tap === 'OpenParkInfo') {
       subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => { cell.parkFx = v; touch(); }));
@@ -3224,8 +3223,8 @@ setInterval(async () => {
 function renderParkOverlay(el, cell, sizePx, fg) {
   const w = sizePx && sizePx.w ? sizePx.w : 1080;
   const h = sizePx && sizePx.h ? sizePx.h : 200;
-  // 開啟網頁共用同一顆按鈕（文字不同）；AI 客服格靠自己的背景圖，不放按鈕
-  const ctaLabel = cell.tap === 'OpenParkInfo' ? '點我查看' : cell.tap === 'OpenWeb' ? '點我看更多' : null;
+  // 只有園區資訊有按鈕（開啟網頁、AI 客服都不放）
+  const ctaLabel = cell.tap === 'OpenParkInfo' ? '點我查看' : null;
   const cta = !!ctaLabel;
   const vertical = cta && w / h < 1.2;
   const s = vertical

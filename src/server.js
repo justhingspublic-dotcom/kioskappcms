@@ -12,7 +12,11 @@ const PORT = Number(process.env.PORT || 3000);
 // 根網址留給未來各後台的統一入口。留空＝掛在根（開發機）。所有路由照舊寫根路徑，由下方 root 掛載。
 const BASE_PATH = String(process.env.BASE_PATH || '').trim().replace(/\/+$/, '').replace(/^(?=[^/])/, '/').replace(/^\/$/, '');
 const DEVICE_KEY = process.env.DEVICE_KEY;
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+// 上傳檔資料夾（2026-09-08）：可用 .env 的 UPLOAD_DIR 指到別處。開發機把它指到正式站的 uploads 網路共用，
+// 因為開發機與正式站共用同一個資料庫、設定裡的 /files/ 路徑兩邊都看得到，圖片檔卻各存一份——
+// 機器在測試站上傳的圖切回正式站就 404（user 回報）。共用同一個資料夾後檔案只有一份，兩邊都找得到。
+// 沒設＝原本的 ../uploads（正式站）。
+const UPLOAD_DIR = (process.env.UPLOAD_DIR || '').trim() || path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const app = express();
