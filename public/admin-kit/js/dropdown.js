@@ -46,13 +46,22 @@
     menu.style.minWidth = r.width + 'px';
     menu.style.left = r.left + 'px';
     // 與觸發鈕的垂直距離 8px：對齊帳號選單/字級面板的 top: calc(100% + 8px)
-    var spaceBelow = window.innerHeight - r.bottom;
-    if (spaceBelow < 260 && r.top > spaceBelow) {
+    // 依「選單實際高度」決定開向（2026-09-08：原本用固定 260px 猜，選項一多就超出視窗底）：
+    // 下方放得下→往下；否則上方放得下→往上；兩邊都不夠→選較大的一邊並把高度壓到可用空間（內部捲動）
+    var GAP = 8, EDGE = 8;
+    var spaceBelow = window.innerHeight - r.bottom - GAP - EDGE;
+    var spaceAbove = r.top - GAP - EDGE;
+    menu.style.maxHeight = '';
+    var h = menu.offsetHeight; // 此時 hidden 已解除、可量
+    var openUp = h > spaceBelow && spaceAbove > spaceBelow;
+    var avail = openUp ? spaceAbove : spaceBelow;
+    if (h > avail) menu.style.maxHeight = Math.max(80, avail) + 'px';
+    if (openUp) {
       menu.style.top = 'auto';
-      menu.style.bottom = (window.innerHeight - r.top + 8) + 'px';
+      menu.style.bottom = (window.innerHeight - r.top + GAP) + 'px';
     } else {
       menu.style.bottom = 'auto';
-      menu.style.top = (r.bottom + 8) + 'px';
+      menu.style.top = (r.bottom + GAP) + 'px';
     }
   }
 
