@@ -698,6 +698,7 @@ function buildCanvas(canvas, pg, screen, opts) {
   const SH = scr && scr.h > 0 ? scr.h : 1920;
   canvas.style.aspectRatio = `${SW} / ${SH}`;
   canvas.classList.toggle('is-landscape', SW > SH); // 橫式改以寬度定尺寸（CSS .is-landscape）
+  canvas.classList.toggle('is-readonly', !!opts.readonly); // 唯讀預覽：格子不亮框、不變手指（CSS .is-readonly）
   const blocks = pg.blocks || [];
   const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0) || 1;
 

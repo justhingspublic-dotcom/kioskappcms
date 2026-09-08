@@ -322,6 +322,9 @@ html:root[data-color-mode="dark"] {
   text-shadow: 0 1px 3px rgba(0,0,0,.8);
 }
 .canvas .cell:hover { border-color: color-mix(in srgb, var(--accent) 60%, #fff); }
+/* 唯讀預覽（縮圖、放大預覽）沒有可點的格子：滑過不亮框，否則放大預覽裡滑到哪格哪格就多一圈白邊（user 2026-09-08） */
+.canvas.is-readonly .cell { cursor: default; }
+.canvas.is-readonly .cell:hover { border-color: transparent; }
 .canvas .cell.selected { border-color: color-mix(in srgb, var(--accent) 45%, #fff); }
 .canvas .cell > div { pointer-events: none; }
 /* 格子拖曳交換：來源淡出、目標亮框、幽靈跟著指標（body 直屬、不吃指標事件） */
