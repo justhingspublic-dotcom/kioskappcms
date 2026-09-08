@@ -426,6 +426,10 @@ app.put('/api/config/:deviceId', async (req, res) => {
   }
   // 管理 PIN 限管理員（2026-09-07 定案）：一般帳號送來的 adminPin 直接剝掉，下面的淺合併會沿用舊值
   if (!isDevice(req) && !user.isAdmin) delete config.adminPin;
+  // 展示頁來源（2026-09-08 遠端切換展示頁）：這次請求有帶 activePage 才蓋章，記下是網頁指定還是機器自報。
+  // 機器拉回設定時只有 'web' 才會照雲端的值切頁（'device' 只是它自己以前上報的舊值，機器以本機為準，避免跳頁）；
+  // 機器切完會再上報一次（帶 activePage）把來源翻回 'device'，之後網頁只發布版面不會再把它拉回去。
+  const activePageGiven = Number.isInteger(config.activePage);
   // 部分更新語意：沒帶的頂層欄位一律沿用舊值（淺合併）。所以——
   // 網頁「儲存並發布」不帶 activePage → 機器不跳頁；舊版存檔不帶 deviceName/chatApi/sleep
   // → 不會洗掉；「複製版面」只帶 pages、「套用共用設定」只帶 chatApi+sleep → 其他都不動。
@@ -436,6 +440,7 @@ app.put('/api/config/:deviceId', async (req, res) => {
     const prevParsed = prev.recordset[0] ? JSON.parse(prev.recordset[0].ConfigJson) : null;
     config = Object.assign({}, prevParsed || {}, config);
     if (config.activePage === undefined) config.activePage = 0;
+    if (activePageGiven) config.activePageSource = isDevice(req) ? 'device' : 'web';
   }
   // 機器名同步不宜整筆退件 → 靜默剝掉編碼壞字（U+FFFD），剝完全空視同沒名稱
   const rawName =

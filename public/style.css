@@ -300,6 +300,14 @@ html:root[data-color-mode="dark"] {
 }
 .canvas-actions { display: flex; flex-direction: column; gap: 8px; flex: none; }
 .canvas-actions .b-btn { width: 100%; }
+.canvas-actions-row { display: flex; gap: 8px; }        /* 加到其他機器＋本機複製頁面並排 */
+.canvas-actions-row .b-btn { flex: 1; min-width: 0; }
+/* 「在機器上展示此頁」icon 鈕（2026-09-08）：固定正方形不跟著拉寬；主題色底白 icon 由 kit 的 b-btn-primary 供 */
+.canvas-actions-row .b-btn-icon { flex: none; width: 32px; }
+.canvas-actions-row .b-btn-icon :where(i, svg) { width: 18px; height: 18px; }
+/* 非展示中的頁（2026-09-08 指示）：灰底＋邊框、主題色 icon；按下切換後由 updateShowPageBtn 換回實心主題色 */
+.canvas-actions-row .b-btn-icon.is-idle { background: var(--neutral-secondary-medium); border-color: var(--border-default); color: var(--brand); }
+.canvas-actions-row .b-btn-icon.is-idle:hover { background: var(--neutral-tertiary-medium); color: var(--brand-strong); }
 
 /* ── 畫布：模擬機器螢幕，永遠黑底（不跟深淺色） ── */
 .canvas {
@@ -825,6 +833,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
    （展示此頁鈕已整個移除，不用再列）。一個版面＝一頁，頁籤列整條不出現。 */
 #wsModal.is-shared-mode .ws-tabs,
 #wsModal.is-shared-mode #copyLayoutBtn,
+#wsModal.is-shared-mode #showPageBtn,
 #wsModal.is-shared-mode #reloadBtn,
 #wsModal.is-shared-mode #pageTabs { display: none; }
 /* 固定底部欄：兩種模式都有（2026-09-07 指示；儲存鈕由 openWsModal 搬進來）。

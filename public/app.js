@@ -318,8 +318,36 @@ async function enterWorkspace(d) {
     $('wsDeviceSub').textContent = d.DeviceId;
     openWsModal();
     showEditor();
+    startDeviceWatch();
   } finally { wsOpening = false; }
 }
+
+// ---------- 機器展示頁即時跟隨（2026-09-08 指示：展示鈕要自動判斷展示中）----------
+// 工作區開著時掛在伺服器的 /wait 長輪詢（機器本身也是用這支等新版本），版本一變就抓回 activePage
+// 更新展示鈕的實心／灰底狀態；只動 state.version 與 activePage，不碰畫布草稿（未發布的修改不會被蓋掉）。
+// 離開工作區、換機器、登出都會讓迴圈停下（seq 不符或 state 清空）。
+let watchSeq = 0;
+function startDeviceWatch() {
+  const seq = ++watchSeq;
+  const id = deviceId;
+  const pause = () => new Promise((r) => setTimeout(r, 5000));
+  (async () => {
+    while (seq === watchSeq && state && wsMode === 'device') {
+      let version;
+      try { version = (await api('GET', `/api/config/${encodeURIComponent(id)}/wait?version=${state.version}`)).version; }
+      catch { await pause(); continue; }
+      if (seq !== watchSeq || !state || version === state.version) continue;
+      try {
+        const cfg = await api('GET', `/api/config/${encodeURIComponent(id)}`);
+        if (seq !== watchSeq || !state) return;
+        state.version = cfg.version;
+        const ap = cfg.config.activePage || 0;
+        if (ap !== (state.config.activePage || 0)) { state.config.activePage = ap; updateShowPageBtn(); }
+      } catch { await pause(); }
+    }
+  })();
+}
+function stopDeviceWatch() { watchSeq++; }
 
 /** 從版面設定清單點「編輯」開啟某個版面：同一套畫布編輯器，掛在虛擬 state 上。 */
 function enterSharedLayoutEditor(layout) {
@@ -361,6 +389,7 @@ function resetSharedEditorState() {
 
 async function exitWorkspace() {
   if (!(await confirmDiscard())) return;
+  stopDeviceWatch();
   setDirty(false);
   state = null;
   selected = null;
@@ -453,8 +482,8 @@ async function loadConfig() {
   $('emptyState').classList.remove('hidden');
 }
 
-/** 機器模式的儲存並發布（共用版面模式另走 saveSharedLayout）。 */
-async function savePublish() {
+/** 機器模式的儲存並發布（共用版面模式另走 saveSharedLayout）。opts.doneMsg＝成功時改用這句 toast。 */
+async function savePublish(opts = {}) {
   try {
     $('saveBtn').disabled = true;
     // 沒按過「展示此頁」就不送 activePage，機器維持目前顯示的頁面（伺服器沿用舊值）
@@ -468,7 +497,7 @@ async function savePublish() {
     state.version = r.version;
     activePageTouched = false;
     setDirty(false);
-    setStatus(`已發布。「${curDevName()}」會在一分鐘內更新。`); // 不寫版號（2026-09-03 指示）
+    setStatus(opts.doneMsg || `已發布。「${curDevName()}」會在一分鐘內更新。`); // 不寫版號（2026-09-03 指示）
   } catch (e) { setDirty(true); setStatus(`無法發布到「${curDevName()}」。${e.message}`, true); }
 }
 $('saveBtn').addEventListener('click', () => saveConfig());
@@ -563,7 +592,7 @@ function cellLabel(sel) {
 
 // ---------- 整體渲染 ----------
 function render() {
-  renderTabs(); renderCanvas(); renderPanel();
+  renderTabs(); renderCanvas(); renderPanel(); updateShowPageBtn();
   if (!$('settingsTab').classList.contains('hidden')) renderSettingsView();
 }
 
@@ -662,8 +691,39 @@ function renderTabs() {
   }
 }
 
-// 「在機器上展示此頁」鈕先拿掉（2026-09-03 指示）：activePageTouched 機制保留，
-// 沒人設 true → 儲存永不送 activePage，機器維持自己目前顯示的頁；頁籤上的「展示中」標籤已拿掉（2026-09-07），展示頁只在機器總覽縮圖反映
+// 「在機器上展示此頁」（2026-09-08 指示回歸，改成 icon 鈕放在畫布下方「本機複製頁面」右邊）：
+// 一般「儲存並發布」仍不送 activePage（機器維持自己顯示的頁）；只有按這顆才把 activePage 送上去，
+// 伺服器蓋章「網頁指定」並叫醒機器，機器（App v1.20 起）約一秒內切頁，切完回報一次把來源翻回機器，
+// 之後網頁只發布版面不會再把畫面拉回這頁。有未發布的修改就一併發布（不然頁索引對不上機器那份）。
+/** 展示鈕外觀（2026-09-08 指示）：正在編輯的頁＝機器展示中的頁 → 主題色底白 icon（實心）；其他頁 → 灰底邊框主題色 icon。 */
+function updateShowPageBtn() {
+  const btn = $('showPageBtn');
+  if (!btn || !state) return;
+  const showing = pageIndex === (state.config.activePage || 0);
+  btn.classList.toggle('b-btn-primary', showing);
+  btn.classList.toggle('is-idle', !showing);
+  btn.title = showing ? '機器正在展示此頁' : '在機器上展示此頁';
+  btn.setAttribute('aria-label', btn.title);
+}
+$('showPageBtn').addEventListener('click', async () => {
+  if (!state || !page() || wsMode === 'shared') return;
+  const btn = $('showPageBtn');
+  const name = page().name || `頁面 ${pageIndex + 1}`;
+  const doneMsg = `「${curDevName()}」正在切換到「${name}」。`;
+  btn.disabled = true;
+  try {
+    if (dirty) {
+      state.config.activePage = pageIndex;
+      activePageTouched = true;
+      await savePublish({ doneMsg }); // 失敗時它自己會 toast 並把 dirty 留著
+    } else {
+      await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: { activePage: pageIndex } });
+      state.config.activePage = pageIndex;
+      setStatus(doneMsg);
+    }
+  } catch (e) { setStatus(`無法切換「${curDevName()}」的展示頁。${e.message}`, true); }
+  finally { btn.disabled = false; updateShowPageBtn(); }
+});
 
 $('addBlockBtn').addEventListener('click', () => {
   const blocks = page().blocks;
@@ -1818,16 +1878,33 @@ function pickAndUpload(accept, onDone, beforeUpload) {
 // 展示頁與機器名都不動（伺服器 PUT 沒帶的欄位沿用舊值）。
 // 「加到其他機器」（2026-09-07 改版）：原本是整包覆蓋對方的頁面（user 實測被嚇到），
 // 改成與版面設定的「加入機器」同一套語意＝接在對方現有頁面後面，對方原有頁面/設定/展示頁都不動。
+// 2026-09-08 再改：只送「目前正在編輯的這一頁」，不是整台的所有頁面（鈕在畫布下方，語意就是這一頁）。
 $('copyLayoutBtn').addEventListener('click', async () => {
-  if (!state) return;
+  if (!state || !page()) return;
   await appendPagesToDevices({
-    pages: state.config.pages, screen: state.config.screen, fallbackName: '',
+    pages: [page()], screen: state.config.screen, fallbackName: page().name || `頁面 ${pageIndex + 1}`,
     excludeDeviceId: deviceId,
-    title: '把目前版面加到其他機器',
-    desc: '會把這台目前畫面上的頁面（含未發布的修改）接在所選機器現有頁面後面並立即發布；對方原有的頁面、設定與展示頁都不會被改動。',
+    title: '把這一頁加到其他機器',
+    desc: '會把目前正在編輯的這一頁（含未發布的修改）接在所選機器現有頁面的最後面並立即發布；對方原有的頁面、設定與展示頁都不會被改動。',
     noTargetsTitle: '沒有其他機器', noTargetsDesc: '目前帳號下只有這一台機器，沒有可加入的對象。',
     verb: '加到',
   });
+});
+
+// 「本機複製頁面」（2026-09-08）：把目前這一頁複製一份接在這台機器的最後面，名稱＝原名＋「2」；
+// 只改網頁上的草稿（標記未儲存），按「儲存並發布」才會送到機器。
+$('dupPageBtn').addEventListener('click', () => {
+  if (!state || !page()) return;
+  if (state.config.pages.length >= MAX_PAGES) return setStatus(`已達 ${MAX_PAGES} 頁上限，無法再複製頁面。`, true);
+  const src = page();
+  const nextId = Math.max(0, ...state.config.pages.map((p) => p.id || 0)) + 1;
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.id = nextId;
+  copy.name = (src.name || `頁面 ${pageIndex + 1}`) + '2';
+  state.config.pages.push(copy);
+  pageIndex = state.config.pages.length - 1;
+  selected = null; setDirty(true); render();
+  setStatus(`已複製為「${copy.name}」。儲存並發布後，機器上才會顯示。`);
 });
 
 /** 批次發布結果 toast：指名每一台（成功清單＋失敗清單）。 */
