@@ -369,7 +369,8 @@ html:root[data-color-mode="dark"] {
 .pv-marquee { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; }
 .pv-marquee span { white-space: nowrap; font-weight: 600; will-change: transform; }
 .pv-img-layer {
-  position: absolute; inset: 0; background-position: center; background-repeat: no-repeat;
+  /* inset -2px＝蓋過 .cell 的 2px 透明邊框，否則那圈露出格子底色（底色白就是一圈白邊；user 2026-09-08） */
+  position: absolute; inset: -2px; background-position: center; background-repeat: no-repeat;
   transition: opacity .6s;
 }
 .pv-weather2 { position: absolute; inset: 0; display: flex; align-items: center; }
@@ -1192,7 +1193,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 }
 
 /* 圖片背景模糊：App ImageContent 同規則（100% = 24dp 模糊，暗幕最多 20% 黑） */
-.pv-img-scrim { position: absolute; inset: 0; background: #000; pointer-events: none; }
+.pv-img-scrim { position: absolute; inset: -2px; background: #000; pointer-events: none; }
 
 /* 園區資訊預覽（App ParkCellOverlay 同形）：.h 橫排＝標題左／按鈕右；.v 直排＝標題置中在上／按鈕貼底填滿 */
 .pv-park { position: absolute; inset: 0; display: flex; }

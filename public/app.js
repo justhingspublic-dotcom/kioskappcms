@@ -1010,7 +1010,8 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
         l.style.backgroundImage = `url(${mediaSrc(src)})`;
         l.style.backgroundSize = size;
         // 模糊會讓圖的邊緣淡出成透明、露出底色變成一圈白邊／色邊：把圖層往外撐兩倍模糊半徑，淡出的部分被格子裁掉（user 2026-09-08 回報白邊）
-        if (blur > 0) { l.style.filter = `blur(${blurPx.toFixed(2)}px)`; l.style.inset = `-${(blurPx * 2).toFixed(1)}px`; }
+        // 圖層要蓋過格子的 2px 透明邊框（absolute 只到 padding box，那圈會露出格子底色＝白邊）；模糊時再往外撐兩倍模糊半徑，濾鏡淡出的邊被裁掉
+        if (blur > 0) { l.style.filter = `blur(${blurPx.toFixed(2)}px)`; l.style.inset = `-${(2 + blurPx * 2).toFixed(1)}px`; }
         return l;
       };
       const a = mkLayer(imgs[0]);
