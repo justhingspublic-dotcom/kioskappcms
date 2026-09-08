@@ -27,12 +27,14 @@ const DEFAULT_CHAT_BASE = 'https://chat-api.justhings.ai'; // App ChatApiConfig.
 
 const DEFAULT_CELL = () => ({
   t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8, bgBlur: 0,
-  content: 'None', mqSpeed: 100, video: '', web: '', text: '',
+  content: 'None', mqSpeed: 100, txtSize: 100, video: '', web: '', text: '',
   wAuto: true, wCounty: '', wDistrict: '', wDynBg: false,
-  tap: 'None', tapUrl: '', parkFx: 'Sweep', agentId: '', agentName: '', assistantLayout: 'Kiosk',
+  tap: 'None', tapUrl: '', parkFx: 'Sweep', parkLayout: 'Auto', agentId: '', agentName: '', assistantLayout: 'Kiosk',
 });
 // App ParkCtaStyle：「點我查看」按鈕的看板動態（None = 靜態）
 const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
+// App ParkLayout：園區資訊標題與按鈕的排法（Auto = 寬不到高兩倍就直排）
+const PARK_LAYOUT = [['Auto', '自動'], ['Horizontal', '橫排'], ['Vertical', '直排']];
 
 // ---------- 子路徑（2026-09-08）----------
 // 後台可掛在子路徑底下（正式站＝ https://justdisplay.justhings.com.tw/joye，根網址留給未來各後台的統一入口）。
@@ -742,7 +744,7 @@ function fitPreview(canvasEl) {
     const h = el.offsetHeight, w = el.offsetWidth;
 
     const text = el.querySelector('.pv-text');
-    if (text) { text.style.fontSize = `${cw * 0.07}px`; text.style.padding = `${cw * 0.04}px`; }
+    if (text) { text.style.fontSize = `${cw * 0.07 * (Number(text.dataset.size || 100) / 100)}px`; text.style.padding = `${cw * 0.04}px`; }
 
     const mq = el.querySelector('.pv-marquee span');
     if (mq) {
@@ -1032,6 +1034,7 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
   if (cell.content === 'Text' && cell.text) {
     const t = document.createElement('div');
     t.className = 'pv-text'; t.textContent = cell.text; t.style.color = fg;
+    t.dataset.size = cell.txtSize || 100; // 字級 %（fitPreview 依畫面寬換算）
     el.appendChild(t);
   } else if (cell.content === 'Marquee' && cell.text) {
     const wrap = document.createElement('div');
@@ -1447,6 +1450,15 @@ function renderPanel() {
       ta.addEventListener('input', () => { cell.text = ta.value; touch(); });
       subRow('文字', ta);
     }
+    if (cell.content === 'Text') {
+      // 字級滑塊（與 App 的 TextSizeField 同範圍 50–300%，步進 10；user 2026-09-08）
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = 50; range.max = 300; range.step = 10;
+      range.value = cell.txtSize ?? 100;
+      const val = lbl(`${range.value}%`);
+      range.addEventListener('input', () => { cell.txtSize = Number(range.value); val.textContent = `${range.value}%`; touch(); });
+      subRow('字級', range, val);
+    }
     if (cell.content === 'Marquee') {
       const range = document.createElement('input');
       range.type = 'range'; range.min = 50; range.max = 300; range.step = 10;
@@ -1460,9 +1472,12 @@ function renderPanel() {
       const stationMode = cell.wSrc === 'Station';
       subRow('來源', segRow([
         ['一般天氣', !stationMode, () => { cell.wSrc = 'Standard'; setDirty(true); refresh(); }],
-        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; setDirty(true); refresh(); }],
+        // 切到園區測站就先帶入預設的測站 API（卓也小屋），要接別的園區再改（user 2026-09-08）
+        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; if (!cell.wStUrl) cell.wStUrl = PARK_API; setDirty(true); refresh(); }],
       ]));
       if (stationMode) {
+        // 舊設定或機器端建的格子可能沒填測站 API：一樣補上預設值，不讓畫面停在「尚未填寫」
+        if (!cell.wStUrl) { cell.wStUrl = PARK_API; setDirty(true); }
         // 網址打到一半先等 0.6 秒再抓清單；抓到後 fillStationSelect 會補滿下拉
         let urlTimer = null;
         const sel = selInput([], cell.wStation || '', (v) => { cell.wStation = v; sel.dataset.stationId = v; touch(); });
@@ -1480,9 +1495,22 @@ function renderPanel() {
       }
       subRow(stationMode ? '圖示位置' : '位置', checkRow('自動偵測位置', cell.wAuto !== false, (v) => { cell.wAuto = v; setDirty(true); refresh(); }));
       if (cell.wAuto === false) {
-        subRow('地點',
-          txtInput(cell.wCounty, '縣市（例：臺北市）', (v) => { cell.wCounty = v; touch(); }),
-          txtInput(cell.wDistrict, '區/鄉鎮（可留白）', (v) => { cell.wDistrict = v; touch(); }));
+        // 縣市／區改成下拉（與 App 的 WeatherLocationFields 同一份清單；user 2026-09-08 要求跟手機一樣）。
+        // 舊資料若是手打的（例：臺北市）先把「臺」對成清單裡的「台」；對不到的值仍列出來，不會被吃掉。
+        const counties = window.TW_COUNTIES || [];
+        const norm = (v) => String(v || '').trim().replace(/臺/g, '台');
+        if (cell.wCounty && norm(cell.wCounty) !== cell.wCounty && counties.some((c) => c.name === norm(cell.wCounty))) cell.wCounty = norm(cell.wCounty);
+        const county = counties.find((c) => c.name === cell.wCounty);
+        const countyOpts = [['', '請選擇縣市'], ...counties.map((c) => [c.name, c.name])];
+        if (cell.wCounty && !county) countyOpts.push([cell.wCounty, cell.wCounty]);
+        const countySel = selInput(countyOpts, cell.wCounty || '', (v) => { cell.wCounty = v; cell.wDistrict = ''; touch(); renderPanel(); });
+        if (!county) {
+          subRow('地點', countySel);
+        } else {
+          const distOpts = [['', `全${county.name}`], ...county.districts.map((d) => [d, d])];
+          if (cell.wDistrict && !county.districts.includes(cell.wDistrict)) distOpts.push([cell.wDistrict, cell.wDistrict]);
+          subRow('地點', countySel, selInput(distOpts, cell.wDistrict || '', (v) => { cell.wDistrict = v; touch(); }));
+        }
       }
     }
     if (cell.content === 'Web') {
@@ -1517,6 +1545,8 @@ function renderPanel() {
       subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
     }
     if (cell.tap === 'OpenParkInfo') {
+      subRow('排版', selInput(PARK_LAYOUT, cell.parkLayout || 'Auto', (v) => { cell.parkLayout = v; touch(); }));
+      subRow('', hint('自動＝寬度不到高度兩倍的格子走直排（標題在上、按鈕貼底），其餘橫排（標題左、按鈕右）。'));
       subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => { cell.parkFx = v; touch(); }));
       // 內容是園區測站天氣時，測站 API 已在上面填過，不重複問
       const asked = cell.content === 'Weather' && cell.wSrc === 'Station';
@@ -3226,7 +3256,7 @@ function renderParkOverlay(el, cell, sizePx, fg) {
   // 只有園區資訊有按鈕（開啟網頁、AI 客服都不放）
   const ctaLabel = cell.tap === 'OpenParkInfo' ? '點我查看' : null;
   const cta = !!ctaLabel;
-  const vertical = cta && w / h < 1.2;
+  const vertical = cta && (cell.parkLayout === 'Vertical' || (cell.parkLayout !== 'Horizontal' && w / h < 2.0));
   const s = vertical
     ? Math.max(0.5, Math.min(w / 300, h / 220, 1))
     : Math.max(0.4, Math.min(w / 600, h / 90, 1));
