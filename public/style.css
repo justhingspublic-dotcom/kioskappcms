@@ -384,6 +384,9 @@ html:root[data-color-mode="dark"] {
   display: flex; align-items: center; gap: 3px; white-space: nowrap;
 }
 .pv-size-badge .material-icons { font-size: 12px; }
+/* 角標平常不顯示，滑到那格才出現：小格子時角標會蓋住內容看不見，而類型與尺寸右側面板本來就有（user 2026-09-08） */
+.canvas .cell .pv-size-badge { opacity: 0; transition: opacity .12s ease-out; }
+.canvas .cell:hover .pv-size-badge { opacity: 1; }
 .material-icons { vertical-align: middle; line-height: 1; }
 
 /* ── 右側：單格設定面板 ── */
