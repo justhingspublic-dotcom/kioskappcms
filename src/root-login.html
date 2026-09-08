@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JustDisplay 管理後台</title>
+  <script>
+    /* 深淺色＋字級偏好：與 /joye 後台同一組 localStorage 鍵，首繪前套用（admin-kit 規範） */
+    (function () {
+      try {
+        var m = localStorage.getItem('adminColorMode');
+        if (m === 'dark' || (m !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.setAttribute('data-color-mode', 'dark');
+        var fs = localStorage.getItem('adminFontSize');
+        if (fs === 'sm' || fs === 'lg') document.documentElement.setAttribute('data-fs', fs);
+      } catch (e) { }
+    })();
+  </script>
+  <link rel="icon" type="image/svg+xml" href="{{BASE}}/img/favicon.svg">
+  <link rel="apple-touch-icon" href="{{BASE}}/img/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- 入口登入頁＝/joye 後台登入卡同一套樣式（admin-kit＋style.css），只是表單改成傳統 POST -->
+  <link rel="stylesheet" href="{{BASE}}/admin-kit/css/tokens.css">
+  <link rel="stylesheet" href="{{BASE}}/admin-kit/css/shell.css">
+  <link rel="stylesheet" href="{{BASE}}/admin-kit/css/components.css">
+  <link rel="stylesheet" href="{{BASE}}/style.css">
+</head>
+<body>
+  <div id="loginView" class="login-wrap">
+    <form class="login-card" method="post" action="/portal-login">
+      <div class="login-head">
+        <div class="login-mark"><img src="{{BASE}}/img/favicon.svg" alt="Justhings 標誌"></div>
+        <h2 class="login-title">JustDisplay 管理後台</h2>
+        <p class="login-sub">登入以選擇要管理的後台</p>
+      </div>
+      <label class="b-label">帳號
+        <input id="username" name="username" type="text" class="b-input" autocomplete="username" required autofocus>
+      </label>
+      <label class="b-label">密碼
+        <span class="pw-wrap">
+          <input id="password" name="password" type="password" class="b-input" autocomplete="current-password" required>
+          <button type="button" id="loginPwEye" class="pw-eye" aria-label="顯示密碼" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+        </span>
+      </label>
+      <button type="submit" class="btn-login"><i data-lucide="log-in" aria-hidden="true"></i><span>登入</span></button>
+      <p id="loginError" class="login-error{{ERROR_HIDDEN}}">{{ERROR}}</p>
+    </form>
+  </div>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    (function () {
+      var i = document.getElementById('password'), eye = document.getElementById('loginPwEye');
+      eye.addEventListener('click', function () {
+        var show = i.type === 'password';
+        i.type = show ? 'text' : 'password';
+        eye.setAttribute('aria-pressed', show ? 'true' : 'false');
+        eye.setAttribute('aria-label', show ? '隱藏密碼' : '顯示密碼');
+        eye.innerHTML = '<i data-lucide="' + (show ? 'eye-off' : 'eye') + '" aria-hidden="true"></i>';
+        if (window.lucide) lucide.createIcons({ nodes: [eye] });
+      });
+      if (window.lucide) lucide.createIcons();
+    })();
+  </script>
+</body>
+</html>

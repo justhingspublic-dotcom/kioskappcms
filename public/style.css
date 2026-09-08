@@ -129,6 +129,9 @@ html:root[data-color-mode="dark"] {
    圖直接填滿 60px（tiri 是 .login-mark img 塞 logo，同一位置同一尺寸）。 */
 .login-mark:has(img) { border: 0; background: transparent; overflow: hidden; }
 .login-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* 橫式客戶 CI（卓也小屋 250×89 藍色 logo）：寬 200、依原比例撐高；深色模式墊一塊白底才看得清藍色 */
+.login-mark.wide { width: 200px; height: auto; aspect-ratio: 250 / 89; border-radius: var(--radius-md); }
+[data-color-mode="dark"] .login-mark.wide { background: #fff; padding: 8px 12px; box-sizing: content-box; }
 .login-title { margin: 5px 0 0; color: var(--text-heading); font-size: 1.55rem; font-weight: 600; line-height: 1.25; }
 .login-sub { margin: 8px 0 0; color: var(--text-body-subtle); font-size: 14px; }
 .login-card .b-input { margin-top: 6px; width: 100%; }
@@ -561,6 +564,9 @@ html:root[data-color-mode="dark"] {
 #addUserModal .b-modal-head { border-bottom: 0; padding-bottom: 4px; }
 #addUserModal .b-modal-foot { border-top: 0; padding-top: 0; }
 .device-id-dim { color: var(--text-body-subtle); }
+/* 機器總覽狀態欄第二行：連線設定檢查（金鑰不符／連到別的伺服器／連線設定正確） */
+.device-row .device-conn { margin-top: 4px; }
+.device-row .device-conn .b-badge { max-width: 260px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
 
 /* ══════════════════ 機器設定頁 ══════════════════ */
 /* 兩張卡均分並排（tiri 郵件設定同款；窄幕直排），

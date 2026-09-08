@@ -31,6 +31,13 @@ const DEFAULT_CELL = () => ({
   tap: 'None', tapUrl: '', agentId: '', agentName: '', assistantLayout: 'Kiosk',
 });
 
+// ---------- 子路徑（2026-09-08）----------
+// 後台可掛在子路徑底下（正式站＝ https://justdisplay.justhings.com.tw/joye，根網址留給未來各後台的統一入口）。
+// 伺服器端用 BASE_PATH 掛載；前端從目前網址推出前綴，所有根路徑（/api、/files）都要加上它。
+const BASE = location.pathname.replace(/\/[^/]*$/, '');
+/** 伺服器上的媒體路徑（/files/…）補上子路徑前綴；外部 http(s) 網址原樣。 */
+const mediaSrc = (uri) => (typeof uri === 'string' && uri.startsWith('/files/') ? BASE + uri : uri);
+
 // ---------- API ----------
 // 錯誤文字口吻（2026-09-07 指示＝Apple 中性口吻）：句號結尾、不用驚嘆號、不責怪使用者、不出現技術字眼；
 // api() 只丟「原因句」（請檢查…／請稍後再試…），toast 由呼叫端補主詞「無法○○。」再接原因。
@@ -50,7 +57,7 @@ async function api(method, url, body, isForm) {
   if (body && !isForm) headers['Content-Type'] = 'application/json';
   let res;
   try {
-    res = await fetch(url, { method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined });
+    res = await fetch(BASE + url, { method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined });
   } catch { throw new Error(NET_ERROR); }
   if (res.status === 401) { logout(); throw new Error('登入已過期。請重新登入。'); }
   if (!res.ok) throw new Error(reasonFor(res.status, (await res.json().catch(() => ({}))).error));
@@ -88,7 +95,7 @@ $('loginForm').addEventListener('submit', async (e) => {
   try {
     let r;
     try {
-      r = await fetch('/api/login', {
+      r = await fetch(BASE + '/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: $('username').value, password: $('password').value }),
       });
@@ -448,6 +455,10 @@ async function savePublish() {
     // 沒按過「展示此頁」就不送 activePage，機器維持目前顯示的頁面（伺服器沿用舊值）
     const payload = { ...state.config };
     if (!activePageTouched) delete payload.activePage;
+    // 只送這個編輯器會改的欄位（2026-09-08）：機器名稱走「更名」、螢幕尺寸是機器自報的，
+    // 都不能用載入時的舊值蓋回去——否則在別處改的名字每存一次就被這個分頁的舊資料覆蓋。
+    delete payload.deviceName;
+    delete payload.screen;
     const r = await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: payload });
     state.version = r.version;
     activePageTouched = false;
@@ -758,7 +769,7 @@ const COND_ICON = {
 };
 
 async function jsonGet(url) {
-  const r = await fetch(url);
+  const r = await fetch(url.startsWith('/') ? BASE + url : url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
@@ -945,7 +956,7 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
       const mkLayer = (src) => {
         const l = document.createElement('div');
         l.className = 'pv-img-layer';
-        l.style.backgroundImage = `url(${src})`;
+        l.style.backgroundImage = `url(${mediaSrc(src)})`;
         l.style.backgroundSize = size;
         return l;
       };
@@ -959,7 +970,7 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
         timers.push(setInterval(() => {
           idx = (idx + 1) % imgs.length;
           const back = front === a ? b : a;
-          back.style.backgroundImage = `url(${imgs[idx]})`;
+          back.style.backgroundImage = `url(${mediaSrc(imgs[idx])})`;
           back.style.opacity = '1';
           front.style.opacity = '0';
           front = back;
@@ -1547,7 +1558,7 @@ function thumbList(cell, cellPx) {
       t.className = 'thumb';
       if (isRemote(uri)) {
         const img = document.createElement('img');
-        img.src = uri; img.loading = 'lazy';
+        img.src = mediaSrc(uri); img.loading = 'lazy';
         t.appendChild(img);
       } else {
         const ph = document.createElement('div');
@@ -2349,7 +2360,7 @@ function sharedLayoutThumb(layout) {
       el.style.background = colorCss(node.bgColor);
       const img = node.bg === 'Image' && (node.bgImgs || []).find(isRemote);
       if (img) {
-        el.style.backgroundImage = `url(${img})`;
+        el.style.backgroundImage = `url(${mediaSrc(img)})`;
         el.style.backgroundSize = node.scale === 'Fit' ? 'contain' : 'cover';
       }
     }
@@ -2630,7 +2641,39 @@ function statusCell(d) {
     badge.append(`離線 ${agoText(d.LastSeenAgoSec)}`);
   }
   td.appendChild(badge);
+  const conn = connBadge(d);
+  if (conn) td.appendChild(conn);
   return td;
+}
+/** 連線設定檢查（2026-09-08 指示）：機器每次連線自報「自己填的伺服器位址」，後台比對是不是本站；
+ *  金鑰填錯的連線也會留下紀錄。三種提示：金鑰不符（紅）／連到別的伺服器（黃）／連線設定正確（綠）。
+ *  舊版 App（<1.13）不會自報位址，沒東西可比就不顯示第二行。 */
+function connBadge(d) {
+  let cls, text, title;
+  if (d.KeyMismatch) {
+    cls = 'danger'; text = '金鑰不符';
+    title = '這台機器最近用錯誤的連線金鑰連上來。請到機器的「雲端同步」重新填入本站的連線金鑰。';
+  } else if (d.ServerMatch === false) {
+    cls = 'warning'; text = `連到別的伺服器 ${shortServer(d.LastServerUrl)}`;
+    title = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」按「一鍵填入正式伺服器」。`;
+  } else if (d.ServerMatch === true) {
+    cls = 'ok'; text = '連線設定正確';
+    title = `機器填的伺服器位址與連線金鑰都是本站的${d.LastAppVersion ? `（App v${d.LastAppVersion}）` : ''}。`;
+  } else {
+    return null;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'device-conn';
+  const b = document.createElement('span');
+  b.className = `b-badge ${cls}`;
+  b.textContent = text;
+  b.title = title;
+  wrap.appendChild(b);
+  return wrap;
+}
+/** 位址縮短顯示：只留 host[:port]，例 http://192.168.1.142:3177 → 192.168.1.142:3177 */
+function shortServer(u) {
+  try { const x = new URL(u); return x.host; } catch { return String(u || '').replace(/^https?:\/\//i, ''); }
 }
 function agoText(sec) {
   if (sec < 90) return `${Math.round(sec)} 秒`;

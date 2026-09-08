@@ -59,6 +59,16 @@ async function init() {
       ALTER TABLE dbo.KioskConfig ADD OwnerUserId NVARCHAR(64) NULL;
     IF COL_LENGTH('dbo.KioskConfig', 'DeviceName') IS NULL
       ALTER TABLE dbo.KioskConfig ADD DeviceName NVARCHAR(128) NULL;
+    -- 機器自報的連線資訊（2026-09-08）：每次帶 Device Key 連線就記（每台最多每分鐘寫一次）。
+    -- 存 DB 而非只放記憶體，是因為測試站與正式站共用同一個 DB：正式站要能看出某台機器其實還連在測試站。
+    IF COL_LENGTH('dbo.KioskConfig', 'LastSeenAt') IS NULL
+      ALTER TABLE dbo.KioskConfig ADD LastSeenAt DATETIME2 NULL;
+    IF COL_LENGTH('dbo.KioskConfig', 'LastServerUrl') IS NULL
+      ALTER TABLE dbo.KioskConfig ADD LastServerUrl NVARCHAR(256) NULL;
+    IF COL_LENGTH('dbo.KioskConfig', 'LastAppVersion') IS NULL
+      ALTER TABLE dbo.KioskConfig ADD LastAppVersion NVARCHAR(32) NULL;
+    IF COL_LENGTH('dbo.KioskConfig', 'LastKeyMismatchAt') IS NULL
+      ALTER TABLE dbo.KioskConfig ADD LastKeyMismatchAt DATETIME2 NULL;
     IF OBJECT_ID('dbo.KioskSharedSettings') IS NULL
     CREATE TABLE dbo.KioskSharedSettings (
       UserId       NVARCHAR(64)  NOT NULL PRIMARY KEY,

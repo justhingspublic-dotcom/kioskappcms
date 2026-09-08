@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JustDisplay 管理後台</title>
+  <title>卓也小屋 展示機管理系統</title>
   <script>
     /* 深淺色＋字級偏好：首繪前套用，避免載入閃色/閃字級（admin-kit 規範） */
     (function () {
@@ -35,9 +35,9 @@
   <div id="loginView" class="login-wrap hidden">
     <form id="loginForm" class="login-card">
       <div class="login-head">
-        <div class="login-mark"><img src="img/favicon.svg" alt="Justhings 標誌"></div>
-        <h2 class="login-title">JustDisplay 管理後台</h2>
-        <p class="login-sub">登入以管理展示機</p>
+        <!-- 卓也小屋 CI（2026-09-08 user 指示）：橫式 logo，用 .login-mark.wide 變體 -->
+        <div class="login-mark wide"><img src="img/joye-logo.png" alt="卓也小屋"></div>
+        <h2 class="login-title">展示機管理系統</h2>
       </div>
       <label class="b-label">帳號
         <input id="username" type="text" class="b-input" autocomplete="username" required>
@@ -190,6 +190,7 @@
                 <p class="b-pop-panel-title">使用說明</p>
                 <p>點「內容管理」進入該機器的版面與設定。</p>
                 <p>點「更名」可直接修改機器名稱，會同步回機器；也可在 kiosk 機器的「雲端同步」設定裡填寫。沒有名稱時顯示編號。</p>
+                <p>「狀態」欄第二行是連線設定檢查：「連到別的伺服器」表示機器填的位址不是本站，在這裡做的變更送不到機器；「金鑰不符」表示機器填的連線金鑰錯了。兩種都到機器的「雲端同步」按「一鍵填入正式伺服器」即可。</p>
               </div>
             </div>
           </div>

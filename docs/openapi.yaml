@@ -203,7 +203,29 @@ components:
           type: integer
           nullable: true
           example: 11
-          description: 機器最後一次帶 Device Key 連線距今秒數（記憶體統計；null＝伺服器重啟後尚未露面）。網頁以 <60 秒視為在線。
+          description: 機器最後一次帶 Device Key 連線距今秒數（記憶體秒級；伺服器重啟後改用 DB 的 LastSeenAt，分鐘級；null＝從沒露面）。網頁以 <60 秒視為在線。
+        LastServerUrl:
+          type: string
+          nullable: true
+          example: https://justdisplay.justhings.com.tw
+          description: 機器自報「自己填的伺服器位址」（X-Device-Server 標頭，App v1.13 起）；null＝尚未回報。
+        LastAppVersion:
+          type: string
+          nullable: true
+          example: "1.13"
+          description: 機器自報的 App 版本（X-App-Version 標頭）。
+        ServerMatch:
+          type: boolean
+          nullable: true
+          description: 機器填的位址是不是這個後台（與 PUBLIC_URL／請求 host 比對）；null＝尚未回報。false＝機器連在別台伺服器，這裡的變更送不到它。
+        KeyMismatch:
+          type: boolean
+          description: 最近一次連線金鑰錯誤（LastKeyMismatchAt）比最近一次成功露面還新 → 機器目前填的金鑰是錯的。
+        LastKeyMismatchAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 最近一次帶錯誤 Device Key 連線的時間（UTC）。
 
     VersionResponse:
       type: object

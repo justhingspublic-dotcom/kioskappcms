@@ -8,6 +8,9 @@ const swaggerUiDist = require('swagger-ui-dist');
 const db = require('./db');
 
 const PORT = Number(process.env.PORT || 3000);
+// 子路徑（2026-09-08）：正式站掛在 /joye（https://justdisplay.justhings.com.tw/joye），
+// 根網址留給未來各後台的統一入口。留空＝掛在根（開發機）。所有路由照舊寫根路徑，由下方 root 掛載。
+const BASE_PATH = String(process.env.BASE_PATH || '').trim().replace(/\/+$/, '').replace(/^(?=[^/])/, '/').replace(/^\/$/, '');
 const DEVICE_KEY = process.env.DEVICE_KEY;
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -15,6 +18,12 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+// API 回應一律不准快取（2026-09-08）：正式站前面的 IIS ARR 反向代理會把沒有 Cache-Control 的 GET 回應
+// 快取起來，機器問 /version 拿到舊版本號，網頁發布後要等快取過期才同步，還會讓 /wait 迴圈空轉。
+app.use('/api', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 // DB 還沒連上（啟動中或公司 DB 斷線）：API 一律回 503＋中文訊息，網頁照常載入。
 app.use('/api', (_req, res, next) => {
   if (!db.isReady()) return res.status(503).json({ error: '正在連接資料庫。請稍候再試一次。' });
@@ -30,15 +39,43 @@ app.use((req, res, next) => {
 });
 
 // 機器「最後露面時間」：帶 Device Key 的 config 請求（含掛 /wait）都算，
-// 供機器總覽顯示在線/離線。存記憶體即可——重啟後機器 25 秒內就會再露面。
+// 供機器總覽顯示在線/離線。記憶體秒級精準；另外每台最多每分鐘寫一次 DB
+// （LastSeenAt／LastServerUrl／LastAppVersion，機器用 X-Device-Server／X-App-Version 標頭自報），
+// 讓伺服器重啟後仍有最後露面時間，也讓共用同一個 DB 的正式站看得出機器其實連在哪一台伺服器。
+// 金鑰錯的請求（帶了 X-Device-Key 但不對）同樣節流記 LastKeyMismatchAt，總覽才能提示「金鑰不符」。
 const deviceLastSeen = new Map(); // deviceId -> epoch ms
+const deviceDbWriteAt = new Map(); // 'ok:'|'bad:' + deviceId -> 上次寫 DB 的 epoch ms（節流）
+const DEVICE_DB_WRITE_MS = 60_000;
+function noteDevice(deviceId, req, keyOk) {
+  const now = Date.now();
+  if (keyOk) deviceLastSeen.set(deviceId, now);
+  const k = (keyOk ? 'ok:' : 'bad:') + deviceId;
+  if (now - (deviceDbWriteAt.get(k) || 0) < DEVICE_DB_WRITE_MS) return;
+  deviceDbWriteAt.set(k, now);
+  const q = db.getPool().request().input('id', db.sql.NVarChar(64), deviceId);
+  const p = keyOk
+    ? q.input('url', db.sql.NVarChar(256), String(req.get('X-Device-Server') || '').slice(0, 256) || null)
+        .input('ver', db.sql.NVarChar(32), String(req.get('X-App-Version') || '').slice(0, 32) || null)
+        .query(`UPDATE dbo.KioskConfig SET LastSeenAt = SYSUTCDATETIME(),
+                LastServerUrl = COALESCE(@url, LastServerUrl), LastAppVersion = COALESCE(@ver, LastAppVersion)
+                WHERE DeviceId = @id`)
+    : q.query('UPDATE dbo.KioskConfig SET LastKeyMismatchAt = SYSUTCDATETIME() WHERE DeviceId = @id');
+  p.catch((e) => console.warn(`機器露面紀錄寫入失敗（${deviceId}）：${e.message}`));
+}
 app.use((req, _res, next) => {
-  if (isDevice(req)) {
-    const m = req.path.match(/^\/api\/config\/([^/]+)/);
-    if (m) deviceLastSeen.set(decodeURIComponent(m[1]), Date.now());
-  }
+  const m = req.path.match(/^\/api\/config\/([^/]+)/);
+  if (m && req.get('X-Device-Key')) noteDevice(decodeURIComponent(m[1]), req, isDevice(req));
   next();
 });
+
+/** 這個後台自己的對外位址：.env 的 PUBLIC_URL，沒設就用這次請求的 host 推算。 */
+function thisServerUrl(req) {
+  return (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+}
+/** 位址比對用：去頭尾空白與結尾斜線、協定與主機名不分大小寫。 */
+function normalizeServerUrl(u) {
+  return String(u || '').trim().replace(/\/+$/, '').replace(/^(https?:\/\/[^/]+)/i, (m) => m.toLowerCase());
+}
 
 // 後台已刪除的機器（KioskDeviceRemoved）：機器帶 key 再連上一律回 410，機器收到會自己清空連線設定並關閉同步。
 // 機器重新輸入位址/編號/金鑰後第一次連線會帶 X-Device-Fresh: 1，這時才劃掉紀錄放行（等同全新機器加入）。
@@ -154,8 +191,7 @@ app.get('/api/me', requireUser, async (req, res) => {
 /** 機器連線資訊（側欄底部卡片）：所有登入者都可看，方便在機器上抄填。
  *  位址優先用 .env 的 PUBLIC_URL（對外上線時填），否則以這次請求的 host 推算。金鑰唯讀，更換仍走 .env。 */
 app.get('/api/connection-info', requireUser, (req, res) => {
-  const serverUrl = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-  res.json({ serverUrl, deviceKey: DEVICE_KEY || '' });
+  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '' });
 });
 
 // ---- 帳號管理（限管理員）----
@@ -276,19 +312,35 @@ function summarizeForList(configJson) {
 }
 
 // 所有登入者都看得到全部機器（一般／管理員只差「帳號管理」，見 canAccessDevice 註解）
-app.get('/api/devices', requireUser, async (_req, res) => {
+app.get('/api/devices', requireUser, async (req, res) => {
   const r = await db.getPool().request().query(`
-    SELECT c.DeviceId, c.DeviceName, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName, c.ConfigJson
+    SELECT c.DeviceId, c.DeviceName, c.Version, c.UpdatedAt, c.OwnerUserId, u.Username AS OwnerName, c.ConfigJson,
+           c.LastSeenAt, c.LastServerUrl, c.LastAppVersion, c.LastKeyMismatchAt
     FROM dbo.KioskConfig c LEFT JOIN dbo.KioskUser u ON u.UserId = c.OwnerUserId
     ORDER BY c.DeviceId`);
-  res.json(r.recordset.map(({ ConfigJson, ...row }) => ({
-    ...row,
-    // 機器總覽列縮圖用：只帶「目前展示頁」的結構＋螢幕比例（整份 config 不外送，列表輕量）
-    ...summarizeForList(ConfigJson),
-    LastSeenAgoSec: deviceLastSeen.has(row.DeviceId)
-      ? Math.round((Date.now() - deviceLastSeen.get(row.DeviceId)) / 1000)
-      : null,
-  })));
+  const mine = normalizeServerUrl(thisServerUrl(req));
+  res.json(r.recordset.map(({ ConfigJson, LastSeenAt, LastServerUrl, LastAppVersion, LastKeyMismatchAt, ...row }) => {
+    // 露面時間：記憶體有就用（秒級）；伺服器重啟後改用 DB 的 LastSeenAt（分鐘級，機器連在別台伺服器時也只有這個）
+    const memAt = deviceLastSeen.get(row.DeviceId);
+    const dbAt = LastSeenAt ? new Date(LastSeenAt).getTime() : null;
+    const seenAt = memAt || dbAt;
+    // 金鑰不符：最近一次金鑰錯誤比最近一次成功露面還新，才算「現在填的金鑰是錯的」
+    const badAt = LastKeyMismatchAt ? new Date(LastKeyMismatchAt).getTime() : null;
+    const keyMismatch = !!badAt && (!seenAt || badAt > seenAt);
+    return {
+      ...row,
+      // 機器總覽列縮圖用：只帶「目前展示頁」的結構＋螢幕比例（整份 config 不外送，列表輕量）
+      ...summarizeForList(ConfigJson),
+      LastSeenAgoSec: seenAt ? Math.round((Date.now() - seenAt) / 1000) : null,
+      // 機器自報的連線資訊（v1.13 起的 App 才會帶；舊版 App 兩者皆 null）
+      LastServerUrl: LastServerUrl || null,
+      LastAppVersion: LastAppVersion || null,
+      // 機器填的伺服器位址是不是這個後台：true／false；null＝機器還沒回報過位址
+      ServerMatch: LastServerUrl ? normalizeServerUrl(LastServerUrl) === mine : null,
+      KeyMismatch: keyMismatch,
+      LastKeyMismatchAt: LastKeyMismatchAt || null,
+    };
+  }));
 });
 
 // ---- 版本號 ----
@@ -377,6 +429,9 @@ app.put('/api/config/:deviceId', async (req, res) => {
   const rawName =
     typeof config.deviceName === 'string' ? config.deviceName.replace(/�/g, '').trim() : '';
   const deviceName = rawName ? rawName.slice(0, 128) : null;
+  // 設定 JSON 裡的名稱也要用清過的（2026-09-08）：之前只清了 DeviceName 欄，JSON 仍存壞字，
+  // 機器拉回設定就一路顯示亂碼，網頁再存一次又送回來，怎麼改都改不掉。
+  if (typeof config.deviceName === 'string') config.deviceName = deviceName || '';
   const json = JSON.stringify(config);
   const r = await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.deviceId)
@@ -566,8 +621,8 @@ app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, 
 // ---- API 文件（Swagger UI）：/docs；規格檔在 docs/openapi.yaml，改 API 時一併更新 ----
 const DOCS_DIR = path.join(__dirname, '..', 'docs');
 app.get('/docs', (req, res) => {
-  // 頁面用相對路徑載資源，需有結尾斜線（Express 預設 /docs 與 /docs/ 同一條路由）
-  if (!req.originalUrl.startsWith('/docs/')) return res.redirect(301, '/docs/');
+  // 頁面用相對路徑載資源，需有結尾斜線（Express 預設 /docs 與 /docs/ 同一條路由）；掛在子路徑時前綴要帶上
+  if (!req.originalUrl.startsWith(req.baseUrl + '/docs/')) return res.redirect(301, req.baseUrl + '/docs/');
   res.sendFile(path.join(DOCS_DIR, 'index.html'));
 });
 app.get('/docs/openapi.yaml', (_req, res) => res.type('text/yaml').sendFile(path.join(DOCS_DIR, 'openapi.yaml')));
@@ -624,8 +679,54 @@ function checkApiDocs() {
 }
 checkApiDocs();
 
+// 掛載：有 BASE_PATH 就整個後台掛在子路徑底下（/joye/api/…、/joye/files/…、/joye/ 網頁），
+// 沒結尾斜線的 /joye 轉到 /joye/（網頁用相對路徑載資源）；根 / 先暫時轉到後台，未來換成各後台的統一入口。
+const root = express();
+if (BASE_PATH) {
+  // Express 的 get('/joye') 連 '/joye/' 也會進來，只對「沒結尾斜線」的那個轉址，否則會無限轉址
+  root.get(BASE_PATH, (req, res, next) => (req.path === BASE_PATH ? res.redirect(301, BASE_PATH + '/') : next()));
+  // 根網址＝各後台的入口清單（2026-09-08 user 指示：不要直接跳進 /joye）。目前只有卓也小屋一個，之後有新客戶就加一張卡。
+  // 入口前面有一層登入（.env 的 PORTAL_USERNAME／PORTAL_PASSWORD；沒設就不擋）：登入成功發 12 小時的 HMAC cookie，
+  // 與 /joye 後台自己的帳號（Bearer token、sessionStorage）互不相干。
+  const rootIndex = fs.readFileSync(path.join(__dirname, 'root-index.html'), 'utf8').replace(/\{\{BASE\}\}/g, BASE_PATH);
+  const rootLogin = fs.readFileSync(path.join(__dirname, 'root-login.html'), 'utf8').replace(/\{\{BASE\}\}/g, BASE_PATH);
+  const PORTAL_USER = process.env.PORTAL_USERNAME || '';
+  const PORTAL_PASS = process.env.PORTAL_PASSWORD || '';
+  const PORTAL_TTL_MS = 12 * 60 * 60 * 1000;
+  const portalSecret = crypto.randomBytes(32); // 每次啟動換一把：重啟後入口要重新登入
+  const portalSign = (exp) => crypto.createHmac('sha256', portalSecret).update(String(exp)).digest('hex');
+  const portalCookie = (req) => (req.headers.cookie || '').split(';').map((s) => s.trim()).find((s) => s.startsWith('portal='))?.slice(7) || '';
+  const portalOk = (req) => {
+    if (!PORTAL_USER) return true;
+    const [exp, sig] = portalCookie(req).split('.');
+    if (!exp || !sig || Number(exp) < Date.now()) return false;
+    const want = Buffer.from(portalSign(exp)), got = Buffer.from(sig);
+    return want.length === got.length && crypto.timingSafeEqual(want, got);
+  };
+  const sendLogin = (res, error = '') => res.status(200).type('html')
+    .send(rootLogin.replace('{{ERROR}}', error).replace('{{ERROR_HIDDEN}}', error ? '' : ' hidden'));
+  const secure = (req) => (req.get('X-Forwarded-Proto') || req.protocol) === 'https' ? '; Secure' : '';
+  // 入口頁與登入頁都不准快取（IIS ARR 會快取沒帶 Cache-Control 的 GET，登入後會一直看到快取的登入頁）
+  root.use(['/', '/portal-login', '/portal-logout'], (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  // 登入失敗＝轉回首頁帶 ?e=1 顯示錯誤，網址不會停在 /portal-login（重新整理也不會跳「重新提交表單」）
+  root.get('/', (req, res) => (portalOk(req) ? res.type('html').send(rootIndex) : sendLogin(res, req.query.e ? '帳號或密碼不正確。' : '')));
+  root.post('/portal-login', express.urlencoded({ extended: false }), (req, res) => {
+    const u = String(req.body?.username || ''), p = String(req.body?.password || '');
+    const same = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+    if (!PORTAL_USER || !same(u, PORTAL_USER) || !same(p, PORTAL_PASS)) return res.redirect(303, '/?e=1');
+    const exp = Date.now() + PORTAL_TTL_MS;
+    res.set('Set-Cookie', `portal=${exp}.${portalSign(exp)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${PORTAL_TTL_MS / 1000}${secure(req)}`);
+    res.redirect(303, '/');
+  });
+  root.post('/portal-logout', (_req, res) => { res.set('Set-Cookie', 'portal=; Path=/; HttpOnly; Max-Age=0'); res.redirect(303, '/'); });
+  root.get('/img/:file', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'img', path.basename(req.params.file))));
+  root.use(BASE_PATH, app);
+} else {
+  root.use(app);
+}
+
 // 先開站（DB 斷線時網頁仍載得進、看得到明確錯誤），DB 在背景重試連線，連上自動恢復。
-app.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${PORT}`));
+root.listen(PORT, () => console.log(`KioskAdmin API 啟動：http://localhost:${PORT}${BASE_PATH}/`));
 
 (async function initDbWithRetry() {
   for (;;) {

@@ -20,12 +20,13 @@ Body：`{ "username": "...", "password": "..." }` → `{ "token": "...", "user":
 
 ### GET /api/connection-info（限管理網頁，所有登入者）
 → `{ "serverUrl": "http://192.168.1.142:3000", "deviceKey": "..." }`
-側欄底部「機器連線資訊」卡片用：`serverUrl`＝`.env` 的 `PUBLIC_URL`，未設定時以這次請求的 host 推算；`deviceKey`＝`.env` 的 `DEVICE_KEY`。兩者皆唯讀，更換金鑰仍在 `.env` 改並重啟（所有機器須重新輸入）。
+側欄底部「機器連線資訊」卡片用：`serverUrl`＝`.env` 的 `PUBLIC_URL`（要含子路徑，正式站＝`https://justdisplay.justhings.com.tw/joye`），未設定時以這次請求的 host 推算；`deviceKey`＝`.env` 的 `DEVICE_KEY`。兩者皆唯讀，更換金鑰仍在 `.env` 改並重啟（所有機器須重新輸入）。
 
 ### GET /api/devices（限管理網頁）
 → `[ { "DeviceId": "...", "DeviceName": "...", "Version": 3, "UpdatedAt": "...", "OwnerUserId": null, "OwnerName": null, "LastSeenAgoSec": 11 } ]`
 **所有登入者都拿到全部機器**（2026-09-07 定案：權限只分「一般／管理員」，差別只有帳號管理）。`OwnerUserId` 欄位與 `PUT /api/devices/{id}/owner` 保留但目前不做過濾。
-`LastSeenAgoSec`＝機器最後一次帶 Device Key 連線距今秒數（記憶體統計，伺服器重啟後歸 null，機器 25 秒內會再露面）；null＝重啟後尚未露面。網頁以 <60 秒視為在線。
+`LastSeenAgoSec`＝機器最後一次帶 Device Key 連線距今秒數（記憶體秒級；伺服器重啟後改用 DB 的 `LastSeenAt`，分鐘級）；null＝從沒露面。網頁以 <60 秒視為在線。
+另有連線設定檢查欄位（2026-09-08）：`LastServerUrl`／`LastAppVersion`＝機器每次連線用 `X-Device-Server`／`X-App-Version` 標頭自報（App v1.13 起），`ServerMatch`＝機器填的位址是不是本站（null＝尚未回報），`KeyMismatch`＝最近一次金鑰錯誤比最近一次成功露面新（機器填錯金鑰），`LastKeyMismatchAt`。機器每台最多每分鐘寫一次 DB；存 DB 是因為測試站與正式站共用同一個 DB，正式站才看得出機器其實連在測試站。
 
 ### GET /api/me（限管理網頁）
 → `{ "username": "admin", "displayName": "系統管理員", "isAdmin": true }`（每次從 DB 讀；網頁右上角顯示 displayName，沒設就顯示 username）
