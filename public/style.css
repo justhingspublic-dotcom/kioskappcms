@@ -1,14 +1,16 @@
 /* ==========================================================================
    Kiosk 管理後台 — 專案樣式（鋪在 admin-kit 之上）
-   結構：①品牌＋扁平 token → ②tiri 主題層（照 themes/tiri.css 移植，改橘）
+   結構：①品牌＋扁平 token → ②tiri 主題層（照 themes/tiri.css 移植，改藍）
          → ③登入頁 → ④編輯器/畫布 → ⑤面板與小配件
    規則：介面全走 kit token（深淺色自動成立）；唯一例外是「畫布」——
    它模擬機器的實體螢幕，永遠黑底，用字面色不跟深淺色切換。
    ========================================================================== */
 
 :root {
-  --accent: #E07800;   /* 品牌橘（2026-09-03 指定）；brand 家族由 kit color-mix 衍生 */
+  --accent: #0051A8;   /* 卓也小屋主題藍（2026-09-08 指定；橘 #E07800 是本公司 CI，只留在 logo 與根入口）；brand 家族由 kit color-mix 衍生 */
   --on-accent: #ffffff;
+  /* 主題色「文字」用（文字鈕、儲存並發布）：淺色＝主題色本身；深色另給提亮降彩版（見深色 brand 家族） */
+  --accent-text: var(--accent);
 
   /* 扁平化（GUIDELINES「TIRI 裁決」）：除下拉/浮層（--float-shadow）外全站無陰影，深度靠 1px 邊框。
      ⚠️ 值用「0 0 transparent」不用 none：這些 token 會出現在多重陰影列表裡
@@ -61,24 +63,27 @@
 .b-tbl tbody tr:hover td, .main-content tbody tr:hover { background: var(--neutral-tertiary); }
 
 /* 深色模式 brand 家族：手調 hex（kit 預設 oklch c×1.5 會螢光；Safari 也不吃相對色）。
-   ⚠️ 橘色不能照 tiri 紫的倍率壓暗（L.40 c.50）——橘壓暗＝棕，整站會變咖啡色（實測退件）。
-   改「提亮保橘」：實色層 L 抬到 .55+、彩度留 6 成，讀起來是焦橘不是棕。
-   值由 oklch(from #E07800 L calc(c×倍率) h) 預算：
-   brand L.55 c.62｜strong L.60 c.62｜medium L.40 c.42｜soft L.31 c.32｜softer L.25 c.26
-   fg L.78 c.55｜fg-strong L.85 c.42｜border L.48 c.42｜border-subtle L.33 c.28。改品牌色時重算。 */
+   #0051A8 本身偏暗（oklch L.45 c.156 h256），深色底上實色層要提亮到 L.55+ 才讀得出是主題色；
+   藍色壓暗不會像橘變棕，彩度可留高一點。值由 oklch(from #0051A8 L calc(c×倍率) h) 預算（2026-09-08）：
+   brand L.55 c.95｜strong L.60 c.95｜medium L.40 c.70｜soft L.31 c.55｜softer L.25 c.45
+   fg L.78 c.70｜fg-strong L.85 c.50｜border L.48 c.70｜border-subtle L.33 c.50。改品牌色時重算。 */
 html:root[data-color-mode="dark"] {
-  --brand: #9E6130;
-  --brand-strong: #AE703F;
-  --brand-medium: #633D20;
-  --brand-soft: #442914;
-  --brand-softer: #311C0C;
-  --fg-brand: #E4A97E;
-  --fg-brand-strong: #F1C3A2;
-  --border-brand: #7B5336;
-  --border-brand-subtle: #472F1D;
+  --brand: #3071C6;
+  --brand-strong: #3F80D6;
+  --brand-medium: #1B4781;
+  --brand-soft: #0F305A;
+  --brand-softer: #082142;
+  --fg-brand: #89BAFC;
+  --fg-brand-strong: #ADD0FF;
+  --border-brand: #315E9A;
+  --border-brand-subtle: #18355C;
+  /* 深色文字鈕的主題藍：#0051A8 在深底上太刺（2026-09-08 user 回報），改成和深色紅字（--fg-danger #C24E3A，oklch L.57 c.15）
+     同一調性、再略提亮降彩的藍：oklch L.62 c.12 h256 */
+  --accent-text: #5487CD;
 }
-/* 深色：主題色文字鈕（測試連線、內容管理…）直接用 --accent，與底部欄「儲存並發布」同色（2026-09-07 user 指示：提亮版 fg-brand 看起來不像主題色） */
-[data-color-mode="dark"] .b-btn.b-btn-text:not(.b-btn-text-danger):not(:disabled) { color: var(--accent); }
+/* 深色：主題色文字鈕（測試連線、內容管理…）用 --accent-text，與底部欄「儲存並發布」同色
+   （2026-09-07：提亮版 fg-brand 看起來不像主題色；2026-09-08：直接用 --accent 又太刺，改中間值 --accent-text） */
+[data-color-mode="dark"] .b-btn.b-btn-text:not(.b-btn-text-danger):not(:disabled) { color: var(--accent-text); }
 /* 深色：active 一律實色＋白字（淡底 pill 在深色不夠醒目） */
 [data-color-mode="dark"] .sidebar .menu-item.active,
 [data-color-mode="dark"] .cms-flyout-item.active { background: var(--brand); color: var(--b-on-primary); }
@@ -319,6 +324,20 @@ html:root[data-color-mode="dark"] {
 .canvas .cell:hover { border-color: color-mix(in srgb, var(--accent) 60%, #fff); }
 .canvas .cell.selected { border-color: color-mix(in srgb, var(--accent) 45%, #fff); }
 .canvas .cell > div { pointer-events: none; }
+/* 格子拖曳交換：來源淡出、目標亮框、幽靈跟著指標（body 直屬、不吃指標事件） */
+.canvas .cell.drag-source { opacity: .35; }
+.canvas .cell.drop-target {
+  border-color: color-mix(in srgb, var(--accent) 70%, #fff);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, #fff);
+}
+.cell.drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 1500; pointer-events: none; /* modal 是 1300、toast 2000 */
+  opacity: .85; border-radius: 6px; overflow: hidden; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background-size: cover; background-position: center; color: #fff; font-size: 13px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45); will-change: transform;
+}
+.cell.drag-ghost > div { pointer-events: none; }
 
 /* 拖曳把手（App 預覽同款：大區塊粗桿、分割細桿） */
 .canvas .h-divider {
@@ -565,8 +584,32 @@ html:root[data-color-mode="dark"] {
 #addUserModal .b-modal-foot { border-top: 0; padding-top: 0; }
 .device-id-dim { color: var(--text-body-subtle); }
 /* 機器總覽狀態欄第二行：連線設定檢查（金鑰不符／連到別的伺服器／連線設定正確） */
-.device-row .device-conn { margin-top: 4px; }
-.device-row .device-conn .b-badge { max-width: 260px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
+/* 連線設定狀態（2026-09-08 改）：狀態 badge 右邊一顆 16px icon，不同狀態不同 icon 與色；
+   hover 出現說明面板＝標題旁問號的 .b-pop-panel 同款（user 指示），JS 掛在 body、fixed 定位（不被表格捲動容器裁掉），
+   錨在 icon 下方、左緣對齊 icon（同 page-help 向右開）。游標維持一般箭頭。 */
+.device-row .conn-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: 6px; vertical-align: middle; border-radius: 50%;
+}
+.device-row .conn-icon :where(i, .lucide, svg) { width: 16px; height: 16px; }
+.device-row .conn-icon.ok { color: var(--fg-success-strong); }
+.device-row .conn-icon.warning { color: var(--fg-warning); }
+.device-row .conn-icon.danger { color: var(--fg-danger); }
+.b-tip {
+  position: fixed; z-index: 1300; pointer-events: none;
+  width: max-content; min-width: 260px; max-width: min(420px, calc(100vw - 48px)); padding: 16px;
+  background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-radius: 16px;
+  box-shadow: var(--float-shadow);
+  font-size: 13.5px; line-height: 1.7; color: var(--text-body);
+  opacity: 0; transform: translateY(-6px) scale(.98); transform-origin: top left;
+  transition: opacity .16s ease, transform .16s ease;
+}
+.b-tip.is-on { opacity: 1; transform: none; }
+.b-tip p { margin: 0; }
+.b-tip .b-pop-panel-title { margin: 0 0 8px; }
+/* 連線正確的面板文字短，寬度縮成一半（2026-09-08 user 指示）；警告／錯誤兩種內文長，維持原寬 */
+.b-tip.ok { min-width: 0; max-width: 210px; }
+[data-fs] .b-tip { font-size: calc(13.5px + var(--b-fs-boost)); }
 
 /* ══════════════════ 機器設定頁 ══════════════════ */
 /* 兩張卡均分並排（tiri 郵件設定同款；窄幕直排），
@@ -705,9 +748,16 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 }
 .thumb-preview .canvas.tp-canvas.is-landscape { height: auto; width: min(86vw, 1600px); max-width: none; }
 .thumb-preview .canvas .cell, .thumb-preview .canvas .cell:hover { border-color: transparent; cursor: default; }
-.layout-thumb .lt-cell { background-position: center; background-repeat: no-repeat; min-width: 0; min-height: 0; }
-.layout-thumb .lt-split { display: flex; flex-direction: column; gap: 1px; min-width: 0; min-height: 0; }
-.layout-thumb .lt-split.lt-vert { flex-direction: row; }
+/* 縮圖＝真實畫面縮小版（2026-09-08 user 回報：結構縮圖看不出機器實際顯示的內容，點開預覽才對）：
+   裡面放一個 480px 高的唯讀 buildCanvas 畫布，用 transform 縮到縮圖尺寸；絕對定位讓排版與外框無關。
+   字級由 fitPreview 依畫布的排版尺寸算，縮放後比例與預覽一致。 */
+.layout-thumb { position: relative; }
+.layout-thumb .canvas.lt-canvas {
+  position: absolute; top: 0; left: 0;
+  max-width: none; min-width: 0; padding: 0; border-radius: 0;
+  transform-origin: 0 0; pointer-events: none;
+}
+.layout-thumb .canvas.lt-canvas .cell, .layout-thumb .canvas.lt-canvas .cell:hover { border-color: transparent; }
 /* 帳號管理：操作鈕（更名/刪除）靠最右；刪除＝全站統一紅字文字鈕（hover 透明紅底走 kit 規則） */
 #userTable .user-ops { text-align: right; white-space: nowrap; }
 #userTable .user-ops .b-btn + .b-btn { margin-left: 4px; }
@@ -780,7 +830,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
    hover＝字保持主題色＋透明主題色底（2026-09-03 指示，同對話框「建立」） */
 .ws-footer .b-btn {
   background: transparent; border-color: transparent; box-shadow: 0 0 transparent;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .ws-footer .b-btn:not(:disabled):hover {
   background: color-mix(in srgb, var(--brand) 7%, transparent); /* 同文字鈕：12%→7% */
@@ -860,7 +910,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* ---------- 左上角 CI：JustDisplay wordmark（2026-09-07 換掉「Kiosk」＋「管理後台」pill；
    img/ 內另有 JustKiosk-logo.svg，要換只改 index.html 的 src） ---------- */
 .header-logo .logo-icon { height: 30px; max-width: 140px; }
-/* kit 預設把 logo 轉純白給黑字 wordmark 用；橘色 CI 深色模式要「提亮保橘」，不要漂白 */
+/* kit 預設把 logo 轉純白給黑字 wordmark 用；JustDisplay logo 維持公司橘（主題色改藍後 logo 不跟），深色模式只提亮不漂白 */
 [data-color-mode="dark"] .header-logo .logo-icon img { filter: brightness(1.15); }
 
 /* ══════════════════ Danger Zone（機器設定頁籤最下面；2026-09-07 指示）══════════════════
@@ -1133,4 +1183,53 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   }
   .gd-nav button { width: auto; white-space: nowrap; padding: 7px 11px; }
   .gd-content { padding: 18px 18px 26px; }
+}
+
+/* 圖片背景模糊：App ImageContent 同規則（100% = 24dp 模糊，暗幕最多 20% 黑） */
+.pv-img-scrim { position: absolute; inset: 0; background: #000; pointer-events: none; }
+
+/* 園區資訊預覽（App ParkCellOverlay 同形）：.h 橫排＝標題左／按鈕右；.v 直排＝標題置中在上／按鈕貼底填滿 */
+.pv-park { position: absolute; inset: 0; display: flex; }
+.pv-park.h { flex-direction: row; align-items: center; }
+.pv-park.v { flex-direction: column; align-items: stretch; }
+.pv-park-title { display: flex; align-items: center; gap: .35em; font-weight: 700; white-space: nowrap; line-height: 1; }
+.pv-park.h .pv-park-title { flex: 1; min-width: 0; overflow: hidden; }
+.pv-park.v .pv-park-title { flex: 1; justify-content: center; }
+.pv-park-fill { flex: 1; }
+.pv-park-btn {
+  position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: .15em;
+  color: #fff; font-weight: 700; line-height: 1; white-space: nowrap;
+  background: rgba(0,0,0,.5); border: 1px solid rgba(221,221,221,.7);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.pv-park.h .pv-park-btn { align-self: center; }
+/* 「點我查看」看板動態，與 App ParkCtaStyle 一一對應；fx-None 靜態 */
+.pv-park-btn.fx-Sweep::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+  animation: pvParkSweep 3s linear infinite;
+}
+.pv-park-btn.fx-Sweep { animation: pvParkBorderBreathe 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkSweep { 0% { transform: translateX(-100%); } 50%, 100% { transform: translateX(100%); } }
+@keyframes pvParkBorderBreathe { from { border-color: rgba(221,221,221,.45); } to { border-color: rgba(221,221,221,1); } }
+.pv-park-btn.fx-Breathe { animation: pvParkBreathe 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkBreathe { from { transform: scale(1); } to { transform: scale(1.04); } }
+@property --pv-run { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.pv-park-btn.fx-BorderRun::after {
+  content: ''; position: absolute; inset: -1px; padding: 2px; pointer-events: none;
+  background: conic-gradient(from var(--pv-run), transparent 0 72%, rgba(255,255,255,.95) 86%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: pvParkRun 2.5s linear infinite;
+}
+@keyframes pvParkRun { to { --pv-run: 360deg; } }
+.pv-park-btn.fx-ArrowNudge .material-icons { animation: pvParkNudge 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkNudge { from { transform: translateX(0); } to { transform: translateX(.2em); } }
+.pv-park-btn.fx-Pulse { animation: pvParkPulse 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkPulse { from { background-color: rgba(0,0,0,.5); } to { background-color: rgba(0,0,0,.72); } }
+.pv-park-btn.fx-Shake { animation: pvParkShake 5s linear infinite; }
+@keyframes pvParkShake {
+  0%, 88%, 96%, 100% { transform: translateX(0); }
+  89.6% { transform: translateX(-.18em); } 91.2% { transform: translateX(.18em); }
+  92.8% { transform: translateX(-.13em); } 94.4% { transform: translateX(.13em); }
 }

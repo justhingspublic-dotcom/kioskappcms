@@ -17,7 +17,8 @@ let wsMode = 'device';    // 工作區 modal 模式：'device'＝編輯某台機
 let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡哪一個版面（id）
 
 const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
-const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片' };
+const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片', ParkInfo: '園區資訊' };
+const PARK_API = 'https://joye.justhings.com.tw/api/telemetry/current'; // 園區資訊留白時 App 也用這個
 const BG_SWATCHES = ['FF263238','FF37474F','FF1B5E20','FF2E6A43','FF0D47A1','FF4A148C','FFB71C1C','FFF57F17','FF00838F','FF5D4037','FF000000','FFFFFFFF'].map(h => parseInt(h, 16));
 const TXT_SWATCHES = ['FFFFFFFF','FF000000','FFFFEB3B','FFFF9800','FFFF5252','FF69F0AE','FF40C4FF','FFE040FB','FFFFC107','FF80CBC4'].map(h => parseInt(h, 16));
 // App AccentSwatches 同一組（客服聊天頁主題色；null = 預設綠）
@@ -25,11 +26,13 @@ const ACCENT_SWATCHES = ['FF2E6A43','FF1565C0','FF00695C','FF6A1B9A','FFAD1457',
 const DEFAULT_CHAT_BASE = 'https://chat-api.justhings.ai'; // App ChatApiConfig.DEFAULT_BASE_URL
 
 const DEFAULT_CELL = () => ({
-  t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8,
+  t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8, bgBlur: 0,
   content: 'None', mqSpeed: 100, video: '', web: '', text: '',
   wAuto: true, wCounty: '', wDistrict: '', wDynBg: false,
-  tap: 'None', tapUrl: '', agentId: '', agentName: '', assistantLayout: 'Kiosk',
+  tap: 'None', tapUrl: '', parkFx: 'Sweep', agentId: '', agentName: '', assistantLayout: 'Kiosk',
 });
+// App ParkCtaStyle：「點我查看」按鈕的看板動態（None = 靜態）
+const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
 
 // ---------- 子路徑（2026-09-08）----------
 // 後台可掛在子路徑底下（正式站＝ https://justdisplay.justhings.com.tw/joye，根網址留給未來各後台的統一入口）。
@@ -497,6 +500,37 @@ function getCell(sel) {
   if (sel.sub) return node.t === 'split' ? node[sel.sub] : null;
   return node.t === 'cell' ? node : null;
 }
+/** 把 sel 位置的葉格換成 cell（sub=null 時該區塊必定是未分割的單格）。 */
+function setCell(sel, cell) {
+  const block = page().blocks[sel.bi];
+  if (!block) return;
+  if (sel.sub) { if (block.node.t === 'split') block.node[sel.sub] = cell; }
+  else block.node = cell;
+}
+/**
+ * 對調兩格的設定（背景、內容、天氣…全部跟著走），格位大小不動。
+ * 只換葉格所以永遠合法：不會把分割節點塞進子格。選取框跟著被拖的格子走。
+ */
+function swapCells(from, to) {
+  const a = getCell(from), b = getCell(to);
+  if (!a || !b || a === b) return false;
+  setCell(from, b); setCell(to, a);
+  if (selected && selected.bi === from.bi && selected.sub === from.sub) selected = { ...to };
+  else if (selected && selected.bi === to.bi && selected.sub === to.sub) selected = { ...from };
+  setDirty(true);
+  return true;
+}
+/** 整個大區塊往上/往下搬一格（連同高度比與內部分割），選取框跟著走。 */
+function moveBlock(bi, dir) {
+  const blocks = page().blocks;
+  const j = bi + dir;
+  if (j < 0 || j >= blocks.length) return false;
+  [blocks[bi], blocks[j]] = [blocks[j], blocks[bi]];
+  if (selected && selected.bi === bi) selected = { ...selected, bi: j };
+  else if (selected && selected.bi === j) selected = { ...selected, bi };
+  setDirty(true);
+  return true;
+}
 
 /** 與 App cellPixelSize 相同：這一格在機器實體螢幕上佔的像素。 */
 function cellPixelSizeOf(sel) {
@@ -927,6 +961,9 @@ function stationInfo(s) {
 function onWeatherUpdated() {
   if (state && $('wsModal').classList.contains('is-visible')) renderCanvas();
   if (thumbPreview) thumbPreview.rerender();
+  // 列表縮圖（真實縮小版）也要跟著重畫
+  clearListThumbs();
+  document.querySelectorAll('.layout-thumb').forEach((t) => t._rerender && t._rerender());
 }
 
 /** 依背景亮度自動選黑/白字（與 App 的 auto contrast 行為一致）。 */
@@ -953,11 +990,15 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     const imgs = (cell.bgImgs || []).filter(isRemote);
     if (imgs.length) {
       const size = cell.scale === 'Fit' ? 'contain' : 'cover';
+      // 模糊（App：100% = 24dp；預覽依格子寬度換算）＋越模糊越暗的黑幕（最多 20%）
+      const blur = Math.min(100, Math.max(0, Number(cell.bgBlur) || 0)) / 100;
+      const blurPx = blur * 24 * (el.clientWidth ? el.clientWidth / 1080 : 0.25);
       const mkLayer = (src) => {
         const l = document.createElement('div');
         l.className = 'pv-img-layer';
         l.style.backgroundImage = `url(${mediaSrc(src)})`;
         l.style.backgroundSize = size;
+        if (blur > 0) l.style.filter = `blur(${blurPx.toFixed(2)}px)`;
         return l;
       };
       const a = mkLayer(imgs[0]);
@@ -975,6 +1016,12 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
           front.style.opacity = '0';
           front = back;
         }, Math.max(3, cell.dur || 8) * 1000));
+      }
+      if (blur > 0) {
+        const scrim = document.createElement('div');
+        scrim.className = 'pv-img-scrim';
+        scrim.style.opacity = String(0.2 * blur);
+        el.appendChild(scrim);
       }
     } else if ((cell.bgImgs || []).length) el.style.background = '#333';
   }
@@ -1061,6 +1108,8 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     v.innerHTML = `<span class="material-icons">language</span> ${host}`;
     el.appendChild(v);
   }
+  // 園區資訊：標題＋「點我查看」按鈕，版面規則與 App ParkCellOverlay 相同（直橫自動、字級以 28/40sp 為上限縮放）
+  if (cell.content === 'ParkInfo' || cell.tap === 'OpenParkInfo') renderParkOverlay(el, cell, sizePx, fg);
 
   if (opts.readonly) return el; // 唯讀預覽：沒有角標、不可點
 
@@ -1073,7 +1122,8 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     (cell.tap && cell.tap !== 'None' ? '<span class="material-icons">open_in_new</span>' : '');
   el.appendChild(badge);
 
-  el.onclick = () => { selected = sel; renderCanvas(); renderPanel(); };
+  el.onclick = () => { if (el._dragged) { el._dragged = false; return; } selected = sel; renderCanvas(); renderPanel(); };
+  attachCellDrag(el, sel);
   return el;
 }
 
@@ -1098,6 +1148,69 @@ function attachDrag(el, isVertical, onDrag, onEnd) {
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up, { once: true });
     el.addEventListener('pointercancel', up, { once: true });
+  });
+}
+
+/**
+ * 格子拖曳交換：按住格子拖到另一格放開，兩格設定對調（格位大小不變）。
+ * 用 pointer 事件（非 HTML5 DnD）：跟分隔線同一套模式、觸控也能用、幽靈外觀可控。
+ * 位移不到門檻就放開＝一般點選（交給 onclick）；有拖過則擋掉緊接著的 click。
+ */
+function attachCellDrag(el, sel) {
+  const THRESHOLD = 6;
+  el.addEventListener('pointerdown', (down) => {
+    if (down.button !== 0) return;
+    const canvas = $('canvas');
+    const startX = down.clientX, startY = down.clientY;
+    let ghost = null, target = null;
+    const rect = el.getBoundingClientRect();
+    const offX = startX - rect.left, offY = startY - rect.top;
+
+    const setTarget = (t) => {
+      if (t === target) return;
+      if (target) target.classList.remove('drop-target');
+      target = t;
+      if (target) target.classList.add('drop-target');
+    };
+    const begin = () => {
+      el.setPointerCapture(down.pointerId);
+      el._dragged = true;
+      el.classList.add('drag-source');
+      document.body.style.cursor = 'grabbing';
+      ghost = el.cloneNode(true);
+      ghost.classList.remove('selected', 'drag-source');
+      ghost.classList.add('drag-ghost');
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.height = `${rect.height}px`;
+      ghost.style.transformOrigin = `${offX}px ${offY}px`; // 縮小時抓點不動
+      document.body.appendChild(ghost);
+    };
+    const move = (m) => {
+      if (!ghost) {
+        if (Math.hypot(m.clientX - startX, m.clientY - startY) < THRESHOLD) return;
+        begin();
+      }
+      ghost.style.transform = `translate(${m.clientX - offX}px, ${m.clientY - offY}px) scale(.85)`;
+      const hit = document.elementFromPoint(m.clientX, m.clientY);
+      const cell = hit && hit.closest('.cell');
+      setTarget(cell && cell !== el && canvas.contains(cell) ? cell : null);
+    };
+    const end = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', end);
+      el.removeEventListener('pointercancel', end);
+      if (!ghost) return; // 沒拖過：當一般點選
+      ghost.remove();
+      el.classList.remove('drag-source');
+      document.body.style.cursor = '';
+      const to = target && { bi: Number(target.dataset.bi), sub: target.dataset.sub || null };
+      setTarget(null);
+      if (to && swapCells(sel, to)) { renderCanvas(); renderPanel(); }
+      // 拖了但沒放到格子上：什麼都不改，_dragged 留著讓緊接的 click 不要換選取
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
   });
 }
 
@@ -1260,6 +1373,12 @@ function renderPanel() {
       }));
     }
     if (blocks.length > 1) {
+      const up = btn('區塊上移', () => { if (moveBlock(sel.bi, -1)) refresh(); });
+      const down = btn('區塊下移', () => { if (moveBlock(sel.bi, 1)) refresh(); });
+      up.disabled = sel.bi === 0;
+      down.disabled = sel.bi === blocks.length - 1;
+      up.title = down.title = '整個大區塊連同分割與高度一起搬動；要交換兩格的設定，直接在畫布上把格子拖到另一格放開';
+      ctrls.push(up, down);
       const del = btn('刪除整個區塊', async () => {
         const ok = await BDialog.confirm({
           title: '刪除這個大區塊？', desc: '區塊內的設定會一併刪除。', variant: 'danger', confirmText: '刪除',
@@ -1296,6 +1415,20 @@ function renderPanel() {
     if (!cell.wDynBg && cell.bg === 'Image') {
       subRow('每張秒數', numInput(cell.dur ?? 8, 3, 30, (v) => { cell.dur = v; touch(); }));
       subRow('顯示方式', selInput([['Crop', '填滿裁切'], ['Fit', '完整顯示']], cell.scale || 'Crop', (v) => { cell.scale = v; touch(); }));
+      {
+        // 模糊滑桿：與 App 同規則（0 = 不模糊；越模糊越暗，最暗 20% 黑）
+        const range = document.createElement('input');
+        range.type = 'range'; range.min = 0; range.max = 100; range.step = 5;
+        range.value = cell.bgBlur ?? 0;
+        const val = lbl(range.value === '0' ? '不模糊' : `${range.value}%`);
+        range.addEventListener('input', () => {
+          cell.bgBlur = Number(range.value);
+          val.textContent = range.value === '0' ? '不模糊' : `${range.value}%`;
+          touch();
+        });
+        subRow('模糊', range, val);
+        subRow('', hint('越模糊畫面也會越暗一點（最暗 20% 黑），讓上面的文字更好讀。'));
+      }
     }
   }
 
@@ -1361,7 +1494,10 @@ function renderPanel() {
         cell.video = url; span.textContent = '已上傳影片'; touch();
       })));
     }
-    if (['Marquee', 'Text', 'Weather'].includes(cell.content) && !(cell.content === 'Weather' && cell.wDynBg)) {
+    if (cell.content === 'ParkInfo') {
+      subRow('', hint('此格只顯示「園區資訊」標題；搭配點擊動作「園區資訊」讓遊客點進園區地圖看各測站即時數值。'));
+    }
+    if (['Marquee', 'Text', 'Weather', 'ParkInfo'].includes(cell.content) && !(cell.content === 'Weather' && cell.wDynBg)) {
       subRow('文字顏色', swatchRow(TXT_SWATCHES, cell.txtColor, true, (v) => {
         if (v === null) delete cell.txtColor; else cell.txtColor = v;
         touch(); renderPanel();
@@ -1373,12 +1509,23 @@ function renderPanel() {
   {
     sec('點擊動作');
     rowFull(selInput(
-      [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服']],
+      [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊']],
       cell.tap || 'None',
-      (v) => { cell.tap = v; setDirty(true); refresh(); },
+      (v) => { cell.tap = v; if (v === 'OpenParkInfo' && !cell.wStUrl) cell.wStUrl = PARK_API; setDirty(true); refresh(); },
     ));
     if (cell.tap === 'OpenWeb') {
       subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
+    }
+    if (cell.tap === 'OpenParkInfo') {
+      subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => { cell.parkFx = v; touch(); }));
+      // 內容是園區測站天氣時，測站 API 已在上面填過，不重複問
+      const asked = cell.content === 'Weather' && cell.wSrc === 'Station';
+      if (asked) {
+        subRow('', hint('點擊後開啟內建的卓也小屋園區地圖，測站狀態使用上方「內容」填的測站 API。'));
+      } else {
+        subRow('測站 API', txtInput(cell.wStUrl, 'https://…/api/telemetry/current', (v) => { cell.wStUrl = v; touch(); }, 'url'));
+        subRow('', hint('點擊後開啟內建的卓也小屋園區地圖；測站 API 已預設帶入，留白時也會使用預設網址顯示各站在線狀態與即時數值。'));
+      }
     }
     if (cell.tap === 'OpenAssistant') {
       // 從清單選擇客服（與 App 的 AgentPickerField 相同）：用機器設定裡的 JustAI 帳號拉清單
@@ -2209,6 +2356,7 @@ async function renderSharedLayoutView() {
   if (!(await ensureSharedLoaded())) return;
   $('addSharedLayoutBtn').classList.toggle('hidden', !meIsAdmin);
   const tb = $('sharedLayoutTable').querySelector('tbody');
+  clearListThumbs(); // 舊縮圖的輪播計時器
   tb.innerHTML = '';
   if (!shared.layouts.length) {
     tb.innerHTML =
@@ -2339,34 +2487,37 @@ function openThumbPreview(thumbEl, pg, screen) {
   thumbPreview = { rerender, close };
 }
 
+/** 列表縮圖（機器總覽／版面清單共用）＝該頁真實畫面的縮小版：
+ *  同預覽用 buildCanvas 唯讀版畫在 480px 高的畫布上，再 transform 縮到 56px 高（2026-09-08 改；
+ *  原本只照結構鋪底色，看不出機器實際顯示的文字/天氣/圖片，user 回報「縮圖沒有跟機器一樣，點開才有」）。
+ *  輪播計時器收進 listThumbTimers，列表重畫時一起清；天氣更新時透過 el._rerender 重畫。 */
+let listThumbTimers = [];
+function clearListThumbs() { listThumbTimers.forEach(clearInterval); listThumbTimers = []; }
 function sharedLayoutThumb(layout) {
   const box = document.createElement('div');
   box.className = 'layout-thumb';
   const scr = layout.screen && layout.screen.w > 0 && layout.screen.h > 0 ? layout.screen : { w: 1080, h: 1920 };
-  box.style.width = Math.max(20, Math.min(100, Math.round(56 * (scr.w / scr.h)))) + 'px';
+  const ratio = scr.w / scr.h;
+  const thumbH = 56, thumbW = Math.max(20, Math.min(100, Math.round(thumbH * ratio)));
+  box.style.width = thumbW + 'px';
   const pg = layout.pages && layout.pages[0];
   if (!pg) { box.classList.add('is-blank'); return box; }
-  const nodeEl = (node, flex) => {
-    const el = document.createElement('div');
-    el.style.flex = String(flex);
-    if (node.t === 'split') {
-      // dir=Horizontal＝水平分隔線（上下疊）→ column；Vertical＝左右並排 → row
-      el.className = 'lt-split' + (node.dir === 'Horizontal' ? '' : ' lt-vert');
-      const r = Math.min(0.9, Math.max(0.1, node.ratio || 0.5));
-      el.appendChild(nodeEl(node.a, r));
-      el.appendChild(nodeEl(node.b, 1 - r));
-    } else {
-      el.className = 'lt-cell';
-      el.style.background = colorCss(node.bgColor);
-      const img = node.bg === 'Image' && (node.bgImgs || []).find(isRemote);
-      if (img) {
-        el.style.backgroundImage = `url(${mediaSrc(img)})`;
-        el.style.backgroundSize = node.scale === 'Fit' ? 'contain' : 'cover';
-      }
-    }
-    return el;
+  const canvas = document.createElement('div');
+  canvas.className = 'canvas lt-canvas';
+  const VH = 480, VW = Math.round(VH * ratio);
+  const scale = Math.min(thumbH / VH, thumbW / VW);
+  canvas.style.width = VW + 'px';
+  canvas.style.height = VH + 'px';
+  canvas.style.transform = `translate(${(thumbW - VW * scale) / 2}px, ${(thumbH - VH * scale) / 2}px) scale(${scale})`;
+  box.appendChild(canvas);
+  const rerender = () => {
+    buildCanvas(canvas, pg, scr, { readonly: true, timers: listThumbTimers });
+    canvas.style.aspectRatio = ''; // 尺寸已明確給定，不要讓 aspect-ratio 介入
+    fitPreview(canvas);
   };
-  for (const b of pg.blocks || []) box.appendChild(nodeEl(b.node, b.w || 1));
+  box._rerender = rerender;
+  // 先掛進 DOM 再量字級：buildCanvas 立刻畫，fitPreview 要等排版（offsetWidth）
+  requestAnimationFrame(rerender);
   return box;
 }
 
@@ -2641,35 +2792,54 @@ function statusCell(d) {
     badge.append(`離線 ${agoText(d.LastSeenAgoSec)}`);
   }
   td.appendChild(badge);
-  const conn = connBadge(d);
+  const conn = connIcon(d);
   if (conn) td.appendChild(conn);
   return td;
 }
 /** 連線設定檢查（2026-09-08 指示）：機器每次連線自報「自己填的伺服器位址」，後台比對是不是本站；
- *  金鑰填錯的連線也會留下紀錄。三種提示：金鑰不符（紅）／連到別的伺服器（黃）／連線設定正確（綠）。
- *  舊版 App（<1.13）不會自報位址，沒東西可比就不顯示第二行。 */
-function connBadge(d) {
-  let cls, text, title;
+ *  金鑰填錯的連線也會留下紀錄。顯示成狀態 badge 旁的一顆 icon（2026-09-08 改：原本第二顆 badge 太吵）：
+ *  設定正確＝綠勾／連到別的伺服器＝黃 unplug／金鑰不符＝紅鑰匙；hover 顯示完整說明。
+ *  舊版 App（<1.13）不會自報位址，沒東西可比就不顯示。 */
+function connIcon(d) {
+  let cls, icon, title, body;
   if (d.KeyMismatch) {
-    cls = 'danger'; text = '金鑰不符';
-    title = '這台機器最近用錯誤的連線金鑰連上來。請到機器的「雲端同步」重新填入本站的連線金鑰。';
+    cls = 'danger'; icon = 'key-round'; title = '金鑰不符';
+    body = '這台機器最近用錯誤的連線金鑰連上來。請到機器的「雲端同步」重新填入本站的連線金鑰。';
   } else if (d.ServerMatch === false) {
-    cls = 'warning'; text = `連到別的伺服器 ${shortServer(d.LastServerUrl)}`;
-    title = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」按「一鍵填入正式伺服器」。`;
+    cls = 'warning'; icon = 'unplug'; title = `連到別的伺服器（${shortServer(d.LastServerUrl)}）`;
+    body = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」按「一鍵填入正式伺服器」。`;
   } else if (d.ServerMatch === true) {
-    cls = 'ok'; text = '連線設定正確';
-    title = `機器填的伺服器位址與連線金鑰都是本站的${d.LastAppVersion ? `（App v${d.LastAppVersion}）` : ''}。`;
+    cls = 'ok'; icon = 'circle-check'; title = '連線設定正確';
+    body = `伺服器位址與連線金鑰都是本站的。${d.LastAppVersion ? `\nApp v${d.LastAppVersion}` : ''}`;
   } else {
     return null;
   }
-  const wrap = document.createElement('div');
-  wrap.className = 'device-conn';
-  const b = document.createElement('span');
-  b.className = `b-badge ${cls}`;
-  b.textContent = text;
-  b.title = title;
-  wrap.appendChild(b);
-  return wrap;
+  const el = document.createElement('span');
+  el.className = `conn-icon ${cls}`;
+  el.innerHTML = `<i data-lucide="${icon}" aria-hidden="true"></i>`;
+  el.setAttribute('aria-label', `${title}。${body}`);
+  attachTip(el, title, body, cls);
+  return el;
+}
+/** hover 說明面板（page-help 同款外觀；掛在 body、fixed 定位，不會被表格捲動容器裁掉）：
+ *  錨在元素下方 8px、左緣對齊元素；右邊貼到視窗就往內縮，下面放不下就改開在上方。 */
+function attachTip(el, title, body, cls) {
+  let tip = null;
+  const hide = () => { if (tip) { tip.remove(); tip = null; } };
+  el.addEventListener('mouseenter', () => {
+    hide();
+    tip = document.createElement('div');
+    tip.className = 'b-tip' + (cls ? ' ' + cls : '');
+    tip.innerHTML = `<p class="b-pop-panel-title">${esc(title)}</p>` + body.split('\n').map((t) => `<p>${esc(t)}</p>`).join('');
+    document.body.appendChild(tip);
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left));
+    let y = r.bottom + 8;
+    if (y + h > window.innerHeight - 8) { y = r.top - h - 8; tip.style.transformOrigin = 'bottom left'; }
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+    requestAnimationFrame(() => tip && tip.classList.add('is-on'));
+  });
+  el.addEventListener('mouseleave', hide);
 }
 /** 位址縮短顯示：只留 host[:port]，例 http://192.168.1.142:3177 → 192.168.1.142:3177 */
 function shortServer(u) {
@@ -2695,6 +2865,7 @@ async function renderDevicesView() {
   const devices = await api('GET', '/api/devices');
 
   const tb = $('deviceTable').querySelector('tbody');
+  clearListThumbs(); // 舊縮圖的輪播計時器
   tb.innerHTML = '';
   $('deviceTable').classList.toggle('is-empty', !devices.length); // 空狀態不留光禿表頭
   if (!devices.length) {
@@ -3042,3 +3213,37 @@ setInterval(async () => {
 
 // ---------- 啟動 ----------
 (token ? enterMain().catch(showLogin) : Promise.resolve(showLogin()));
+
+/**
+ * 園區資訊格的標題＋「點我查看」按鈕預覽，與 App `ParkCellOverlay` 同一套規則：
+ * 橫條（寬/高 ≥ 1.2）＝標題靠左、按鈕靠右；直的格子＝標題（40sp 上限）置中在上、按鈕貼底填滿寬度留邊。
+ * 字級上限 28sp，格子太窄或太矮時等比縮小（橫：min(w/600, h/90)，直：min(w/300, h/220)）。
+ * 機器上 1px ≈ 1dp，所以用實際格子像素算，再換成預覽的 cqw。
+ */
+function renderParkOverlay(el, cell, sizePx, fg) {
+  const w = sizePx && sizePx.w ? sizePx.w : 1080;
+  const h = sizePx && sizePx.h ? sizePx.h : 200;
+  const cta = cell.tap === 'OpenParkInfo';
+  const vertical = cta && w / h < 1.2;
+  const s = vertical
+    ? Math.max(0.5, Math.min(w / 300, h / 220, 1))
+    : Math.max(0.4, Math.min(w / 600, h / 90, 1));
+  const u = (px) => `${(px * s * 100 / w).toFixed(3)}cqw`;
+  const wrap = document.createElement('div');
+  wrap.className = 'pv-park ' + (vertical ? 'v' : 'h');
+  const titleSize = vertical ? 40 : 28;
+  let html = '';
+  if (cell.content === 'ParkInfo') {
+    html += `<div class="pv-park-title" style="color:${fg};font-size:${u(titleSize)};padding:0 ${u(24)}">` +
+      `<span class="material-icons" style="font-size:${u(titleSize * 1.2)}">map</span>園區資訊</div>`;
+  } else {
+    html += `<div class="pv-park-fill"></div>`;
+  }
+  if (cta) {
+    const margin = vertical ? `0 ${u(16)} ${u(16)}` : `0 ${u(16)} 0 0`;
+    html += `<div class="pv-park-btn fx-${cell.parkFx || 'Sweep'}" style="font-size:${u(28)};padding:${u(16)} ${u(20)} ${u(16)} ${u(28)};margin:${margin}">` +
+      `點我查看<span class="material-icons" style="font-size:${u(34)}">chevron_right</span></div>`;
+  }
+  wrap.innerHTML = html;
+  el.appendChild(wrap);
+}
