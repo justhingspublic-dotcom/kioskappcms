@@ -187,6 +187,12 @@ html:root[data-color-mode="dark"] {
 .device-pick-label { font-size: 13px; color: var(--text-body-subtle); flex: none; }
 .device-pick { min-width: 220px; }   /* select 增強後這個 class 留在 .b-dd 外殼上，寬度沿用 */
 .page-actions { align-items: center; }
+/* 右上角頁面動作鈕（展示版面等）扁一點（user 2026-09-09）：kit 預設 36px → 32px，字級不變、左右內距略縮 */
+.page-actions .b-btn { height: 32px; min-height: 32px; line-height: 30px; padding: 0 18px; }
+/* 同列的 icon 鈕（重新整理）跟著壓到 32px，hover 灰底才跟主鈕等高 */
+.page-actions .icon-btn { width: 32px; height: 32px; }
+/* 表格列的操作文字鈕（內容管理／更名／編輯／刪除…）同一套：32px 高、左右 18px，hover 的透明主題色底跟著等高（user 2026-09-09） */
+.device-ops .b-btn, .user-ops .b-btn { height: 32px; min-height: 32px; line-height: 30px; padding: 0 18px; }
 
 /* ── 版面上架：頁面籤（造型對齊 tiri segment「白底圓角矩形容器」裁決） ── */
 /* 頁籤列（2026-09-07 改版）：不換行、超出寬度左右捲動（軌道 .page-tabs-track），
@@ -381,6 +387,12 @@ html:root[data-color-mode="dark"] {
   position: absolute; inset: -2px; background-position: center; background-repeat: no-repeat;
   transition: opacity .6s;
 }
+/* 完整顯示：圖層是容器，底層鋪滿全模糊＋20% 黑、前層完整顯示（user 2026-09-09） */
+.pv-img-layer.fit { overflow: hidden; }
+.pv-img-layer.fit > div { position: absolute; inset: 0; background-position: center; background-repeat: no-repeat; }
+.pv-img-layer.fit .pv-img-back { background-size: cover; }
+.pv-img-layer.fit .pv-img-back-scrim { background: rgba(0, 0, 0, .2); }
+.pv-img-layer.fit .pv-img-front { background-size: contain; }
 .pv-weather2 { position: absolute; inset: 0; display: flex; align-items: center; }
 .pv-weather2 .pvw-left { flex: 1; min-width: 0; }
 .pv-weather2 .pvw-loc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -417,10 +429,11 @@ html:root[data-color-mode="dark"] {
 @media (prefers-reduced-motion: reduce) { .cell-panel.is-faded { animation: none; } }
 .cell-panel .panel-head {
   padding: 14px 16px; border-bottom: 1px solid var(--border-default);
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
   position: sticky; top: 0; background: var(--neutral-primary-soft); z-index: 3;
 }
 .cell-panel .panel-head h3 { font-size: 16px; font-weight: 500; color: var(--text-heading); margin: 0; }
+.cell-panel .panel-size { font-size: calc(12px + var(--b-fs-boost, 0px)); color: var(--text-body-subtle); font-variant-numeric: tabular-nums; }
 .cell-panel .body { padding: 16px 2px 24px; display: flex; flex-direction: column; gap: 20px; }
 .group { display: flex; flex-direction: column; gap: 10px; }
 /* 小群組標題規格＝tiri .b-pop-panel-title：12px/600、letter-spacing 0（tiri 全站禁字距） */
@@ -464,21 +477,33 @@ html:root[data-color-mode="dark"] {
   font-size: 12px; font-weight: 600; color: var(--text-body-subtle);
 }
 .body.inspector > .ins-sec:first-child { margin-top: 0; padding-top: 4px; border-top: 0; }
-/* 區段主控件列：不帶 label、佔滿整行；按鈕組（上下分割/左右分割/刪除整個區塊）均分寬度 */
+/* 區段主控件列：不帶 label、佔滿整行。版面操作依用途分組，窄欄整組換行。 */
 .ins-full { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 0 2px; }
 .ins-full :is(.b-select, .b-dd, .thumbs, .swatches, .hint) { flex: 1 1 100%; }
-.ins-full > .b-btn { flex: 1 1 0; min-width: 0; }
+.ins-actions { gap: 8px 16px; padding-bottom: 4px; }
+.ins-action-group { display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; }
+.ins-actions .b-btn { flex: none; }
+.ins-action-delete { margin-left: auto; font-weight: 400; }
 .ins-row {
   display: grid; grid-template-columns: 92px minmax(0, 1fr);
   gap: 6px 12px; align-items: start; padding: 4px 0;
 }
-.ins-label { font-size: 13px; font-weight: 500; color: var(--text-body-subtle); line-height: 1.35; padding-top: 9px; }
+.ins-sec + .ins-row { margin-top: 8px; }
+.ins-label {
+  display: flex; align-items: center; min-height: var(--field-height);
+  font-size: 13px; font-weight: 500; color: var(--text-body-subtle); line-height: 1.4;
+}
 .ins-row.sub .ins-label { font-weight: 400; }
-.ins-ctrl { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; }
+.ins-ctrl { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; min-width: 0; min-height: var(--field-height); }
 /* 縮圖列/色票/說明在控件欄裡一律獨占整行（圖片縮圖放 seg「下面」不是右邊） */
 .ins-ctrl :is(.thumbs, .swatches, .hint) { flex: 1 1 100%; }
 .ins-ctrl .b-select, .ins-ctrl .b-dd { flex: 1 1 100%; }
 .ins-ctrl .b-input { flex: 1; min-width: 140px; }
+.ins-ctrl .b-input.ins-input-short { flex: none; width: 96px; min-width: 0; max-width: 100%; font-variant-numeric: tabular-nums; }
+.ins-ctrl .seg-row { max-width: 100%; }
+.ins-range { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: var(--field-height); }
+.ins-range input[type=range] { min-width: 0; margin: 0; }
+.ins-range .field-label { min-width: 3.5em; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ins-ctrl .b-textarea { width: 100%; min-height: 44px; }
 .ins-ctrl label.row { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
 /* 檢查器內控件縮到桌面密度：色票 24px、seg 較窄 */
@@ -519,6 +544,14 @@ html:root[data-color-mode="dark"] {
   border: 2px solid var(--border-default-medium); padding: 0;
 }
 .swatch.active { border-color: var(--fg-brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+/* 調色盤鈕（自訂顏色）：彩虹底＋palette 圖示；真正的 <input type=color> 藏在旁邊只負責叫出系統選色器 */
+.swatch.custom {
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  background: conic-gradient(from 90deg, #f44336, #ffeb3b, #4caf50, #00bcd4, #3f51b5, #e91e63, #f44336);
+}
+.swatch.custom .material-icons { font-size: 18px; text-shadow: 0 0 3px rgba(0, 0, 0, .55); }
+.inspector .swatch.custom .material-icons { font-size: 15px; }
+.swatch-picker { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; border: 0; padding: 0; }
 .swatch.auto {
   background: var(--neutral-primary-soft); color: var(--text-body-subtle);
   font-size: 11px; width: auto; padding: 0 10px;
@@ -733,6 +766,50 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 #deviceTable.is-empty thead { display: none; }
 #deviceTable.is-empty tbody td { padding: 0; border-bottom: 0; }
 .device-row .device-ops .b-btn + .b-btn { margin-left: 8px; }
+/* 批量調整展示畫面精靈（2026-09-09）：固定尺寸的大 modal（換步驟高度不變，表格在 body 裡捲），
+   標題列＝左標題＋副標、右步驟進度條；第 1 步機器表、第 2 步版面表（都是 kit .b-tbl，無操作區） */
+.b-modal.is-batch {
+  width: min(1040px, calc(100vw - 48px)); max-width: none;
+  height: min(680px, calc(100vh - 48px)); max-height: none;
+  display: flex; flex-direction: column; overflow: hidden; /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
+}
+.b-modal.is-batch .b-modal-head { flex: none; }
+.b-modal.is-batch .batch-head-info { min-width: 0; }
+.b-modal.is-batch .batch-title-wrap { display: flex; align-items: center; gap: 6px; }
+.b-modal.is-batch .page-help .b-pop-panel { z-index: 5; } /* 蓋在表格上面就好；面板落在 modal 內，不會被 overflow:hidden 切到 */
+.b-modal.is-batch .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+.b-modal.is-batch .b-modal-foot { flex: none; }
+.b-modal.is-batch .wiz-steps { margin: 0; flex: none; width: 320px; }
+/* 勾選欄：表頭全選＋每列勾選/單選；整列可點＝切換（選取列淡主題色底） */
+.b-modal.is-batch .pick-col { width: 40px; padding-right: 0; text-align: center; }
+.b-modal.is-batch .pick-col input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; vertical-align: middle; cursor: pointer; }
+.b-modal.is-batch tbody tr.pick-row { cursor: pointer; }
+.b-modal.is-batch tbody tr.pick-row:hover td { background: var(--neutral-secondary-soft); }
+.b-modal.is-batch tbody tr.pick-row.is-selected td { background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.b-modal.is-batch tbody tr.pick-row.is-disabled { opacity: .5; cursor: not-allowed; }
+.b-modal.is-batch tbody tr.pick-row.is-disabled:hover td { background: transparent; }
+.b-modal.is-batch .device-thumb-col { width: 116px; padding-right: 0; text-align: center; }
+.b-modal.is-batch td.device-thumb-col .layout-thumb { display: inline-flex; vertical-align: middle; }
+.b-modal.is-batch .layout-pick-note { font-size: 13px; color: var(--text-body-subtle); line-height: 1.5; }
+.b-modal.is-batch .layout-pick-note .warn { color: var(--fg-warning, #b26a00); }
+.wiz-steps { display: flex; align-items: center; gap: 10px; margin: 4px 0 18px; }
+.wiz-step { display: flex; align-items: center; gap: 8px; flex: none; font-size: 13px; color: var(--text-body-subtle); transition: color .2s; }
+.wiz-n {
+  width: 24px; height: 24px; border-radius: var(--radius-full); flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 500; line-height: 1;
+  border: 1px solid var(--border-default); background: transparent; color: var(--text-body-subtle);
+  transition: background .2s, color .2s, border-color .2s;
+}
+.wiz-n :where(i, svg) { width: 14px; height: 14px; }
+.wiz-step.is-active { color: var(--text-heading); font-weight: 500; }
+.wiz-step.is-active .wiz-n { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wiz-step.is-done { color: var(--text-heading); }
+.wiz-step.is-done .wiz-n { background: color-mix(in srgb, var(--brand) 12%, transparent); border-color: transparent; color: var(--accent-text); }
+/* 兩步之間的連接線：底灰、完成後由左往右填主題色 */
+.wiz-bar { flex: 1; height: 2px; border-radius: 1px; background: var(--border-default); position: relative; overflow: hidden; }
+.wiz-bar::after { content: ''; position: absolute; inset: 0; width: 0; background: var(--accent); transition: width .3s ease-out; }
+.wiz-bar.is-done::after { width: 100%; }
 /* 版面清單：名稱左側的小縮圖（照版面結構縮排；區塊/分割間 1px 細縫當分隔線） */
 .layout-name-wrap { display: flex; align-items: center; gap: 12px; }
 .layout-thumb {

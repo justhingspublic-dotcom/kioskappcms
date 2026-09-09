@@ -27,7 +27,7 @@ const DEFAULT_CHAT_BASE = 'https://chat-api.justhings.ai'; // App ChatApiConfig.
 
 const DEFAULT_CELL = () => ({
   t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8, bgBlur: 0,
-  content: 'None', mqSpeed: 100, txtSize: 100, video: '', web: '', text: '',
+  content: 'None', mqSpeed: 100, txtSize: 100, glow: false, edgeFade: false, video: '', web: '', text: '',
   wAuto: true, wCounty: '', wDistrict: '', wDynBg: false,
   tap: 'None', tapUrl: '', parkFx: 'Sweep', parkLayout: 'Auto', agentId: '', agentName: '', assistantLayout: 'Kiosk',
 });
@@ -1063,15 +1063,69 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
       const size = cell.scale === 'Fit' ? 'contain' : 'cover';
       // 模糊（App：100% = 24dp；預覽依格子寬度換算）＋越模糊越暗的黑幕（最多 20%）
       const blur = Math.min(100, Math.max(0, Number(cell.bgBlur) || 0)) / 100;
-      const blurPx = blur * 24 * (el.clientWidth ? el.clientWidth / 1080 : 0.25);
+      const pxPerDp = el.clientWidth ? el.clientWidth / 1080 : 0.25;
+      const blurPx = blur * 24 * pxPerDp;
+      const fit = cell.scale === 'Fit';
+      // 完整顯示的留白（user 2026-09-09）：不露底色，鋪同一張圖的 100% 模糊＋20% 黑（＝模糊拉到底的樣子）；
+      // 圖層變成容器：底層 .pv-img-back（鋪滿、全模糊）＋前層 .pv-img-front（完整顯示、使用者的模糊值）。App ImageContent 同一規則
+      // 邊緣融合（user 2026-09-09）：讀到圖的原始尺寸後，把前層縮成圖實際佔的矩形，只在有留白的方向
+      // 用 mask 把兩側邊緣漸淡（另一方向貼齊格子邊不淡）。漸淡寬度＝短邊 15%，App EDGE_FADE_FRACTION 同值
+      const fitFront = (front, src) => {
+        const im = new Image();
+        im.onload = () => {
+          const l = front.parentElement;
+          if (!l || !im.naturalWidth || !im.naturalHeight) return;
+          const W = l.clientWidth, H = l.clientHeight;
+          if (!W || !H) return;
+          const sc = Math.min(W / im.naturalWidth, H / im.naturalHeight);
+          const w = im.naturalWidth * sc, h = im.naturalHeight * sc;
+          front.style.inset = `${((H - h) / 2).toFixed(2)}px ${((W - w) / 2).toFixed(2)}px`;
+          front.style.backgroundSize = '100% 100%';
+          // 漸淡寬度＝短邊 25%，曲線用 smoothstep（頭尾斜率零）：線性漸層在變成 100% 不透明那條線
+          // 會被看成一道淡框（馬赫帶；user 2026-09-09 回報「還是有邊框感」）。App fadeStops 同一組 9 點
+          const fade = Math.min(w, h) * 0.25;
+          const ramp = Array.from({ length: 9 }, (_, i) => { const t = i / 8; return t * t * (3 - 2 * t); });
+          const grad = (dir) => `linear-gradient(${dir}, ` +
+            ramp.map((a, i) => `rgba(0,0,0,${a.toFixed(3)}) ${(i / 8 * fade).toFixed(1)}px`).join(', ') + ', ' +
+            ramp.map((a, i) => `rgba(0,0,0,${(1 - a).toFixed(3)}) calc(100% - ${((1 - i / 8) * fade).toFixed(1)}px)`).join(', ') + ')';
+          const masks = [];
+          if (W - w > 1) masks.push(grad('to right'));
+          if (H - h > 1) masks.push(grad('to bottom'));
+          front.style.webkitMaskImage = front.style.maskImage = masks.join(', ') || 'none';
+          front.style.webkitMaskComposite = 'source-in';
+          front.style.maskComposite = 'intersect';
+        };
+        im.src = mediaSrc(src);
+      };
+      const setSrc = (l, src) => {
+        const url = `url(${mediaSrc(src)})`;
+        if (fit) {
+          l.querySelectorAll('.pv-img-back, .pv-img-front').forEach((c) => { c.style.backgroundImage = url; });
+          const front = l.querySelector('.pv-img-front');
+          if (front && cell.edgeFade) fitFront(front, src);
+        } else l.style.backgroundImage = url;
+      };
       const mkLayer = (src) => {
         const l = document.createElement('div');
-        l.className = 'pv-img-layer';
-        l.style.backgroundImage = `url(${mediaSrc(src)})`;
-        l.style.backgroundSize = size;
+        l.className = 'pv-img-layer' + (fit ? ' fit' : '');
         // 模糊會讓圖的邊緣淡出成透明、露出底色變成一圈白邊／色邊：把圖層往外撐兩倍模糊半徑，淡出的部分被格子裁掉（user 2026-09-08 回報白邊）
         // 圖層要蓋過格子的 2px 透明邊框（absolute 只到 padding box，那圈會露出格子底色＝白邊）；模糊時再往外撐兩倍模糊半徑，濾鏡淡出的邊被裁掉
-        if (blur > 0) { l.style.filter = `blur(${blurPx.toFixed(2)}px)`; l.style.inset = `-${(2 + blurPx * 2).toFixed(1)}px`; }
+        if (fit) {
+          const fullPx = 24 * pxPerDp;
+          const back = document.createElement('div');
+          back.className = 'pv-img-back';
+          back.style.filter = `blur(${fullPx.toFixed(2)}px)`; back.style.inset = `-${(fullPx * 2).toFixed(1)}px`;
+          const scrim = document.createElement('div');
+          scrim.className = 'pv-img-back-scrim';
+          const front = document.createElement('div');
+          front.className = 'pv-img-front';
+          if (blur > 0) front.style.filter = `blur(${blurPx.toFixed(2)}px)`;
+          l.append(back, scrim, front);
+        } else {
+          l.style.backgroundSize = size;
+          if (blur > 0) { l.style.filter = `blur(${blurPx.toFixed(2)}px)`; l.style.inset = `-${(2 + blurPx * 2).toFixed(1)}px`; }
+        }
+        setSrc(l, src);
         return l;
       };
       const a = mkLayer(imgs[0]);
@@ -1084,7 +1138,7 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
         timers.push(setInterval(() => {
           idx = (idx + 1) % imgs.length;
           const back = front === a ? b : a;
-          back.style.backgroundImage = `url(${mediaSrc(imgs[idx])})`;
+          setSrc(back, imgs[idx]);
           back.style.opacity = '1';
           front.style.opacity = '0';
           front = back;
@@ -1102,9 +1156,16 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
   // 內容的真實預覽（字級規則與 App 相同：跑馬燈 = 格高 55%，天氣依格子長寬混算）
   const autoFg = cell.bg === 'Image' ? '#ffffff' : autoTextColor(cell.bgColor);
   const fg = cell.txtColor != null ? colorCss(cell.txtColor) : autoFg;
+  // 文字發光：三層 text-shadow（em 單位，跟字級一起縮放），顏色預設跟文字色；App 端疊兩層 Shadow
+  const glowCss = () => {
+    if (!cell.glow) return '';
+    const c = cell.glowColor != null ? colorCss(cell.glowColor) : fg;
+    return `0 0 0.12em ${c}, 0 0 0.35em ${c}, 0 0 0.8em ${c}`;
+  };
   if (cell.content === 'Text' && cell.text) {
     const t = document.createElement('div');
     t.className = 'pv-text'; t.textContent = cell.text; t.style.color = fg;
+    t.style.textShadow = glowCss();
     t.dataset.size = cell.txtSize || 100; // 字級 %（fitPreview 依畫面寬換算）
     el.appendChild(t);
   } else if (cell.content === 'Marquee' && cell.text) {
@@ -1112,6 +1173,7 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     wrap.className = 'pv-marquee';
     const span = document.createElement('span');
     span.textContent = cell.text; span.style.color = fg;
+    span.style.textShadow = glowCss();
     span.dataset.speed = cell.mqSpeed || 100;
     wrap.appendChild(span);
     el.appendChild(wrap);
@@ -1297,10 +1359,10 @@ function updateBadges() {
     if (span) span.textContent = span.textContent.replace(/\d+×\d+/, `${px.w}×${px.h}`);
   });
   if (selected) {
-    const h3 = $('cellPanel').querySelector('.panel-head h3');
-    if (h3) {
+    const size = $('cellPanel').querySelector('.panel-size');
+    if (size) {
       const px = cellPixelSizeOf(selected);
-      h3.textContent = h3.textContent.replace(/\d+×\d+ px/, `${px.w}×${px.h} px`);
+      size.textContent = `${px.w}×${px.h} px`;
     }
   }
 }
@@ -1354,9 +1416,19 @@ function splitDivider(bi, node) {
 // ---------- 右側單格設定面板 ----------
 function renderPanel() {
   const panel = $('cellPanel');
-  panel.innerHTML = '';
+  // 重繪前先記住捲動位置：innerHTML 清空的瞬間內容高度歸零，面板（和 modal 內的 body）的 scrollTop
+  // 被夾回 0，每改一個設定就跳回頂部（user 2026-09-09 回報 UX 很差）。重建完再把位置放回去。
+  const scrollers = [panel, panel.closest('.b-modal-body')].filter(Boolean);
+  const savedScroll = scrollers.map((el) => [el, el.scrollTop]);
   const sel = selected;
   const cell = sel && getCell(sel);
+  // 只有「同一格重繪」才放回去；點到別的格子仍從頂部開始看
+  const panelKey = cell ? `${sel.bi}/${sel.sub || ''}` : '';
+  const sameCell = panel.dataset.renderedKey === panelKey;
+  panel.dataset.renderedKey = panelKey;
+  const restoreScroll = () => { if (sameCell) savedScroll.forEach(([el, top]) => { if (el.scrollTop !== top) el.scrollTop = top; }); };
+  panel.querySelectorAll('.seg-row').forEach((row) => row._dispose?.());
+  panel.innerHTML = '';
   panel.classList.remove('hidden');
   panel.classList.toggle('is-empty', !cell);
   // 內容顯示/切換淡入（kit SPA crossfade 的縮小版：重排 class 讓動畫每次重播）
@@ -1380,8 +1452,11 @@ function renderPanel() {
   const head = document.createElement('div');
   head.className = 'panel-head';
   const h3 = document.createElement('h3');
-  h3.textContent = `${cellLabel(sel)}｜${cellPx.w}×${cellPx.h} px`;
-  head.appendChild(h3);
+  h3.textContent = cellLabel(sel);
+  const size = document.createElement('span');
+  size.className = 'panel-size';
+  size.textContent = `${cellPx.w}×${cellPx.h} px`;
+  head.append(h3, size);
   panel.appendChild(head);
 
   const body = document.createElement('div');
@@ -1426,7 +1501,17 @@ function renderPanel() {
   // ---- 版面（分割 / 合併 / 區塊操作；分割限制改掛按鈕 tooltip，不佔版面）----
   {
     const blocks = page().blocks;
-    const ctrls = [];
+    sec('版面');
+    const actions = rowFull();
+    actions.classList.add('ins-actions');
+    const actionGroup = (label, ...buttons) => {
+      const group = document.createElement('div');
+      group.className = 'ins-action-group';
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', label);
+      group.append(...buttons);
+      actions.appendChild(group);
+    };
     if (!sel.sub) {
       const limitTip = '每個大塊只能分割一次，子格不可再分割';
       const b1 = btn('上下分割', () => {
@@ -1438,9 +1523,9 @@ function renderPanel() {
         selected = { bi: sel.bi, sub: 'a' }; setDirty(true); refresh();
       });
       b1.title = limitTip; b2.title = limitTip;
-      ctrls.push(b1, b2);
+      actionGroup('分割區塊', b1, b2);
     } else {
-      ctrls.push(btn('移除此格（合併）', () => {
+      actionGroup('合併區塊', btn('移除此格（合併）', () => {
         const other = sel.sub === 'a' ? 'b' : 'a';
         blocks[sel.bi].node = blocks[sel.bi].node[other];
         selected = { bi: sel.bi, sub: null }; setDirty(true); refresh();
@@ -1452,8 +1537,8 @@ function renderPanel() {
       up.disabled = sel.bi === 0;
       down.disabled = sel.bi === blocks.length - 1;
       up.title = down.title = '整個大區塊連同分割與高度一起搬動；要交換兩格的設定，直接在畫布上把格子拖到另一格放開';
-      ctrls.push(up, down);
-      const del = btn('刪除整個區塊', async () => {
+      actionGroup('調整區塊順序', up, down);
+      const del = btn('刪除區塊', async () => {
         const ok = await BDialog.confirm({
           title: '刪除這個大區塊？', desc: '區塊內的設定會一併刪除。', variant: 'danger', confirmText: '刪除',
         });
@@ -1461,11 +1546,11 @@ function renderPanel() {
         blocks.splice(sel.bi, 1);
         selected = null; setDirty(true); refresh();
       });
-      del.classList.add('b-btn-danger-soft');
-      ctrls.push(del);
+      del.classList.add('b-btn-text', 'b-btn-text-danger', 'ins-action-delete');
+      del.title = '刪除整個區塊';
+      del.setAttribute('aria-label', '刪除整個區塊');
+      actions.appendChild(del);
     }
-    sec('版面');
-    rowFull(...ctrls);
   }
 
   // ---- 背景（天氣格多一個「天氣背景」＝動畫天空）----
@@ -1476,32 +1561,55 @@ function renderPanel() {
       ['圖片', !cell.wDynBg && cell.bg === 'Image', () => { cell.bg = 'Image'; cell.wDynBg = false; setDirty(true); refresh(); }],
     ];
     if (isWeather) segs.push(['天氣背景', !!cell.wDynBg, () => { cell.wDynBg = true; setDirty(true); refresh(); }]);
-    const extra = [];
-    if (isWeather && cell.wDynBg) {
-      extra.push(hint('依即時天氣顯示動畫天空（陽光、雲、雨絲…）；字色自動配置，深色天空白字、霧/雪黑字。'));
-    } else if (cell.bg === 'Image') {
-      extra.push(thumbList(cell, cellPx));
-    } else {
-      extra.push(swatchRow(BG_SWATCHES, cell.bgColor, false, (v) => { cell.bgColor = v; touch(); renderPanel(); }));
-    }
     sec('背景');
-    rowFull(segRow(segs), ...extra);
+    insRow('類型', segRow(segs));
+    if (isWeather && cell.wDynBg) {
+      subRow('', hint('依即時天氣顯示動畫天空（陽光、雲、雨絲…）；字色自動配置，深色天空白字、霧/雪黑字。'));
+    } else if (cell.bg === 'Image') {
+      subRow('圖片', thumbList(cell, cellPx));
+    } else {
+      subRow('顏色', swatchRow(BG_SWATCHES, cell.bgColor, false, (v) => { cell.bgColor = v; touch(); renderPanel(); }));
+    }
     if (!cell.wDynBg && cell.bg === 'Image') {
-      subRow('每張秒數', numInput(cell.dur ?? 8, 3, 30, (v) => { cell.dur = v; touch(); }));
-      subRow('顯示方式', selInput([['Crop', '填滿裁切'], ['Fit', '完整顯示']], cell.scale || 'Crop', (v) => { cell.scale = v; touch(); }));
+      const duration = numInput(cell.dur ?? 8, 3, 30, (v) => { cell.dur = v; touch(); });
+      duration.classList.add('ins-input-short');
+      duration.setAttribute('aria-label', '每張時間（秒）');
+      const unit = document.createElement('span');
+      unit.className = 'field-label';
+      unit.textContent = '秒';
+      subRow('每張時間', duration, unit);
+      subRow('顯示方式', selInput([['Crop', '填滿裁切'], ['Fit', '完整顯示']], cell.scale || 'Crop', (v) => { cell.scale = v; setDirty(true); refresh(); }));
+      if (cell.scale === 'Fit') {
+        // 完整顯示的留白鋪同一張圖的模糊底；邊緣融合讓圖靠留白那側的邊漸淡進去，看起來才像一張完整的圖（user 2026-09-09）
+        subRow('邊緣融合', segRow([
+          ['否', !cell.edgeFade, () => { cell.edgeFade = false; setDirty(true); refresh(); }],
+          ['是', !!cell.edgeFade, () => { cell.edgeFade = true; setDirty(true); refresh(); }],
+        ]));
+        subRow('', hint('圖片靠留白那側的邊緣漸淡，融進模糊背景。'));
+      }
       {
         // 模糊滑桿：與 App 同規則（0 = 不模糊；越模糊越暗，最暗 20% 黑）
         const range = document.createElement('input');
         range.type = 'range'; range.min = 0; range.max = 100; range.step = 5;
         range.value = cell.bgBlur ?? 0;
-        const val = lbl(range.value === '0' ? '不模糊' : `${range.value}%`);
+        range.setAttribute('aria-label', '背景模糊');
+        range.setAttribute('aria-describedby', 'cell-bg-blur-hint');
+        const val = document.createElement('span');
+        val.className = 'field-label';
+        val.textContent = range.value === '0' ? '不模糊' : `${range.value}%`;
+        range.setAttribute('aria-valuetext', val.textContent);
         range.addEventListener('input', () => {
           cell.bgBlur = Number(range.value);
           val.textContent = range.value === '0' ? '不模糊' : `${range.value}%`;
+          range.setAttribute('aria-valuetext', val.textContent);
           touch();
         });
-        subRow('模糊', range, val);
-        subRow('', hint('越模糊畫面也會越暗一點（最暗 20% 黑），讓上面的文字更好讀。'));
+        const slider = document.createElement('div');
+        slider.className = 'ins-range';
+        slider.append(range, val);
+        const help = hint('提高模糊程度時，背景也會稍微變暗（最多 20%），讓文字更好讀。');
+        help.id = 'cell-bg-blur-hint';
+        subRow('模糊', slider, help);
       }
     }
   }
@@ -1521,8 +1629,9 @@ function renderPanel() {
       ta.addEventListener('input', () => { cell.text = ta.value; touch(); });
       subRow('文字', ta);
     }
-    if (cell.content === 'Text') {
+    if (cell.content === 'Text' || cell.content === 'ParkInfo') {
       // 字級滑塊（與 App 的 TextSizeField 同範圍 50–300%，步進 10；user 2026-09-08）
+      // 園區資訊格也用同一顆調標題大小（user 2026-09-09）
       const range = document.createElement('input');
       range.type = 'range'; range.min = 50; range.max = 300; range.step = 10;
       range.value = cell.txtSize ?? 100;
@@ -1602,6 +1711,19 @@ function renderPanel() {
         touch(); renderPanel();
       }));
     }
+    if (cell.content === 'Marquee' || cell.content === 'Text') {
+      // 文字發光（user 2026-09-09）：字周圍一圈光暈；顏色預設跟文字色，也可另選或用調色盤
+      subRow('發光', segRow([
+        ['否', !cell.glow, () => { cell.glow = false; setDirty(true); refresh(); }],
+        ['是', !!cell.glow, () => { cell.glow = true; setDirty(true); refresh(); }],
+      ]));
+      if (cell.glow) {
+        subRow('發光顏色', swatchRow(TXT_SWATCHES, cell.glowColor, true, (v) => {
+          if (v === null) delete cell.glowColor; else cell.glowColor = v;
+          touch(); renderPanel();
+        }, '跟文字色'));
+      }
+    }
   }
 
   // ---- 點擊動作 ----
@@ -1673,6 +1795,9 @@ function renderPanel() {
   }
 
   if (window.BDropdown) BDropdown.init(panel); // 動態產生的下拉套 kit 樣式
+  // 同一格重繪＝內容高度一樣，位置放得回去；淡入動畫重排後再補一次
+  restoreScroll();
+  requestAnimationFrame(restoreScroll);
 }
 
 // ---------- 面板小元件 ----------
@@ -1728,6 +1853,14 @@ function segRow(items) {
     moveInd();
     requestAnimationFrame(() => { ind.style.transition = ''; });
   });
+  // 面板變窄或字級改變時，segment 可能換行；底色跟著新位置走。
+  // renderPanel 重建前釋放 observer，避免保留已移除的控件。
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(moveInd);
+    observer.observe(row);
+    row.querySelectorAll('.seg').forEach((seg) => observer.observe(seg));
+    row._dispose = () => observer.disconnect();
+  }
   return row;
 }
 function selInput(options, value, onChange) {
@@ -1777,23 +1910,46 @@ function checkRow(text, checked, onChange) {
   row.append(c, document.createTextNode(text));
   return row;
 }
-function swatchRow(colors, current, withAuto, onPick) {
+// ARGB 整數 ↔ <input type=color> 的 #rrggbb（調色盤只有 RGB，存回時一律不透明）
+const hexOfArgb = (argb) => '#' + (Number(argb) & 0xFFFFFF).toString(16).padStart(6, '0');
+const argbOfHex = (hex) => parseInt('FF' + hex.replace('#', ''), 16);
+function swatchRow(colors, current, withAuto, onPick, autoLabel) {
   const row = document.createElement('div');
   row.className = 'swatches';
   if (withAuto) {
     const a = document.createElement('button');
     a.className = 'swatch auto' + (current == null ? ' active' : '');
-    a.textContent = '自動';
+    a.textContent = autoLabel || '自動';
     a.onclick = () => onPick(null);
     row.appendChild(a);
   }
+  const cur = current == null ? null : Number(current);
   for (const c of colors) {
     const b = document.createElement('button');
-    b.className = 'swatch' + (Number(current) === c ? ' active' : '');
+    b.className = 'swatch' + (cur === c ? ' active' : '');
     b.style.background = colorCss(c);
     b.onclick = () => onPick(c);
     row.appendChild(b);
   }
+  // 調色盤（user 2026-09-09）：不限預設色。原生 <input type=color> 藏在旁邊，按調色盤鈕才叫出來；
+  // 用 change 而不是 input：onPick 會重繪面板、DOM 重建會把還開著的調色盤關掉。
+  const picker = document.createElement('input');
+  picker.type = 'color'; picker.className = 'swatch-picker'; picker.tabIndex = -1;
+  picker.value = hexOfArgb(cur != null ? cur : colors[0]);
+  picker.addEventListener('change', () => onPick(argbOfHex(picker.value)));
+  if (cur != null && !colors.includes(cur)) {
+    // 目前是自訂色：多顯示一格，選取狀態才看得到；再點一次可繼續調
+    const b = document.createElement('button');
+    b.className = 'swatch active'; b.title = '自訂顏色';
+    b.style.background = colorCss(cur);
+    b.onclick = () => picker.click();
+    row.appendChild(b);
+  }
+  const custom = document.createElement('button');
+  custom.className = 'swatch custom'; custom.title = '自訂顏色'; custom.setAttribute('aria-label', '自訂顏色');
+  custom.innerHTML = '<span class="material-icons">palette</span>';
+  custom.onclick = () => picker.click();
+  row.append(custom, picker);
   return row;
 }
 function thumbList(cell, cellPx) {
@@ -1931,6 +2087,22 @@ async function publishToDevices(targets, partialConfig, verb) {
 
 /** 勾選目標機器的小對話框（BDialog 沒有多選，沿用 kit modal 樣式自建）。
  *  opts = { title, desc, confirmText, single, items: [{ d, warn }] } → resolve 選中的機器陣列或 null。 */
+/** 清單對話框的一列：勾選框/單選＋名稱（＋右側 warn）。 */
+function pickListItem({ input, label: text, warn }) {
+  const label = document.createElement('label');
+  label.className = 'copy-item';
+  const name = document.createElement('span');
+  name.textContent = text;
+  label.append(input, name);
+  if (warn) {
+    const w = document.createElement('span');
+    w.className = 'copy-warn';
+    w.textContent = warn;
+    label.appendChild(w);
+  }
+  return label;
+}
+
 function pickDevicesDialog(opts) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
@@ -1961,22 +2133,11 @@ function pickDevicesDialog(opts) {
     list.className = 'copy-list';
     const checks = [];
     for (const { d, warn } of opts.items) {
-      const label = document.createElement('label');
-      label.className = 'copy-item';
       const c = document.createElement('input');
       c.type = opts.single ? 'radio' : 'checkbox';
       if (opts.single) c.name = 'pick-device';
       checks.push([c, d]);
-      const name = document.createElement('span');
-      name.textContent = d.DeviceName || d.DeviceId;
-      label.append(c, name);
-      if (warn) {
-        const w = document.createElement('span');
-        w.className = 'copy-warn';
-        w.textContent = warn;
-        label.appendChild(w);
-      }
-      list.appendChild(label);
+      list.appendChild(pickListItem({ input: c, label: d.DeviceName || d.DeviceId, warn }));
     }
     body.appendChild(list);
 
@@ -2692,7 +2853,7 @@ async function applySharedLayout(layout) {
   if (!layout.pages || !layout.pages.length) return;
   const name = layout.name || '未命名版面';
   await appendPagesToDevices({
-    pages: layout.pages, screen: layout.screen, fallbackName: layout.name || '',
+    pages: layout.pages, screen: layout.screen, fallbackName: layout.name || '', layoutId: layout.id,
     title: `把「${name}」加入機器`,
     desc: '會把這個版面加成所選機器的新頁面（接在現有頁面後面）並立即發布；機器原有的頁面與設定都不會被改動。',
     noTargetsTitle: '沒有機器', noTargetsDesc: '目前帳號下沒有任何機器。',
@@ -2701,7 +2862,9 @@ async function applySharedLayout(layout) {
 }
 
 /** 把一組頁面「接在」所選機器現有頁面後面並發布（版面設定「加入機器」與工作區「加到其他機器」共用）。
- *  opts = { pages, screen, fallbackName, excludeDeviceId?, title, desc, noTargetsTitle, noTargetsDesc, verb } */
+ *  opts = { pages, screen, fallbackName, layoutId?, excludeDeviceId?, title, desc, noTargetsTitle, noTargetsDesc, verb }
+ *  layoutId＝來源版面 id（版面設定「加入機器」才有）：打在每一頁上，機器總覽「展示版面」靠它認出這台機器裡哪一頁是那個版面；
+ *  工作區「加到其他機器」不傳（頁上原本有記號會跟著深拷貝過去）。 */
 async function appendPagesToDevices(opts) {
   const srcPages = opts.pages || [];
   if (!srcPages.length) return;
@@ -2735,15 +2898,23 @@ async function appendPagesToDevices(opts) {
     }
     // 頁面 id 在同一台機器的 config 裡要唯一 → 附加時重新編號；
     // 頁面沒取名就帶版面名，機器的頁籤/admin-pager 上才認得出來
-    let nextId = Math.max(0, ...existing.map((p) => p.id || 0));
-    const appended = JSON.parse(JSON.stringify(srcPages))
-      .map((p) => ({ ...p, id: ++nextId, name: p.name || opts.fallbackName || '' }));
+    const appended = stampAppendedPages(srcPages, existing, opts.fallbackName, opts.layoutId);
     try {
       await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: [...existing, ...appended] } });
       done.push(d);
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
   reportBatch(done, failed, opts.verb);
+}
+
+/** 準備要接在某台機器後面的頁面：深拷貝、重新編 id（同一台機器裡頁 id 要唯一）、沒取名就帶版面名
+ *  （機器的頁籤/admin-pager 上才認得出來）、有來源版面就打上 layoutId。「加入機器」與「展示版面」共用。 */
+function stampAppendedPages(srcPages, existing, fallbackName, layoutId) {
+  let nextId = Math.max(0, ...existing.map((p) => p.id || 0));
+  return JSON.parse(JSON.stringify(srcPages)).map((p) => ({
+    ...p, id: ++nextId, name: p.name || fallbackName || '',
+    ...(layoutId ? { layoutId } : {}),
+  }));
 }
 
 /** 共用設定 › 機器設定頁：共用的客服帳號＋休眠卡片。 */
@@ -2927,6 +3098,10 @@ function connIcon(d) {
     cls = 'warning'; icon = 'unplug'; title = `連到別的伺服器（${shortServer(d.LastServerUrl)}）`;
     body = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」按「一鍵填入正式伺服器」。`;
   } else if (d.ServerMatch === true) {
+    // 綠勾只在「在線」時顯示（2026-09-09）：這筆是機器最後一次連上本站時自報的，離線後它若改連別台伺服器，
+    // 本站不會再收到任何回報、無從得知，掛著綠勾會誤導（user 實測：手機切去正式站，這裡仍顯示設定正確）。
+    // 黃／紅警告照舊離線也顯示——那是最後一次接觸時就看到的問題，值得留著。
+    if (!(d.LastSeenAgoSec < 60)) return null;
     cls = 'ok'; icon = 'circle-check'; title = '連線設定正確';
     body = `伺服器位址與連線金鑰都是本站的。${d.LastAppVersion ? `\nApp v${d.LastAppVersion}` : ''}`;
   } else {
@@ -3039,6 +3214,409 @@ async function renderDevicesView() {
   }
   // BDropdown.init 移除：表格裡已無 select（原本是「屬於」的分配下拉）
   if (window.lucide) lucide.createIcons();
+}
+
+// ---------- 機器總覽 › 展示版面（2026-09-09 批量展示，精靈式 modal） ----------
+// 按鈕 → 第 1 步勾機器 → 下一步 → 第 2 步單選共用版面（每個版面標出這幾台的狀況）→ 完成：
+// 每台各自切到「自己清單裡的那一頁」並進入展示模式（走單機「在機器上展示此頁」同一條路：PUT 帶 activePage，
+// 伺服器蓋章 web，App v1.20+ 收到就切頁）。還沒有那個版面的機器先把版面接在最後面再切過去（同一次 PUT 同時帶
+// pages 與 activePage）。認頁靠加入時打的 layoutId，頁名＝版面名當備援（findLayoutPage）。
+$('showLayoutBtn').addEventListener('click', () => showLayoutWizard());
+
+/** 步驟進度條：「① 選擇機器 ─── ② 選擇版面」；set(n) 把第 n 步點亮、前面的打勾、連接線填色。 */
+function wizardSteps(labels) {
+  const el = document.createElement('div');
+  el.className = 'wiz-steps';
+  const nodes = labels.map((t, i) => {
+    const s = document.createElement('div');
+    s.className = 'wiz-step';
+    s.innerHTML = `<span class="wiz-n">${i + 1}</span><span class="wiz-t">${esc(t)}</span>`;
+    return s;
+  });
+  nodes.forEach((s, i) => {
+    if (i) { const bar = document.createElement('span'); bar.className = 'wiz-bar'; el.appendChild(bar); }
+    el.appendChild(s);
+  });
+  return {
+    el,
+    set(n) {
+      nodes.forEach((s, i) => {
+        s.classList.toggle('is-active', i + 1 === n);
+        s.classList.toggle('is-done', i + 1 < n);
+        s.querySelector('.wiz-n').innerHTML = i + 1 < n ? '<i data-lucide="check" aria-hidden="true"></i>' : String(i + 1);
+      });
+      el.querySelectorAll('.wiz-bar').forEach((b, i) => b.classList.toggle('is-done', i + 2 <= n));
+      if (window.lucide) lucide.createIcons();
+    },
+  };
+}
+
+/** 精靈裡的可勾選表格列：點列任何地方＝切換該列的勾選/單選（點到 input 本身交給瀏覽器）；
+ *  onPick(input) 在勾選狀態改變後呼叫。disabled 的列淡化不可點。 */
+function pickTableRow(input, cells, disabled, onPick) {
+  const tr = document.createElement('tr');
+  tr.className = 'pick-row' + (disabled ? ' is-disabled' : '');
+  const td = document.createElement('td');
+  td.className = 'pick-col';
+  input.disabled = !!disabled;
+  td.appendChild(input);
+  tr.appendChild(td);
+  for (const c of cells) tr.appendChild(c);
+  const sync = () => tr.classList.toggle('is-selected', input.checked);
+  input.addEventListener('change', () => { sync(); onPick(input); });
+  tr.addEventListener('click', (e) => {
+    if (disabled || e.target === input || e.target.closest('input, button, a')) return;
+    if (input.type === 'radio' && input.checked) return;
+    input.checked = !input.checked;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  sync();
+  return tr;
+}
+function tdText(text, cls) {
+  const td = document.createElement('td');
+  if (cls) td.className = cls;
+  td.textContent = text;
+  return td;
+}
+
+/** 批量調整展示畫面精靈（2026-09-09 改版：整張表格、固定尺寸、表頭全選）：
+ *  第 1 步＝機器表（勾選／名稱／編號／最後更新／狀態，同機器總覽但無縮圖與操作區）、
+ *  第 2 步＝版面表（單選／縮圖／名稱／建立者／更新時間／這幾台的狀況，同版面設定但無操作區）。
+ *  回傳 { layout, plan }（plan＝每台機器的計畫，見 planLayoutShow）或 null（取消）。 */
+function showLayoutWizardDialog(devices, layouts) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'b-modal-overlay';
+    overlay.setAttribute('data-modal-vue', '');   // 同 pickDevicesDialog：別讓殼層 modal JS 接管
+    overlay.setAttribute('data-modal-anim', 'vue');
+    overlay.style.zIndex = '1600';
+    const modal = document.createElement('div');
+    modal.className = 'b-modal is-batch';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    // 標題列：左＝標題＋副標（目前步驟說明），右＝步驟進度條
+    const head = document.createElement('div');
+    head.className = 'b-modal-head';
+    const info = document.createElement('div');
+    info.className = 'batch-head-info';
+    const h = document.createElement('h3');
+    h.className = 'b-modal-title';
+    h.textContent = '批量調整展示畫面';
+    // 標題旁 ?＝使用說明（同各頁標題旁的 page-help：hover 展開、點擊釘住）；副標只留一句步驟提示
+    const help = document.createElement('div');
+    help.className = 'b-pop page-help';
+    help.innerHTML =
+      '<button type="button" class="page-help-btn" data-pop aria-label="使用說明" aria-haspopup="true"><i data-lucide="circle-help"></i></button>' +
+      '<div class="b-pop-panel page-help-panel">' +
+      '<p class="b-pop-panel-title">使用說明</p>' +
+      '<p>勾選機器後按「下一步」挑一個共用版面，按「完成」這幾台就會一起切換到那個版面並進入展示模式。</p>' +
+      '<p>機器裡已經有這個版面時直接切到那一頁；還沒有的會先把版面接在現有頁面後面再切換，頁數滿了就無法加入。</p>' +
+      '<p>版面在後台改過的話，機器上那一頁會一併更新成目前的版面內容（機器上對那一頁做過的修改會被蓋掉），狀況欄會先標出哪幾台會更新。</p>' +
+      '<p>「上一步」會保留勾選；中途關閉不會改動任何機器。</p>' +
+      '</div>';
+    const helpBtn = help.querySelector('[data-pop]');
+    helpBtn.addEventListener('click', (e) => { // kit 的 .b-pop 只在載入時綁，動態建的自己接同一套開合
+      e.stopPropagation();
+      const open = !help.classList.contains('is-open');
+      help.classList.toggle('is-open', open);
+      helpBtn.setAttribute('aria-expanded', String(open));
+    });
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'batch-title-wrap';
+    titleWrap.append(h, help);
+    const sub = document.createElement('p');
+    sub.className = 'b-modal-sub';
+    info.append(titleWrap, sub);
+    const steps = wizardSteps(['選擇機器', '選擇版面']);
+    head.append(info, steps.el);
+
+    // 內容：固定高度的表格區，換步驟只換表格內容，modal 尺寸不變
+    const body = document.createElement('div');
+    body.className = 'b-modal-body';
+    const scroll = document.createElement('div');
+    scroll.className = 'b-tbl-scroll';
+    const table = document.createElement('table');
+    table.className = 'b-tbl';
+    scroll.appendChild(table);
+    body.appendChild(scroll);
+
+    const foot = document.createElement('div');
+    foot.className = 'b-modal-foot';
+    const back = document.createElement('button');
+    back.type = 'button'; back.className = 'b-btn b-btn-quiet';
+    const next = document.createElement('button');
+    next.type = 'button'; next.className = 'b-btn b-btn-text';
+    foot.append(back, next);
+    modal.append(head, body, foot);
+    overlay.appendChild(modal);
+
+    const selected = new Set(); // 第 1 步勾選的機器（回上一步保留）
+    let infos = null;           // 第 2 步：所選機器的整份設定
+    let plans = null;           // Map(layout → plan)
+    let pickedLayout = null;
+    let step = 0;
+    const fmtTime = (t) => (t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '');
+
+    function renderStep1() {
+      step = 1; steps.set(1);
+      sub.textContent = '第 1 步：勾選要一起切換畫面的機器。';
+      clearListThumbs();
+      table.innerHTML = '';
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      const all = document.createElement('input');
+      all.type = 'checkbox'; all.setAttribute('aria-label', '全選機器');
+      const allTh = document.createElement('th');
+      allTh.className = 'pick-col';
+      allTh.appendChild(all);
+      hr.appendChild(allTh);
+      hr.insertAdjacentHTML('beforeend', '<th>名稱</th><th>編號</th><th>最後更新</th><th>狀態</th>');
+      thead.appendChild(hr);
+      const tbody = document.createElement('tbody');
+      const boxes = [];
+      const syncAll = () => {
+        const n = boxes.filter((b) => b.checked).length;
+        all.checked = !!boxes.length && n === boxes.length;
+        all.indeterminate = n > 0 && n < boxes.length;
+        next.disabled = !n;
+      };
+      for (const d of devices) {
+        const c = document.createElement('input');
+        c.type = 'checkbox'; c.checked = selected.has(d);
+        c.setAttribute('aria-label', `選取「${d.DeviceName || d.DeviceId}」`);
+        boxes.push(c);
+        tbody.appendChild(pickTableRow(c, [
+          tdText(d.DeviceName || d.DeviceId, 'b-th'),
+          tdText(d.DeviceId, 'device-id-dim device-mono'),
+          tdText(fmtTime(d.UpdatedAt), 'num device-id-dim'),
+          statusCell(d),
+        ], false, () => { if (c.checked) selected.add(d); else selected.delete(d); syncAll(); }));
+      }
+      all.addEventListener('change', () => {
+        const on = all.checked; // 先抓目標值：每列的 change 會跑 syncAll 改寫 all.checked，不能在迴圈裡直接讀
+        for (const b of boxes) { if (b.checked !== on) { b.checked = on; b.dispatchEvent(new Event('change', { bubbles: true })); } }
+        syncAll();
+      });
+      table.append(thead, tbody);
+      if (window.lucide) lucide.createIcons();
+      back.textContent = '取消'; next.textContent = '下一步';
+      syncAll();
+    }
+    function renderStep2() {
+      step = 2; steps.set(2);
+      sub.textContent = `第 2 步：選擇要在這 ${selected.size} 台機器上展示的共用版面。`;
+      clearListThumbs();
+      table.innerHTML = '';
+      table.insertAdjacentHTML('beforeend',
+        '<thead><tr><th class="pick-col"></th><th class="device-thumb-col"></th><th>名稱</th><th>建立者</th><th>更新時間</th><th>狀況</th></tr></thead>');
+      const tbody = document.createElement('tbody');
+      for (const layout of layouts) {
+        const { note, noteWarn, disabled } = describePlan(plans.get(layout));
+        const r = document.createElement('input');
+        r.type = 'radio'; r.name = 'pick-layout'; r.checked = pickedLayout === layout;
+        r.setAttribute('aria-label', `選擇「${layout.name || '未命名版面'}」`);
+        const thumbTd = document.createElement('td');
+        thumbTd.className = 'device-thumb-col';
+        thumbTd.appendChild(sharedLayoutThumb(layout));
+        const noteTd = document.createElement('td');
+        noteTd.className = 'layout-pick-note';
+        if (note) noteTd.append(note);
+        if (noteWarn) {
+          if (note) noteTd.append('　');
+          const w = document.createElement('span');
+          w.className = 'warn';
+          w.textContent = noteWarn;
+          noteTd.appendChild(w);
+        }
+        tbody.appendChild(pickTableRow(r, [
+          thumbTd,
+          tdText(layout.name || '未命名版面', 'b-th layout-pick-name'),
+          tdText(layout.createdBy || '—'),
+          tdText(fmtTime(layout.updatedAt), 'num'),
+          noteTd,
+        ], disabled, () => { if (r.checked) { pickedLayout = layout; next.disabled = false; } }));
+      }
+      table.appendChild(tbody);
+      back.textContent = '上一步'; next.textContent = '完成';
+      next.disabled = !pickedLayout || describePlan(plans.get(pickedLayout)).disabled;
+    }
+
+    let settled = false;
+    function close(value) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onEsc, true);
+      overlay.classList.remove('is-open');
+      let removed = false;
+      const fin = (e) => {
+        if (removed || (e && e.target !== overlay)) return;
+        removed = true;
+        overlay.remove();
+        document.body.classList.remove('b-modal-lock');
+      };
+      overlay.addEventListener('transitionend', fin);
+      setTimeout(fin, 200);
+      resolve(value);
+    }
+    // 關閉前確認（user 2026-09-09 指示）：只要動過（勾了機器、進到第 2 步、選了版面）就先問；
+    // 確認框開著時 Esc 交給它自己關，這裡不再攔。
+    let confirming = false;
+    async function requestClose() {
+      if (settled || confirming) return;
+      const touched = selected.size > 0 || step === 2 || !!pickedLayout;
+      if (!touched) return close(null);
+      confirming = true;
+      let ok = false;
+      try {
+        ok = await BDialog.confirm({
+          title: '要放棄這次批量調整嗎？', desc: '勾選的機器與版面不會保留；機器的展示畫面都還沒有改動。',
+          variant: 'danger', confirmText: '放棄',
+        });
+      } finally { confirming = false; }
+      if (ok) close(null);
+    }
+    function onEsc(e) {
+      if (e.key !== 'Escape' || confirming) return;
+      e.preventDefault();
+      e.stopPropagation();
+      requestClose();
+    }
+    document.addEventListener('keydown', onEsc, true);
+    back.onclick = () => { if (step === 1) requestClose(); else renderStep1(); };
+    next.onclick = async () => {
+      if (step === 2) return close(pickedLayout ? { layout: pickedLayout, plan: plans.get(pickedLayout) } : null);
+      // 第 1 步 → 讀所選機器的整份設定（比對版面要看全部頁面、判斷「展示中」要 activePage、「會先加入」要接在現有頁面後面）
+      next.disabled = true; back.disabled = true;
+      const picked = devices.filter((d) => selected.has(d));
+      infos = await Promise.all(picked.map(async (d) => {
+        try { return { d, cfg: (await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`)).config }; }
+        catch { return { d, cfg: null }; }
+      }));
+      back.disabled = false;
+      if (settled) return;
+      if (infos.every((i) => !i.cfg)) { next.disabled = false; return setStatus('無法取得機器設定。請稍後再試一次。', true); }
+      plans = new Map(layouts.map((l) => [l, planLayoutShow(l, infos)]));
+      renderStep2();
+    };
+    overlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target === overlay) requestClose();
+    });
+
+    renderStep1();
+    if (window.lucide) lucide.createIcons(); // 標題旁 ? icon
+    document.body.appendChild(overlay);
+    document.body.classList.add('b-modal-lock');
+    overlay.classList.add('is-visible');
+    void overlay.offsetWidth;
+    overlay.classList.add('is-open');
+  });
+}
+
+/** 在一台機器的頁面清單裡找出「就是這個版面」的那一頁：先比加入時打的 layoutId，再比頁名＝版面名
+ *  （舊頁面、或舊版 App 上報時把記號洗掉的備援）；同時有多頁取最後一頁（最新加入的）。回傳索引，找不到 -1。 */
+function findLayoutPage(pages, layout) {
+  const lastIdx = (pred) => { for (let i = pages.length - 1; i >= 0; i--) if (pred(pages[i])) return i; return -1; };
+  if (layout.id) { const i = lastIdx((p) => p.layoutId === layout.id); if (i >= 0) return i; }
+  const nm = (layout.name || '').trim();
+  if (nm) { const i = lastIdx((p) => (p.name || '').trim() === nm); if (i >= 0) return i; }
+  return -1;
+}
+
+/** 鍵排序後的 JSON：比對「機器上那一頁的內容」跟「版面目前的內容」是不是同一份（欄位順序不算差異）。 */
+function canonicalJson(v) {
+  return JSON.stringify(v, (_k, val) =>
+    (val && typeof val === 'object' && !Array.isArray(val)) ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]])) : val);
+}
+
+/** 一個版面對這批機器的計畫：每台 action = showing（已在展示）／switch（有這頁，切過去）／add（先加入再切）／
+ *  full（頁數滿了加不進去）／unreadable（讀不到設定）；showing/switch 另帶 stale＝機器上那一頁的內容跟版面目前的不同
+ *  （版面在後台改過、或機器上那一頁被改過），完成時可選擇更新成版面內容。 */
+function planLayoutShow(layout, infos) {
+  const srcPages = layout.pages || [];
+  const srcPortrait = !layout.screen || layout.screen.h >= layout.screen.w;
+  const srcBlocks = canonicalJson((srcPages[0] || {}).blocks || []);
+  return infos.map((info) => {
+    if (!info.cfg) return { ...info, action: 'unreadable' };
+    const pages = info.cfg.pages || [];
+    const scr = info.cfg.screen;
+    const portraitMismatch = (!scr || scr.h >= scr.w) !== srcPortrait;
+    const idx = findLayoutPage(pages, layout);
+    if (idx >= 0) {
+      const stale = canonicalJson(pages[idx].blocks || []) !== srcBlocks;
+      return { ...info, idx, portraitMismatch, stale, action: idx === (info.cfg.activePage || 0) ? 'showing' : 'switch' };
+    }
+    if (pages.length + srcPages.length > MAX_PAGES) return { ...info, action: 'full' };
+    return { ...info, portraitMismatch, action: 'add' };
+  });
+}
+
+/** 計畫 → 對話框那一列的說明文字（中性資訊）與警告（⚠）；有機器加不進去就整個版面不可選。
+ *  stale（機器那頁內容跟版面不同）的機器標「會更新成目前版面內容」（完成時一律更新，沒有開關）。 */
+function describePlan(plan) {
+  const grp = (a, stale) => plan.filter((p) => p.action === a && (stale === undefined || !!p.stale === stale));
+  const names = (list) => devNames(list.map((p) => p.d));
+  const parts = [];
+  if (grp('showing', false).length) parts.push(`${names(grp('showing', false))} 展示中`);
+  if (grp('showing', true).length) parts.push(`${names(grp('showing', true))} 展示中，會更新成目前版面內容`);
+  if (grp('switch', false).length) parts.push(`${names(grp('switch', false))} 會切換`);
+  if (grp('switch', true).length) parts.push(`${names(grp('switch', true))} 會切換並更新成目前版面內容`);
+  if (grp('add').length) parts.push(`${names(grp('add'))} 會先加入`);
+  const warns = [];
+  const mis = plan.filter((p) => p.portraitMismatch && p.action === 'add');
+  if (mis.length) warns.push(`⚠ ${names(mis)} 螢幕方向不同`);
+  if (grp('full').length) warns.push(`⚠ ${names(grp('full'))} 已達 ${MAX_PAGES} 頁上限，無法加入`);
+  if (grp('unreadable').length) warns.push(`⚠ ${names(grp('unreadable'))} 無法取得設定`);
+  return { note: parts.join('　'), noteWarn: warns.join('　'), disabled: !!(grp('full').length || grp('unreadable').length) };
+}
+
+async function showLayoutWizard() {
+  const btn = $('showLayoutBtn');
+  btn.disabled = true;
+  let devices;
+  try {
+    try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus('無法取得機器清單。' + e.message, true); }
+    if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
+    if (!(await ensureSharedLoaded())) return;
+  } finally { btn.disabled = false; }
+  const layouts = (shared.layouts || []).filter((l) => l.pages && l.pages.length);
+  if (!layouts.length) return BDialog.alert({ title: '沒有版面', desc: '請先到「共用設定 › 版面設定」新增版面，再回來展示。' });
+
+  const result = await showLayoutWizardDialog(devices, layouts);
+  if (!result) return; // 對話框縮圖的輪播計時器留給下次 renderDevicesView 的 clearListThumbs 收
+  const { layout, plan } = result;
+  const layoutName = layout.name || '未命名版面';
+
+  const done = [];
+  const failed = [];
+  for (const p of plan) {
+    let config;
+    if (p.action === 'add') {
+      const existing = p.cfg.pages || [];
+      const appended = stampAppendedPages(layout.pages, existing, layout.name || '', layout.id);
+      config = { pages: [...existing, ...appended], activePage: existing.length };
+    } else if (p.action === 'showing' || p.action === 'switch') {
+      if (p.stale) {
+        // 內容跟版面不同就一律更新（user 2026-09-09 定案，不做開關）：那一頁換成版面目前的內容
+        // （頁 id／位置／頁名不動，記號補上），同一次 PUT 一起切頁
+        const pages = (p.cfg.pages || []).map((pg, i) => (i === p.idx
+          ? { ...pg, blocks: JSON.parse(JSON.stringify((layout.pages[0] || {}).blocks || [])), layoutId: layout.id }
+          : pg));
+        config = { pages, activePage: p.idx };
+      } else config = { activePage: p.idx }; // 展示中的也送：把停在管理頁的機器帶進展示模式
+    } else { failed.push(p.d.DeviceName || p.d.DeviceId); continue; }
+    try {
+      await api('PUT', `/api/config/${encodeURIComponent(p.d.DeviceId)}`, { config });
+      done.push(p.d);
+    } catch { failed.push(p.d.DeviceName || p.d.DeviceId); }
+  }
+  // 例：「大廳、櫃台」正在切換到「大廳版面」。／…無法切換「倉庫」。
+  const okPart = done.length ? `「${devNames(done)}」正在切換到「${layoutName}」。` : '';
+  if (!failed.length) setStatus(okPart);
+  else setStatus(okPart ? `${okPart}無法切換「${failed.join('、')}」。` : `無法切換「${failed.join('、')}」。請稍後再試一次。`, true);
+  renderDevicesView(); // 列縮圖改成新的展示頁（activePage 已寫進伺服器）
 }
 
 /** 機器更名：同版面更名的 prompt 對話框；留空＝清掉名稱，列表改顯示編號。 */
@@ -3351,7 +3929,12 @@ function renderParkOverlay(el, cell, sizePx, fg) {
   const u = (px) => `${(px * s * 100 / w).toFixed(3)}cqw`;
   const wrap = document.createElement('div');
   wrap.className = 'pv-park ' + (vertical ? 'v' : 'h');
-  const titleSize = vertical ? 40 : 28;
+  // 標題字級 = 版面上限（直 40／橫 28）× 字級滑桿%；App 端放不下會自動縮到剛好放得下，
+  // 預覽用近似的上限：寬＝「園區資訊」四字＋圖示＋內距，高＝可用高度的 1.3 倍行高
+  const pct = Math.max(50, Math.min(300, Number(cell.txtSize) || 100)) / 100;
+  const availH = vertical ? Math.max(40, h - (cta ? (28 + 32 + 16) * s : 0)) : h;
+  const fitCap = Math.min((w / s - 58) / 5.3, (availH / s) / 1.3);
+  const titleSize = Math.max(8, Math.min((vertical ? 40 : 28) * pct, fitCap));
   let html = '';
   if (cell.content === 'ParkInfo') {
     html += `<div class="pv-park-title" style="color:${fg};font-size:${u(titleSize)};padding:0 ${u(24)}">` +

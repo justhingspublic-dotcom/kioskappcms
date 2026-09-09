@@ -4,6 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
+const sharp = require('sharp');
 const swaggerUiDist = require('swagger-ui-dist');
 const db = require('./db');
 
@@ -614,6 +615,29 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 },
 });
 
+// 機器（Android 12／13 的 BitmapFactory）解得開的圖片格式。其他圖片（AVIF、HEIC、BMP、TIFF、SVG…）
+// 上傳時轉成 JPG（有透明就 PNG）再存：Chrome 看得到 AVIF，後台預覽正常，機器那格卻整塊空白
+// （user 2026-09-09 回報「AI 智慧導覽格明明設了圖片背景，機器上沒有」，那張是從 Google 圖片存下來的 .avif）。
+const NATIVE_IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const CONVERT_IMAGE_EXT = new Set(['.avif', '.heic', '.heif', '.bmp', '.tif', '.tiff', '.svg', '.jxl']);
+
+async function normalizeImage(file) {
+  const ext = path.extname(file.filename).toLowerCase();
+  const isImage = (file.mimetype || '').startsWith('image/') || CONVERT_IMAGE_EXT.has(ext);
+  if (!isImage || NATIVE_IMAGE_EXT.has(ext)) return;
+  const src = path.join(UPLOAD_DIR, file.filename);
+  const img = sharp(src);
+  const meta = await img.metadata();
+  const toPng = !!meta.hasAlpha;
+  const outName = path.parse(file.filename).name + (toPng ? '.png' : '.jpg');
+  const info = await (toPng ? img.png() : img.jpeg({ quality: 92, mozjpeg: true })).toFile(path.join(UPLOAD_DIR, outName));
+  try { fs.unlinkSync(src); } catch { /* 原檔留著也無妨 */ }
+  file.filename = outName;
+  file.mimetype = toPng ? 'image/png' : 'image/jpeg';
+  file.size = info.size;
+  console.log(`上傳圖片已轉檔：${ext} → ${outName}（${meta.width}×${meta.height}）`);
+}
+
 // 網頁登入者或 kiosk 機器（帶 Device Key）都可上傳：機器會把現場選的圖自動傳上來
 function requireUserOrDevice(req, res, next) {
   req.user = currentUser(req);
@@ -623,6 +647,13 @@ function requireUserOrDevice(req, res, next) {
 
 app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: '沒有選擇檔案。' });
+  try {
+    await normalizeImage(req.file);
+  } catch (e) {
+    console.error('上傳圖片轉檔失敗：', e.message);
+    try { fs.unlinkSync(path.join(UPLOAD_DIR, req.file.filename)); } catch { /* ignore */ }
+    return res.status(400).json({ error: '無法使用這張圖片。機器不支援這種圖片格式，請改成 JPG 或 PNG 再上傳。' });
+  }
   const id = path.parse(req.file.filename).name;
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), id)
@@ -645,7 +676,11 @@ app.get('/docs', (req, res) => {
 app.get('/docs/openapi.yaml', (_req, res) => res.type('text/yaml').sendFile(path.join(DOCS_DIR, 'openapi.yaml')));
 app.use('/docs', express.static(swaggerUiDist.getAbsoluteFSPath(), { index: false }));
 
-app.use('/files', express.static(UPLOAD_DIR, { maxAge: '365d', immutable: true }));
+app.use('/files', express.static(UPLOAD_DIR, {
+  maxAge: '365d', immutable: true,
+  // express 4 的 mime 表沒有 AVIF，舊上傳的 .avif 會回 application/octet-stream
+  setHeaders: (res, filePath) => { if (filePath.toLowerCase().endsWith('.avif')) res.type('image/avif'); },
+}));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, _req, res, _next) => {

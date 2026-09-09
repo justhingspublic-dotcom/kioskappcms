@@ -914,7 +914,7 @@ paths:
     post:
       tags: [檔案]
       summary: 上傳圖片／影片
-      description: 網頁登入者或 kiosk 機器皆可。檔名改為隨機 UUID；上限 500 MB。
+      description: 網頁登入者或 kiosk 機器皆可。檔名改為隨機 UUID；上限 500 MB。機器不支援的圖片格式（AVIF、HEIC、BMP、TIFF、SVG…）會轉成 JPG／PNG 再存，回傳副檔名以轉檔後為準。
       security: [{ bearerAuth: [] }, { deviceKey: [] }]
       requestBody:
         required: true
@@ -932,7 +932,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UploadResponse' }
         "400":
-          description: 沒有選擇檔案
+          description: 沒有選擇檔案，或圖片格式無法轉檔
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

@@ -189,6 +189,7 @@
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
                 <p>點「內容管理」進入該機器的版面與設定。</p>
+                <p>點右上角「批量調整展示畫面」，先勾選機器、再挑一個共用版面，就能一次讓這幾台切換到同一個版面並進入展示模式；還沒加入那個版面的機器會先把版面接在現有頁面後面再切換。</p>
                 <p>點「更名」可直接修改機器名稱，會同步回機器；也可在 kiosk 機器的「雲端同步」設定裡填寫。沒有名稱時顯示編號。</p>
                 <p>「狀態」欄第二行是連線設定檢查：「連到別的伺服器」表示機器填的位址不是本站，在這裡做的變更送不到機器；「金鑰不符」表示機器填的連線金鑰錯了。兩種都到機器的「雲端同步」按「一鍵填入正式伺服器」即可。</p>
               </div>
@@ -196,6 +197,8 @@
           </div>
           <!-- 重整（2026-09-07 指示）：只放 icon，灰底方圓角，同工作區頁籤列的重新載入鈕 -->
           <div class="page-actions">
+            <!-- 批量調整展示畫面（2026-09-09）：精靈式 modal＝勾機器 → 選共用版面 → 完成，讓這幾台一起切過去 -->
+            <button id="showLayoutBtn" class="b-btn b-btn-primary" type="button">批量調整展示畫面</button>
             <button id="devicesReloadBtn" class="icon-btn" type="button" title="重新整理" aria-label="重新整理機器清單"><i data-lucide="refresh-cw"></i></button>
           </div>
         </div>

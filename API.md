@@ -70,6 +70,7 @@ PUT Body：`{ "settings": { "layouts": [ { "id": 1, "name": "...", "pages": [...
 ### POST /api/upload（限管理網頁；multipart，欄位名 `file`，上限 500MB）
 → `{ "id": "...", "url": "/files/<檔名>" }`
 回傳為**相對路徑**；顯示或下載時組成 `{BASE}/files/<檔名>`。
+機器不支援的圖片格式（AVIF、HEIC、BMP、TIFF、SVG…）會在伺服器轉成 JPG（有透明則 PNG）再存，回傳的檔名副檔名以轉檔後為準；解不開的圖回 400。
 
 ### GET /files/{檔名}
 下載檔案（公開；檔名為隨機 UUID）。kiosk 從這裡把圖片/影片抓回本機快取。
