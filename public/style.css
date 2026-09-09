@@ -318,13 +318,13 @@ html:root[data-color-mode="dark"] {
 /* ── 畫布：模擬機器螢幕，永遠黑底（不跟深淺色） ── */
 .canvas {
   /* 高度＝欄高減下方操作鈕列（flex:1 會讓 aspect-ratio 的寬算不出來→塌成細條，不能用）。
-     shared 模式 1 顆鈕（32+10gap）；device 模式 2 顆（32+8+32+10） */
-  height: calc(100% - 42px); width: auto; max-width: 420px; aspect-ratio: 9 / 16;
+     兩種模式都是 2 列鈕（32+8+32+10gap）：device＝新增大區塊／加到其他機器＋本機複製＋展示；
+     shared＝新增大區塊／本機複製頁面。之前 shared 只扣 1 列（42px）→ 畫布多 40px 高，body 會捲（user 2026-09-09） */
+  height: calc(100% - 82px); width: auto; max-width: 420px; aspect-ratio: 9 / 16;
   background: #000; border-radius: 12px; padding: 4px;
   display: flex; flex-direction: column; user-select: none; touch-action: none;
   container-type: inline-size;
 }
-#wsModal:not(.is-shared-mode) .canvas { height: calc(100% - 82px); }
 /* 橫式螢幕的機器（renderCanvas 依上報比例加 class）：改以寬度定尺寸，避免高度撐滿把比例拉爆 */
 .canvas.is-landscape { height: auto; width: 100%; min-width: 480px; max-width: 560px; }
 .canvas .block { display: flex; min-height: 0; position: relative; }
