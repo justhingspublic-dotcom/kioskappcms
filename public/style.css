@@ -762,9 +762,14 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 #deviceTable td.device-thumb-col .layout-thumb, #sharedLayoutTable td.device-thumb-col .layout-thumb { display: inline-flex; vertical-align: middle; }
 /* 編號欄：等寬字＋次要字色，讓名稱成為列的主角 */
 .device-row .device-mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size: 13px; letter-spacing: .01em; }
-/* 空狀態：不留光禿表頭，空狀態自己撐整張卡（tiri inbox 同作法） */
-#deviceTable.is-empty thead { display: none; }
-#deviceTable.is-empty tbody td { padding: 0; border-bottom: 0; }
+/* 空狀態（全站表格通用，2026-09-09 指示）：只要 tbody 裡放的是 .b-empty，就不留光禿表頭，
+   內滾容器改成吃滿剩餘高度、表格撐滿容器、td 靠 vertical-align:middle 把空狀態置中（tiri inbox 同作法）。
+   純 CSS :has 判定，不用每張表各自 toggle class（#deviceTable 的 is-empty 留作相容）。 */
+.b-tbl:has(> tbody > tr > td > .b-empty) thead, .b-tbl.is-empty thead { display: none; }
+.b-tbl:has(> tbody > tr > td > .b-empty) tbody td, .b-tbl.is-empty tbody td { padding: 0; border-bottom: 0; }
+.b-tbl-scroll:has(> .b-tbl > tbody > tr > td > .b-empty) { flex: 1 1 auto; display: flex; flex-direction: column; }
+.b-tbl-scroll:has(> .b-tbl > tbody > tr > td > .b-empty) > .b-tbl { flex: 1 1 auto; height: 100%; }
+.b-tbl-scroll:has(> .b-tbl > tbody > tr > td > .b-empty) .b-empty { padding: 24px; }
 .device-row .device-ops .b-btn + .b-btn { margin-left: 8px; }
 /* 批量調整展示畫面精靈（2026-09-09）：固定尺寸的大 modal（換步驟高度不變，表格在 body 裡捲），
    標題列＝左標題＋副標、右步驟進度條；第 1 步機器表、第 2 步版面表（都是 kit .b-tbl，無操作區） */
