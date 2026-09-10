@@ -253,7 +253,17 @@
     setLastVersion(version);
     screenReported = true;
   }
-  function screenSize() { return { w: window.innerWidth, h: window.innerHeight }; }
+  // 一律直向（2026-09-10 user 指示：操作邏輯都是以直向定義的）：視窗是橫的就在中間放一個 9:16 的舞台，兩側留黑；
+  // 上報給後台的螢幕尺寸＝舞台尺寸，後台畫布也就是直的。視窗本來就是直的則整個視窗都是舞台。
+  function layoutStage() {
+    const W = window.innerWidth, H = window.innerHeight;
+    const s = stage.style;
+    if (W > H) {
+      const w = Math.round(H * 9 / 16);
+      s.left = `${Math.round((W - w) / 2)}px`; s.top = '0'; s.width = `${w}px`; s.height = `${H}px`; s.right = 'auto'; s.bottom = 'auto';
+    } else { s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'; s.right = 'auto'; s.bottom = 'auto'; }
+  }
+  function screenSize() { return { w: stage.clientWidth || window.innerWidth, h: stage.clientHeight || window.innerHeight }; }
   async function reportScreenIfChanged() {
     if (screenReported) return;
     const s = config?.screen;
@@ -264,6 +274,7 @@
 
   // ---------- 渲染 ----------
   const stage = $('stage');
+  layoutStage();
   let cellTimers = [];   // setInterval id 或 { stop() }
   function addTimer(t) { cellTimers.push(t); return t; }
   function clearRendered() {
@@ -998,6 +1009,7 @@
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
+      layoutStage();
       if (!config) return;
       renderPage(pages[activeIndex] || { blocks: [] });
       screenReported = false;

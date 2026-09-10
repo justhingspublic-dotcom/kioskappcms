@@ -18,6 +18,9 @@ let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡�
 
 const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片', ParkInfo: '園區資訊' };
+// 測站功能（2026-09-10 user 指示）：站台沒設園區測站 API 就整組藏起來——內容「園區資訊」、天氣來源「園區測站」、
+// 點擊動作「園區資訊」都不出現（既有格子已經選了的話仍保留，才不會一開就變成別的東西）。
+const parkEnabled = () => !!PARK_API;
 let PARK_API = ''; // 這個站台的園區測站 API（伺服器 .env PARK_API_URL，由 /api/connection-info 帶回；空＝不預填，2026-09-10 user 指示揚昇不要預填卓也的）
 const BG_SWATCHES = ['FF263238','FF37474F','FF1B5E20','FF2E6A43','FF0D47A1','FF4A148C','FFB71C1C','FFF57F17','FF00838F','FF5D4037','FF000000','FFFFFFFF'].map(h => parseInt(h, 16));
 const TXT_SWATCHES = ['FFFFFFFF','FF000000','FFFFEB3B','FFFF9800','FFFF5252','FF69F0AE','FF40C4FF','FFE040FB','FFFFC107','FF80CBC4'].map(h => parseInt(h, 16));
@@ -1634,7 +1637,7 @@ function renderPanel() {
   {
     sec('內容');
     rowFull(selInput(
-      Object.entries(CONTENT_NAMES), cell.content || 'None',
+      Object.entries(CONTENT_NAMES).filter(([k]) => k !== 'ParkInfo' || parkEnabled() || cell.content === 'ParkInfo'), cell.content || 'None',
       (v) => { cell.content = v; setDirty(true); refresh(); },
     ));
     if (cell.content === 'Marquee' || cell.content === 'Text') {
@@ -1666,9 +1669,9 @@ function renderPanel() {
     if (cell.content === 'Weather') {
       // 資料來源：一般天氣（Open-Meteo 預報）或園區測站（客戶自己的感測器 API，例如卓也小屋）
       const stationMode = cell.wSrc === 'Station';
-      subRow('來源', segRow([
+      if (parkEnabled() || stationMode) subRow('來源', segRow([
         ['一般天氣', !stationMode, () => { cell.wSrc = 'Standard'; setDirty(true); refresh(); }],
-        // 切到園區測站就先帶入預設的測站 API（卓也小屋），要接別的園區再改（user 2026-09-08）
+        // 切到園區測站就先帶入站台的測站 API（joye＝卓也小屋），要接別的園區再改（user 2026-09-08）
         ['園區測站', stationMode, () => { cell.wSrc = 'Station'; if (!cell.wStUrl && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); }],
       ]));
       if (stationMode) {
@@ -1746,7 +1749,7 @@ function renderPanel() {
   {
     sec('點擊動作');
     rowFull(selInput(
-      [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊']],
+      [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊']].filter(([k]) => k !== 'OpenParkInfo' || parkEnabled() || cell.tap === 'OpenParkInfo'),
       cell.tap || 'None',
       (v) => { cell.tap = v; if (v === 'OpenParkInfo' && !cell.wStUrl && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); },
     ));

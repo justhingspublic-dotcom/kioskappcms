@@ -13,7 +13,7 @@ body {
 .material-icons { font-family: 'Material Icons'; font-weight: normal; font-style: normal; display: inline-block; line-height: 1; text-transform: none; letter-spacing: normal; white-space: nowrap; direction: ltr; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
 
 /* ---------- 舞台：整個視窗，一頁一個 .page（切頁時淡入淡出） ---------- */
-.stage { position: fixed; inset: 0; background: #000; overflow: hidden; }
+.stage { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: #000; overflow: hidden; } /* 尺寸由 play.js layoutStage 決定：橫向視窗時是置中的 9:16 直向舞台 */
 .page { position: absolute; inset: 0; display: flex; flex-direction: column; opacity: 0; transition: opacity .35s ease; }
 .page.in { opacity: 1; }
 .page.out { opacity: 0; pointer-events: none; }
