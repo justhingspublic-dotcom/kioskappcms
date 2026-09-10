@@ -205,8 +205,8 @@ async function loadConnInfo() {
   $('connKey').textContent = connInfo.deviceKey ? maskKey(connInfo.deviceKey) : '（伺服器尚未設定）';
   $('connPlay').textContent = playUrl(true);
   $('connPlay').title = playUrl(false);
-  // 頂欄「開啟展示頁」：新分頁開播放頁（不帶金鑰；沒填過名字／金鑰的瀏覽器會出現填名畫面）
-  if (connInfo.serverUrl) { $('playLink').href = connInfo.serverUrl + '/play/'; $('playLink').hidden = false; }
+  // 頂欄「開啟展示頁」：新分頁開播放頁，網址帶金鑰（user 2026-09-10 指示），第一次只要填名字（有預設機器名就直接展示）
+  if (connInfo.serverUrl && connInfo.deviceKey) { $('playLink').href = playUrl(false); $('playLink').hidden = false; }
   card.hidden = false;
   $('connMini').hidden = false;
 }
