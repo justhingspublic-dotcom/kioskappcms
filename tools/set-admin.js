@@ -2,7 +2,8 @@
    例：node tools/set-admin.js admin joyeadmin "joye#2026"
    改完記得把 .env 的 ADMIN_USERNAME 改成新帳號（伺服器靠它認「主管理員」），ADMIN_PASSWORD 只在首次建庫時用到。
    密碼雜湊格式與 src/server.js 的 hashPassword 相同（scrypt，"salt:hash"）。 */
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+// ENV_FILE（2026-09-10）：要改別的站台（例 sunrise）就指定它的設定檔：ENV_FILE=.env.sunrise node tools/set-admin.js …
+require('dotenv').config({ path: process.env.ENV_FILE ? require('path').resolve(process.env.ENV_FILE) : require('path').join(__dirname, '..', '.env') });
 const crypto = require('crypto');
 const db = require('../src/db');
 const [cur, next, pw] = process.argv.slice(2);

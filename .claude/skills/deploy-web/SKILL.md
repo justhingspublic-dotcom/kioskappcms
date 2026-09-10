@@ -15,6 +15,16 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 - 遠端存取：**SMB 管理共用 `\192.168.1.82\D$`** 讀寫檔；診斷可用 DCOM（`New-CimSession -Protocol Dcom` + `Win32_Process.Create`，指令要包成 `cmd.exe /c script > out.txt`）。WinRM 不能用（本機 shell 非提權）。帳密向 user 要（administrator），不要存進任何檔案。
 - 安全檢查會擋：遠端砍程序、註冊 SYSTEM 排程、一次做太多事的腳本、把密碼寫檔。遇到就拆小步或請 user 自己做。
 
+## 第二個站台：揚昇高爾夫球場 sunrise（2026-09-10 起，同一份程式碼、另一個 Node 實例）
+- 資料夾 **`D:\WebSite\JustDisplay\KioskAdminSunrise\`**（與 KioskAdmin 並列、不在 IIS 站台底下）；port **3001**；自己的 `.env`（DB_NAME=KioskAdminSunrise、BASE_PATH=/sunrise、PUBLIC_URL=https://justdisplay.justhings.com.tw/sunrise、SITE_NAME=揚昇高爾夫球場、SITE_LOGO= 空、ADMIN_USERNAME=sunriseadmin、另一組 DEVICE_KEY；**ADMIN_PASSWORD 有 # 必須加引號**，dotenv 會把 # 後面當註解）；uploads 在自己資料夾底下、不與 joye 共用。
+- 啟動：`D:\WebSite\JustDisplay\run-sunrise.cmd`（同 run.cmd 迴圈重拉，log 在 `logs\server-sunrise.log`；原檔在 repo `deploy/run-sunrise.cmd`）；開機自啟排程「KioskAdmin (Sunrise)」由 user 在伺服器上註冊。
+- IIS：站台根 web.config 多一條規則 `^sunrise(/.*)?$` → `http://localhost:3001/{R:0}`，放在通用規則前面（deploy/web.config 已含）。
+- 根網址入口清單的卡片由 **joye** 那個實例的 .env `PORTAL_SITES=/joye=卓也小屋;/sunrise=揚昇高爾夫球場` 決定（sunrise 實例收不到根路徑）。
+- 蓋檔範圍與 joye 相同，但目標換成 `KioskAdminSunrise\`（**兩個資料夾都要蓋**，程式碼同一份）。
+- 重啟：`ENV_FILE=.env.sunrise node tools/restart-prod.js https://justdisplay.justhings.com.tw/sunrise`（本機 .env.sunrise 的 sunriseadmin 密碼＝正式站）。改帳號用 `ENV_FILE=.env.sunrise node tools/set-admin.js …`（本機 .env.sunrise 指向 KioskAdminSunriseDev，要改正式站 DB 得暫時把 DB_NAME 換成 KioskAdminSunrise）。
+- 驗證：`/sunrise/admin/` → 200、`/sunrise/` → 301、`/sunrise/api/me` → 401。
+- 本機測試站：`ENV_FILE=.env.sunrise node src/server.js` → http://localhost:3178/sunrise/admin/（DB KioskAdminSunriseDev、uploads-sunrise/）。
+
 ## 標準流程
 1. **本機檢查**：`node --check src/server.js`、`node --check public/app.js`；有改 openapi.yaml 就 `node -e "require('js-yaml').load(...)"`。要實測子路徑：`MSYS_NO_PATHCONV=1 PORT=3199 BASE_PATH=/joye node src/server.js`，curl `localhost:3199/joye/admin/`（`/joye/` 應 301 到 /joye/admin/）。
 2. **蓋檔（SMB）**：用 PowerShell `Copy-Item` 把改過的檔案複製到 `\192.168.1.82\D$\WebSite\JustDisplay\KioskAdmin\<相對路徑>`。範圍：`src\`、`public\`、`docs\`、`API.md`、`DEPLOY.md`、`.env.example`、`tools\`、`package.json`；`deploy\web.config` → 站台根的 `web.config`。**不碰 `.env`、`uploads\`**。package-lock.json 有變才連 `node_modules\` 一起蓋（很大，用 robocopy）。

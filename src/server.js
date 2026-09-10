@@ -1,4 +1,5 @@
-require('dotenv').config();
+// ENV_FILE（2026-09-10）：本機要同時跑第二個站台（例：sunrise 用 .env.sunrise）時指定別的設定檔；沒設＝.env
+require('dotenv').config({ path: process.env.ENV_FILE || undefined });
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -16,6 +17,12 @@ const PORT = Number(process.env.PORT || 3000);
 // 根網址留給未來各後台的統一入口。留空＝掛在根（開發機）。所有路由照舊寫根路徑，由下方 root 掛載。
 const BASE_PATH = String(process.env.BASE_PATH || '').trim().replace(/\/+$/, '').replace(/^(?=[^/])/, '/').replace(/^\/$/, '');
 const DEVICE_KEY = process.env.DEVICE_KEY;
+// 站台品牌（2026-09-10，第二個場域 sunrise 起同一份程式碼跑多個站台）：
+// SITE_NAME＝客戶名稱（後台標題、登入頁、根入口卡片）；SITE_LOGO＝登入頁橫式 logo（public/ 底下的相對路徑，
+// 留空＝沒有客戶 logo，登入頁改顯示公司 J 標＋客戶名稱）。沒設＝卓也小屋（正式站 .env 不用改）。
+const SITE_NAME = (process.env.SITE_NAME || '卓也小屋').trim();
+const SITE_LOGO = process.env.SITE_LOGO === undefined ? 'img/joye-logo.png' : process.env.SITE_LOGO.trim();
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // 上傳檔資料夾（2026-09-08）：可用 .env 的 UPLOAD_DIR 指到別處。開發機把它指到正式站的 uploads 網路共用，
 // 因為開發機與正式站共用同一個資料庫、設定裡的 /files/ 路徑兩邊都看得到，圖片檔卻各存一份——
 // 機器在測試站上傳的圖切回正式站就 404（user 回報）。共用同一個資料夾後檔案只有一份，兩邊都找得到。
@@ -829,6 +836,18 @@ app.use('/files', express.static(UPLOAD_DIR, {
 //      舊網址 /{site}/ 轉到 /{site}/admin/（書籤不會壞；瀏覽器會把 #hash 帶過去）。----
 app.get('/', (req, res) => res.redirect(301, req.baseUrl + '/admin/'));
 app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301, req.baseUrl + '/admin/') : next()));
+// 後台首頁不是純靜態檔：代入站名與 logo（{{SITE_NAME}}／{{LOGIN_HEAD}}），每次讀檔（改 index.html 不用重啟）
+const ADMIN_INDEX = path.join(__dirname, '..', 'public', 'index.html');
+function renderAdminIndex() {
+  const head = SITE_LOGO
+    ? `<div class="login-mark wide"><img src="${escHtml(SITE_LOGO)}" alt="${escHtml(SITE_NAME)}"></div>
+        <h2 class="login-title">展示機管理系統</h2>`
+    : `<div class="login-mark"><img src="img/favicon.svg" alt="${escHtml(SITE_NAME)}"></div>
+        <h2 class="login-title">${escHtml(SITE_NAME)}</h2>
+        <p class="login-sub">展示機管理系統</p>`;
+  return fs.readFileSync(ADMIN_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)).replace('{{LOGIN_HEAD}}', head);
+}
+app.get(['/admin/', '/admin/index.html'], (_req, res) => { res.set('Cache-Control', 'no-cache'); res.type('html').send(renderAdminIndex()); });
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, _next) => {
@@ -865,13 +884,15 @@ function checkApiDocs() {
     log.warn('docs', `API 文件檢查：docs/openapi.yaml 解析失敗（${e.message.split('\n')[0]}）`);
     return;
   }
-  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files') || p === '/' || p === '/admin';
+  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files') || p === '/' || p.startsWith('/admin');
   const inCode = new Set();
   for (const layer of app._router.stack) {
     if (!layer.route) continue;
-    const p = layer.route.path.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
-    if (skip(p)) continue;
-    for (const m of Object.keys(layer.route.methods)) inCode.add(`${m.toUpperCase()} ${p}`);
+    for (const raw of [].concat(layer.route.path)) { // 路由可用陣列註冊多個路徑（如 /admin/ 與 /admin/index.html）
+      const p = raw.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+      if (skip(p)) continue;
+      for (const m of Object.keys(layer.route.methods)) inCode.add(`${m.toUpperCase()} ${p}`);
+    }
   }
   const inSpec = new Set();
   for (const [p, item] of Object.entries(spec.paths || {})) {
@@ -900,7 +921,13 @@ if (BASE_PATH) {
   // 根網址＝各後台的入口清單（2026-09-08 user 指示：不要直接跳進 /joye）。目前只有卓也小屋一個，之後有新客戶就加一張卡。
   // 入口前面有一層登入（.env 的 PORTAL_USERNAME／PORTAL_PASSWORD；沒設就不擋）：登入成功發 12 小時的 HMAC cookie，
   // 與 /joye 後台自己的帳號（Bearer token、sessionStorage）互不相干。
-  const rootIndex = fs.readFileSync(path.join(__dirname, 'root-index.html'), 'utf8').replace(/\{\{BASE\}\}/g, BASE_PATH);
+  // 入口清單的卡片：.env PORTAL_SITES＝「路徑=名稱;路徑=名稱」（例 /joye=卓也小屋;/sunrise=揚昇高爾夫球場），
+  // 沒設＝只有這個站台自己。清單頁由根網址那個 Node 實例（正式站＝joye，port 3000）送出，其他站台的實例收不到根路徑。
+  const portalSites = String(process.env.PORTAL_SITES || `${BASE_PATH}=${SITE_NAME}`).split(';').map((s) => s.trim()).filter(Boolean)
+    .map((s) => { const i = s.indexOf('='); return i < 0 ? { path: s, name: s } : { path: s.slice(0, i).trim(), name: s.slice(i + 1).trim() }; });
+  const portalCards = portalSites.map((s) =>
+    `        <a class="site-card" href="${escHtml(s.path)}/admin/"><span class="site-name">${escHtml(s.name)}</span><span class="site-path">${escHtml(s.path)}/admin/</span><i data-lucide="arrow-right" aria-hidden="true"></i></a>`).join('\n');
+  const rootIndex = fs.readFileSync(path.join(__dirname, 'root-index.html'), 'utf8').replace(/\{\{BASE\}\}/g, BASE_PATH).replace('{{CARDS}}', portalCards);
   const rootLogin = fs.readFileSync(path.join(__dirname, 'root-login.html'), 'utf8').replace(/\{\{BASE\}\}/g, BASE_PATH);
   const PORTAL_USER = process.env.PORTAL_USERNAME || '';
   const PORTAL_PASS = process.env.PORTAL_PASSWORD || '';
@@ -915,20 +942,24 @@ if (BASE_PATH) {
     const want = Buffer.from(portalSign(exp)), got = Buffer.from(sig);
     return want.length === got.length && crypto.timingSafeEqual(want, got);
   };
-  const sendLogin = (res, error = '') => res.status(200).type('html')
-    .send(rootLogin.replace('{{ERROR}}', error).replace('{{ERROR_HIDDEN}}', error ? '' : ' hidden'));
+  const sendLogin = (res, error = '') => res.status(200).type('html').send(rootLogin.replace('{{ERROR}}', error));
   const secure = (req) => (req.get('X-Forwarded-Proto') || req.protocol) === 'https' ? '; Secure' : '';
   // 入口頁與登入頁都不准快取（IIS ARR 會快取沒帶 Cache-Control 的 GET，登入後會一直看到快取的登入頁）
   root.use(['/', '/portal-login', '/portal-logout'], (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   // 登入失敗＝轉回首頁帶 ?e=1 顯示錯誤，網址不會停在 /portal-login（重新整理也不會跳「重新提交表單」）
   root.get('/', (req, res) => (portalOk(req) ? res.type('html').send(rootIndex) : sendLogin(res, req.query.e ? '帳號或密碼不正確。' : '')));
-  root.post('/portal-login', express.urlencoded({ extended: false }), (req, res) => {
+  // 登入：新版登入頁用 fetch 送 JSON（回 200 {ok} 或 401 {error}，頁面自己做動畫與 toast）；
+  // 沒有 JS 時仍是傳統表單 POST（失敗轉回 /?e=1）。
+  root.post('/portal-login', express.urlencoded({ extended: false }), express.json(), (req, res) => {
+    const wantsJson = !!req.is('application/json');
     const u = String(req.body?.username || ''), p = String(req.body?.password || '');
     const same = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-    if (!PORTAL_USER || !same(u, PORTAL_USER) || !same(p, PORTAL_PASS)) return res.redirect(303, '/?e=1');
+    if (!PORTAL_USER || !same(u, PORTAL_USER) || !same(p, PORTAL_PASS)) {
+      return wantsJson ? res.status(401).json({ error: '帳號或密碼不正確。' }) : res.redirect(303, '/?e=1');
+    }
     const exp = Date.now() + PORTAL_TTL_MS;
     res.set('Set-Cookie', `portal=${exp}.${portalSign(exp)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${PORTAL_TTL_MS / 1000}${secure(req)}`);
-    res.redirect(303, '/');
+    return wantsJson ? res.json({ ok: true }) : res.redirect(303, '/');
   });
   root.post('/portal-logout', (_req, res) => { res.set('Set-Cookie', 'portal=; Path=/; HttpOnly; Max-Age=0'); res.redirect(303, '/'); });
   root.get('/img/:file', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'img', path.basename(req.params.file))));

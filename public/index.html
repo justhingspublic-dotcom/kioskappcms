@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>卓也小屋 展示機管理系統</title>
+  <title>{{SITE_NAME}} 展示機管理系統</title>
   <script>
     /* 深淺色＋字級偏好：首繪前套用，避免載入閃色/閃字級（admin-kit 規範） */
     (function () {
@@ -35,9 +35,10 @@
   <div id="loginView" class="login-wrap hidden">
     <form id="loginForm" class="login-card">
       <div class="login-head">
-        <!-- 卓也小屋 CI（2026-09-08 user 指示）：橫式 logo，用 .login-mark.wide 變體 -->
-        <div class="login-mark wide"><img src="img/joye-logo.png" alt="卓也小屋"></div>
-        <h2 class="login-title">展示機管理系統</h2>
+        <!-- 站名與 logo 由伺服器代入（.env SITE_NAME／SITE_LOGO，見 server.js renderAdminIndex）：
+             有客戶 logo → 橫式 logo（.login-mark.wide，卓也小屋 CI 2026-09-08）＋「展示機管理系統」；
+             沒有 → 公司 J 標＋客戶名稱＋副標 -->
+        {{LOGIN_HEAD}}
       </div>
       <label class="b-label">帳號
         <input id="username" type="text" class="b-input" autocomplete="username" required>

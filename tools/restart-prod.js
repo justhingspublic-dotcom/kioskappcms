@@ -1,7 +1,8 @@
 /* 重啟正式站後台（2026-09-08）。用法：node tools/restart-prod.js [後台網址]
    預設網址 https://justdisplay.justhings.com.tw/joye；帳密讀本機 .env 的 ADMIN_USERNAME / ADMIN_PASSWORD（與正式站同一個 DB）。
    流程：登入 → POST /api/restart → 等站台重新回應（最多 60 秒）→ 印出結果。 */
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+// ENV_FILE（2026-09-10）：重啟別的站台要用它的主管理員：ENV_FILE=.env.sunrise node tools/restart-prod.js https://justdisplay.justhings.com.tw/sunrise
+require('dotenv').config({ path: process.env.ENV_FILE ? require('path').resolve(process.env.ENV_FILE) : require('path').join(__dirname, '..', '.env') });
 const base = (process.argv[2] || 'https://justdisplay.justhings.com.tw/joye').replace(/\/+$/, '');
 const H = { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

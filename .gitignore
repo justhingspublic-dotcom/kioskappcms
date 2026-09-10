@@ -4,3 +4,8 @@ uploads/
 tools/uitest/shots/
 .env.bak*
 *.log
+
+# 各站台的本機設定檔（.env.sunrise 等；範例檔 .env.example 除外）與各站台的上傳資料夾
+.env.*
+!.env.example
+uploads-*/

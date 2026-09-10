@@ -20,7 +20,9 @@
      2026-09-10 起後台網頁在 `{BASE_PATH}/admin/`，API 與圖片仍在 `{BASE_PATH}/api`、`{BASE_PATH}/files`（機器填的位址不變）；`{BASE_PATH}/` 會轉到 `/admin/`
    - `PORTAL_USERNAME` / `PORTAL_PASSWORD`：根網址入口清單頁前面那層登入的帳密（留空＝不擋）
    - `PUBLIC_URL`：對外網址，要含子路徑，正式站＝`https://justdisplay.justhings.com.tw/joye`（顯示在後台側欄「機器連線資訊」，機器就填這個）
-   - `PORT=3000`
+   - `SITE_NAME` / `SITE_LOGO`：客戶名稱與登入頁 logo（沒設＝卓也小屋／img/joye-logo.png；第二個站台如 sunrise 設 `SITE_NAME=揚昇高爾夫球場`、`SITE_LOGO=` 留空）
+   - `PORTAL_SITES`：根網址入口清單的卡片「路徑=名稱;…」，只在送出根網址的實例（joye，port 3000）設
+   - `PORT=3000`（第二個站台用別的埠，IIS web.config 依子路徑轉給對應的埠）
    - `LOG_LEVEL=info`（系統 log 等級；檔案寫在 `logs/app-YYYY-MM-DD.log`，一天一檔、預設留 30 天，可用 `LOG_DIR`／`LOG_KEEP_DAYS` 調整）
 3. 先手動測：執行 `start.cmd`，看到「資料庫連線成功」，瀏覽器開 http://localhost:3000/admin/ 能登入。
 4. 做成常駐服務（擇一）：

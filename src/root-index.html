@@ -1,48 +1,62 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>JustDisplay</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JustDisplay 管理後台</title>
+  <script>
+    (function () {
+      try {
+        var m = localStorage.getItem('adminColorMode');
+        if (m === 'dark' || (m !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.setAttribute('data-color-mode', 'dark');
+        var fs = localStorage.getItem('adminFontSize');
+        if (fs === 'sm' || fs === 'lg') document.documentElement.setAttribute('data-fs', fs);
+      } catch (e) { }
+    })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="{{BASE}}/admin/img/favicon.svg">
-  <style>
-    :root { --brand: #E07800; --fg: #1d1b19; --sub: #6b655f; --line: #e8e2db; --bg: #faf8f5; --card: #ffffff; }
-    @media (prefers-color-scheme: dark) {
-      :root { --brand: #F08A1A; --fg: #f1ece6; --sub: #a59d94; --line: #3a3531; --bg: #1a1816; --card: #24211e; }
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
-    main { max-width: 640px; margin: 0 auto; padding: 64px 24px 80px; }
-    .logo { height: 40px; display: block; margin-bottom: 28px; }
-    h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
-    .lead { color: var(--sub); margin: 0 0 32px; }
-    .list { display: grid; gap: 12px; }
-    a.card { display: flex; align-items: center; gap: 16px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: inherit; text-decoration: none; transition: border-color .15s, transform .15s; }
-    a.card:hover { border-color: var(--brand); transform: translateY(-1px); }
-    .card .name { font-weight: 600; font-size: 16px; }
-    .card .path { color: var(--sub); font-size: 13px; }
-    .card .arrow { margin-left: auto; color: var(--brand); font-size: 18px; }
-    footer { margin-top: 48px; color: var(--sub); font-size: 12px; display: flex; align-items: center; gap: 16px; }
-    .logout { margin: 0; margin-left: auto; }
-    .logout button { font: inherit; font-size: 13px; color: var(--brand); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; cursor: pointer; }
-    .logout button:hover { border-color: var(--brand); }
-  </style>
+  <link rel="apple-touch-icon" href="{{BASE}}/admin/img/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- 後台清單頁＝入口登入卡同一個殼（admin-kit＋style.css＋portal.css 公司橘） -->
+  <link rel="stylesheet" href="{{BASE}}/admin/admin-kit/css/tokens.css">
+  <link rel="stylesheet" href="{{BASE}}/admin/admin-kit/css/shell.css">
+  <link rel="stylesheet" href="{{BASE}}/admin/admin-kit/css/components.css">
+  <link rel="stylesheet" href="{{BASE}}/admin/style.css">
+  <link rel="stylesheet" href="{{BASE}}/admin/portal.css">
 </head>
 <body>
-  <main>
-    <img class="logo" src="{{BASE}}/admin/img/JustDisplay-logo.svg" alt="JustDisplay">
-    <h1>管理後台</h1>
-    <p class="lead">請選擇要進入的後台。</p>
-    <div class="list">
-      <a class="card" href="{{BASE}}/admin/">
-        <div>
-          <div class="name">卓也小屋</div>
-          <div class="path">{{BASE}}/admin/</div>
-        </div>
-        <span class="arrow" aria-hidden="true">→</span>
-      </a>
-    </div>
-    <footer>JustDisplay · Justhings<form method="post" action="/portal-logout" class="logout"><button type="submit">登出</button></form></footer>
-  </main>
+  <div class="login-wrap">
+    <main class="login-card portal-card">
+      <div class="login-head">
+        <div class="login-mark"><img src="{{BASE}}/admin/img/favicon.svg" alt="Justhings 標誌"></div>
+        <h2 class="login-title">JustDisplay 管理後台</h2>
+        <p class="login-sub">請選擇要進入的後台</p>
+      </div>
+      <nav class="site-list" aria-label="後台清單">
+{{CARDS}}
+      </nav>
+      <form method="post" action="/portal-logout" class="portal-foot">
+        <span>JustDisplay · Justhings</span>
+        <button type="submit" class="b-btn b-btn-text"><i data-lucide="log-out" aria-hidden="true"></i><span>登出</span></button>
+      </form>
+    </main>
+  </div>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="{{BASE}}/admin/admin-kit/js/kit.js"></script>
+  <script src="{{BASE}}/admin/admin-kit/js/dialogs.js"></script>
+  <script>
+    (function () {
+      if (window.lucide) lucide.createIcons();
+      // 入口登入成功後換到這頁才 toast「登入成功」（與各客戶後台登入後的 flash 同款）
+      try {
+        if (sessionStorage.getItem('portalLoginToast')) {
+          sessionStorage.removeItem('portalLoginToast');
+          if (window.BToast) BToast.success('登入成功。');
+        }
+      } catch (e) { }
+    })();
+  </script>
 </body>
 </html>

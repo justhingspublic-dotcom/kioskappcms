@@ -1,0 +1,38 @@
+/* ==========================================================================
+   根入口（JustDisplay 總管理後台：入口登入頁＋後台清單頁）專用樣式（2026-09-10）
+   鋪在 admin-kit＋style.css 之後，只做兩件事：
+   ① 主題色換成公司 CI 橘 #E07800（user 指示：各客戶後台各自主題色，如 joye＝藍；入口是本公司的）。
+      深色 brand 家族＝2026-09-03～09-08 全站還是橘色時手調的那組（cb6cc71 之前的 style.css），改品牌色時重算。
+   ② 後台清單頁沿用登入卡（.login-wrap／.login-card）的殼，清單項目用 kit token。
+   ========================================================================== */
+:root { --accent: #E07800; --accent-text: var(--accent); }
+html:root[data-color-mode="dark"] {
+  --brand: #9E6130;
+  --brand-strong: #AE703F;
+  --brand-medium: #633D20;
+  --brand-soft: #442914;
+  --brand-softer: #311C0C;
+  --fg-brand: #E4A97E;
+  --fg-brand-strong: #F1C3A2;
+  --border-brand: #7B5336;
+  --border-brand-subtle: #472F1D;
+  --accent-text: #E4A97E;
+}
+
+/* 後台清單頁 */
+.portal-card { width: min(480px, 100%); }
+.site-list { display: grid; gap: 10px; }
+.site-card {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--neutral-primary-soft); color: var(--text-heading); text-decoration: none;
+  transition: border-color .15s ease, background .15s ease, transform .15s ease;
+}
+.site-card:hover { border-color: var(--border-brand); background: color-mix(in srgb, var(--brand) 7%, transparent); transform: translateY(-1px); }
+.site-card:active { transform: none; }
+.site-card:focus-visible { outline: none; border-color: var(--border-brand); box-shadow: 0 0 0 4px var(--brand-medium); }
+.site-card .site-name { font-weight: 600; }
+.site-card .site-path { margin-left: auto; color: var(--text-body-subtle); font-size: 13px; }
+.site-card :where(i, .lucide, svg) { width: 18px; height: 18px; flex: none; color: var(--fg-brand); }
+.portal-foot { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 0; color: var(--text-body-subtle); font-size: 12px; }
+.portal-foot .b-btn { margin-right: -10px; }
