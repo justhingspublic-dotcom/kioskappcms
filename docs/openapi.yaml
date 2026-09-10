@@ -825,6 +825,38 @@ paths:
       responses:
         "200": { description: SSE 串流 }
         "401": { $ref: '#/components/responses/Unauthorized' }
+  /api/assist/{deviceId}/threads/{threadId}/jobs:
+    post:
+      tags: [智能客服]
+      summary: 送訊息（輪詢版）：立刻回 { jobId }，伺服器自己收 JustAI 串流；播放頁用這支（IIS 會緩衝 SSE）
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: threadId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ jobId }" }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /api/assist/{deviceId}/jobs/{jobId}:
+    get:
+      tags: [智能客服]
+      summary: 取工作目前累積的回覆（每 0.3 秒輪詢）
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ text, done, error }" }
+        "404": { description: 找不到這個工作（已清掉或不是這台機器的） }
+    delete:
+      tags: [智能客服]
+      summary: 停止工作（訪客按停止／關閉）
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ ok }" }
   /api/assist/{deviceId}/attachments:
     post:
       tags: [智能客服]

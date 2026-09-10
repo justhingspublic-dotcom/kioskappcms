@@ -415,23 +415,20 @@ window.KioskAssist = (() => {
         const r = await api('POST', `/api/assist/${dev()}/threads?agentId=${ag()}`, {}, { signal: ctrl.signal });
         S.threadId = (await r.json()).id;
       }
-      const r = await api('POST', `/api/assist/${dev()}/threads/${encodeURIComponent(S.threadId)}/messages?agentId=${ag()}`,
-        { content: trimmed, attachments: attachmentIds.map((id) => ({ attachmentId: id })) }, { signal: ctrl.signal, headers: { Accept: 'text/event-stream' } });
-      const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+      // 輪詢版（2026-09-10）：後台先收 JustAI 的串流，這裡每 0.3 秒取一次累積文字（正式站的 IIS 會把 SSE 整段緩衝）
+      const r = await api('POST', `/api/assist/${dev()}/threads/${encodeURIComponent(S.threadId)}/jobs?agentId=${ag()}`,
+        { content: trimmed, attachments: attachmentIds.map((id) => ({ attachmentId: id })) }, { signal: ctrl.signal });
+      const { jobId } = await r.json();
+      S.jobId = jobId;
       for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-          if (!line.startsWith('data:')) continue; // `: ping` 與空行
-          let chunk; try { chunk = JSON.parse(line.slice(5).trim()); } catch { continue; }
-          if (chunk.content) target += chunk.content;
-          if (chunk.done) { buf = ''; break; }
-        }
+        await new Promise((r2) => setTimeout(r2, 300));
+        if (S.abort !== ctrl) return;
+        const j = await (await api('GET', `/api/assist/${dev()}/jobs/${jobId}`, undefined, { signal: ctrl.signal })).json();
+        if (j.text.length > target.length) target = j.text;
+        if (j.error && !target) throw Object.assign(new Error(j.error), { status: 502 });
+        if (j.done) break;
       }
-      reader.cancel().catch(() => {});
+      S.jobId = null;
       // 讓打字機把剩下的字揭露完
       while (revealed < target.length && S.abort === ctrl) await new Promise((r2) => setTimeout(r2, REVEAL_MS));
       if (S.abort !== ctrl) return;
@@ -455,6 +452,7 @@ window.KioskAssist = (() => {
     const ctrl = S.abort; S.abort = null;
     if (S.reveal) { clearInterval(S.reveal); S.reveal = 0; }
     if (ctrl) ctrl.abort();
+    if (S.jobId) { const id = S.jobId; S.jobId = null; fetch(`${S.base}/api/assist/${dev()}/jobs/${id}`, { method: 'DELETE', headers: { 'X-Device-Key': S.deviceKey } }).catch(() => {}); } // 叫後台把 JustAI 那邊也停掉
     const full = S.target ? S.target() : ''; S.target = null;
     S.messages = S.messages.map((m) => (m.streaming ? { ...m, streaming: false, text: m.fromUser ? m.text : (full || m.text) } : m)).filter((m) => m.fromUser || m.text);
     S.streaming = false;

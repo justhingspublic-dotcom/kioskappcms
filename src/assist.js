@@ -135,6 +135,68 @@ module.exports = function mountAssist(app, { db, log, isDevice }) {
     res.end();
   }));
 
+  // ---- 送訊息（輪詢版，2026-09-10）：正式站的 IIS ARR 會把 SSE 整段緩衝到回覆結束才送出（responseBufferLimit=0 與 iisreset
+  //      都沒用），訪客看不到逐字。改成：這支立刻回 { jobId }，伺服器自己把 JustAI 的串流收進記憶體；
+  //      播放頁每 0.3 秒 GET jobs/:id 取目前累積的文字。與代理是否串流無關，任何反向代理都能逐字。----
+  const jobs = new Map(); // jobId -> { deviceId, text, done, error, ctrl, at }
+  const JOB_TTL_MS = 5 * 60 * 1000;
+  setInterval(() => { const now = Date.now(); for (const [id, j] of jobs) if (now - j.at > JOB_TTL_MS) { try { j.ctrl.abort(); } catch { /* ignore */ } jobs.delete(id); } }, 60_000).unref();
+  const crypto = require('crypto');
+  app.post('/api/assist/:deviceId/threads/:threadId/jobs', requireDevice, (req, res) => withApi(req, res, async (api) => {
+    const agentId = String(req.query.agentId || '').trim();
+    if (!agentId) return res.status(400).json({ error: '沒有指定客服。' });
+    const content = String(req.body?.content || '');
+    const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments.slice(0, 10).map((a) => ({ attachmentId: String(a.attachmentId || a) })) : [];
+    if (!content.trim() && !attachments.length) return res.status(400).json({ error: '訊息是空的。' });
+    const payload = {};
+    if (content.trim()) payload.content = content;
+    if (attachments.length) payload.attachments = attachments;
+    // 同一台機器最多兩個進行中的工作（舊的中止）
+    for (const [id, j] of jobs) if (j.deviceId === req.params.deviceId && !j.done) { try { j.ctrl.abort(); } catch { /* ignore */ } jobs.delete(id); }
+    const ctrl = new AbortController();
+    const job = { deviceId: req.params.deviceId, text: '', done: false, error: null, ctrl, at: Date.now() };
+    const jobId = crypto.randomBytes(12).toString('hex');
+    jobs.set(jobId, job);
+    res.json({ jobId });
+    (async () => {
+      try {
+        const r = await upstream(api, 'POST', `/api/threads/${encodeURIComponent(req.params.threadId)}/messages?agent_id=${encodeURIComponent(agentId)}`, {
+          body: payload, headers: { Accept: 'text/event-stream' }, raw: { signal: ctrl.signal },
+        });
+        if (!r.ok) { job.error = `客服沒有回應：${await errorText(r)}`; job.done = true; return; }
+        const dec = new TextDecoder(); let buf = '';
+        for await (const chunk of r.body) {
+          buf += dec.decode(chunk, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+            if (!line.startsWith('data:')) continue;
+            let o; try { o = JSON.parse(line.slice(5).trim()); } catch { continue; }
+            if (o.content) { job.text += o.content; job.at = Date.now(); }
+            if (o.done) { job.done = true; }
+          }
+          if (job.done) break;
+        }
+        job.done = true;
+      } catch (e) {
+        if (!ctrl.signal.aborted) { job.error = e.status ? e.message : '無法連接智能客服平台。請稍後再試一次。'; log.warn('assist', `工作串流中斷：${e.message}`, { device: req.params.deviceId, rid: req.id }); }
+        job.done = true;
+      }
+    })();
+  }));
+  app.get('/api/assist/:deviceId/jobs/:jobId', requireDevice, (req, res) => {
+    const j = jobs.get(req.params.jobId);
+    if (!j || j.deviceId !== req.params.deviceId) return res.status(404).json({ error: '找不到這個工作。' });
+    res.set('Cache-Control', 'no-store');
+    res.json({ text: j.text, done: j.done, error: j.error });
+    if (j.done) setTimeout(() => jobs.delete(req.params.jobId), 30_000).unref(); // 拿到最後結果後 30 秒清掉
+  });
+  app.delete('/api/assist/:deviceId/jobs/:jobId', requireDevice, (req, res) => {
+    const j = jobs.get(req.params.jobId);
+    if (j && j.deviceId === req.params.deviceId) { try { j.ctrl.abort(); } catch { /* ignore */ } j.done = true; jobs.delete(req.params.jobId); }
+    res.json({ ok: true });
+  });
+
   // ---- 附件上傳（圖片／文件，依客服旗標；≤20MB）----
   const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
   app.post('/api/assist/:deviceId/attachments', requireDevice, memUpload.single('file'), (req, res) => withApi(req, res, async (api) => {
