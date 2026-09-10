@@ -124,6 +124,15 @@ async function init() {
       CREATE INDEX IX_KioskDeviceEvent_Device ON dbo.KioskDeviceEvent (DeviceId, Id);
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_KioskDeviceEvent_ReceivedAt')
       CREATE INDEX IX_KioskDeviceEvent_ReceivedAt ON dbo.KioskDeviceEvent (ReceivedAt);
+    -- 登入工作階段（2026-09-10）：登入 token 存 DB，伺服器重啟（部署）後登入者不會被踢出；
+    -- 啟動時整批載回記憶體（server.js loadSessions），帳號名稱／權限從 KioskUser 帶，刪掉的帳號自然消失。
+    IF OBJECT_ID('dbo.KioskSession') IS NULL
+    CREATE TABLE dbo.KioskSession (
+      Token     NVARCHAR(64) NOT NULL PRIMARY KEY,
+      UserId    NVARCHAR(64) NOT NULL,
+      ExpiresAt DATETIME2    NOT NULL,
+      CreatedAt DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
+    );
   `);
   return pool;
 }

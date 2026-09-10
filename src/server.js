@@ -25,6 +25,9 @@ const SITE_LOGO = process.env.SITE_LOGO === undefined ? 'img/joye-logo.png' : pr
 // SITE_THEME（2026-09-10）：站台主題色檔 public/themes/<名稱>.css，接在 style.css 之後只換 brand 家族
 // （sunrise＝綠 #2E6F40）。沒設＝style.css 預設的藍（joye）。名稱只准小寫英數與 -，檔案不存在就當沒設並警告。
 const SITE_THEME = (process.env.SITE_THEME || '').trim();
+// 播放頁預設機器名（2026-09-10）：網址沒帶 ?device= 時用這個名字登錄。所有沒有 App 的螢幕開同一個網址＝同一台機器、
+// 同一畫面（user 2026-09-10：網頁版不需要每面螢幕不同網址）；要讓某面螢幕不同，第一次開時帶 ?device=名字即可。
+const PLAY_DEFAULT_DEVICE = (process.env.PLAY_DEFAULT_DEVICE || '').trim().slice(0, 64);
 if (SITE_THEME && !(/^[a-z0-9-]+$/.test(SITE_THEME) && fs.existsSync(path.join(__dirname, '..', 'public', 'themes', SITE_THEME + '.css')))) {
   log.warn('sys', `SITE_THEME=${SITE_THEME} 找不到 public/themes/${SITE_THEME}.css，改用預設主題`);
 }
@@ -156,6 +159,33 @@ function verifyPassword(pw, stored) {
 // ---- 登入權杖（記憶體保存，重啟後需重新登入）----
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const tokens = new Map(); // token -> { userId, username, isAdmin, expiry }
+// 登入工作階段存 DB（2026-09-10）：以前只在記憶體，每次部署重啟全部作廢、所有人被登出（user 反映）。
+// 現在登入時寫 KioskSession，啟動連上 DB 後整批載回；登出／刪帳號／過期時刪。Map 仍是查詢用的快取（currentUser 同步）。
+function saveSession(token, userId, expiry) {
+  return db.getPool().request()
+    .input('t', db.sql.NVarChar(64), token).input('u', db.sql.NVarChar(64), userId).input('e', db.sql.DateTime2, new Date(expiry))
+    .query('INSERT INTO dbo.KioskSession (Token, UserId, ExpiresAt) VALUES (@t, @u, @e)')
+    .catch((e) => log.warn('auth', `登入工作階段寫入失敗（重啟後要重新登入）：${e.message}`));
+}
+function dropSession(token) {
+  tokens.delete(token);
+  return db.getPool().request().input('t', db.sql.NVarChar(64), token)
+    .query('DELETE FROM dbo.KioskSession WHERE Token = @t')
+    .catch((e) => log.warn('auth', `登入工作階段刪除失敗：${e.message}`));
+}
+async function loadSessions() {
+  await db.getPool().request().query('DELETE FROM dbo.KioskSession WHERE ExpiresAt < SYSUTCDATETIME()');
+  const r = await db.getPool().request().query(
+    'SELECT s.Token, s.UserId, s.ExpiresAt, u.Username, u.IsAdmin FROM dbo.KioskSession s JOIN dbo.KioskUser u ON u.UserId = s.UserId');
+  for (const row of r.recordset) {
+    tokens.set(row.Token, { userId: row.UserId, username: row.Username, isAdmin: !!row.IsAdmin, expiry: new Date(row.ExpiresAt).getTime() });
+  }
+  log.info('auth', `載回 ${r.recordset.length} 個登入工作階段（重啟不需要重新登入）`);
+}
+function pruneSessions() {
+  db.getPool().request().query('DELETE FROM dbo.KioskSession WHERE ExpiresAt < SYSUTCDATETIME()')
+    .catch((e) => log.warn('auth', `過期登入工作階段清理失敗：${e.message}`));
+}
 
 function currentUser(req) {
   const auth = req.get('Authorization') || '';
@@ -222,11 +252,18 @@ app.post('/api/login', async (req, res) => {
   log.info('auth', '登入成功', { user: row.Username, ip: req.ip, rid: req.id });
   audit.record(req, { actor: { type: 'user', id: row.UserId, name: row.Username }, action: 'login.ok', targetType: 'user', targetId: row.UserId, targetName: row.Username, summary: '登入後台' });
   const token = crypto.randomBytes(24).toString('hex');
-  tokens.set(token, {
-    userId: row.UserId, username: row.Username, isAdmin: !!row.IsAdmin,
-    expiry: Date.now() + TOKEN_TTL_MS,
-  });
+  const expiry = Date.now() + TOKEN_TTL_MS;
+  tokens.set(token, { userId: row.UserId, username: row.Username, isAdmin: !!row.IsAdmin, expiry });
+  await saveSession(token, row.UserId, expiry);
   res.json({ token, user: { username: row.Username, displayName: row.DisplayName, isAdmin: !!row.IsAdmin } });
+});
+
+// ---- 登出（2026-09-10）：把 token 從記憶體與 DB 拿掉；網頁登出鈕呼叫，沒呼叫到也只是留到 12 小時過期 ----
+app.post('/api/logout', requireUser, async (req, res) => {
+  const auth = req.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (token) await dropSession(token);
+  res.json({ ok: true });
 });
 
 // ---- 重啟後台（限管理員；2026-09-08）----
@@ -252,7 +289,7 @@ app.get('/api/me', requireUser, async (req, res) => {
 /** 機器連線資訊（側欄底部卡片）：所有登入者都可看，方便在機器上抄填。
  *  位址優先用 .env 的 PUBLIC_URL（對外上線時填），否則以這次請求的 host 推算。金鑰唯讀，更換仍走 .env。 */
 app.get('/api/connection-info', requireUser, (req, res) => {
-  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '' });
+  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '', playDefaultDevice: PLAY_DEFAULT_DEVICE });
 });
 
 // ---- 帳號管理（限管理員）----
@@ -341,7 +378,10 @@ app.delete('/api/users/:userId', requireAdmin, async (req, res) => {
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.userId)
     .query(`UPDATE dbo.KioskConfig SET OwnerUserId = NULL WHERE OwnerUserId = @id;
+            DELETE FROM dbo.KioskSession WHERE UserId = @id;
             DELETE FROM dbo.KioskUser WHERE UserId = @id;`);
+  // 被刪的帳號若還登入著，token 立刻失效（以前只靠 12 小時過期）
+  for (const [t, s] of tokens) if (s.userId === req.params.userId) tokens.delete(t);
   const deletedName = t.recordset[0]?.Username || req.params.userId;
   audit.record(req, { action: 'user.delete', targetType: 'user', targetId: req.params.userId, targetName: deletedName, summary: `刪除帳號「${deletedName}」` });
   res.json({ ok: true });
@@ -864,7 +904,8 @@ const PLAY_INDEX = path.join(__dirname, '..', 'public', 'play.html');
 app.get('/play', (req, res, next) => (req.path === '/play' ? res.redirect(301, req.baseUrl + '/play/' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '')) : next()));
 app.get('/play/', (_req, res) => {
   res.set('Cache-Control', 'no-cache');
-  res.type('html').send(fs.readFileSync(PLAY_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)));
+  res.type('html').send(fs.readFileSync(PLAY_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME))
+    .replace('{{PLAY_DEFAULT_DEVICE}}', escHtml(PLAY_DEFAULT_DEVICE)));
 });
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
@@ -995,10 +1036,11 @@ root.listen(PORT, () => log.info('sys', `KioskAdmin API 啟動：http://localhos
       await db.init();
       await seedAdmin();
       await migrateSharedToGlobal();
+      await loadSessions();
       log.info('db', '資料庫連線成功');
       await audit.prune();
       await events.prune();
-      setInterval(() => { audit.prune(); events.prune(); }, 24 * 60 * 60 * 1000).unref();
+      setInterval(() => { audit.prune(); events.prune(); pruneSessions(); }, 24 * 60 * 60 * 1000).unref();
       return;
     } catch (e) {
       log.error('db', `資料庫連線失敗，15 秒後重試：${e.message}`);

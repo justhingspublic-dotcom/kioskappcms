@@ -74,6 +74,8 @@ async function api(method, url, body, isForm) {
 function showLogin() { $('loginView').classList.remove('hidden'); $('mainView').classList.add('hidden'); }
 function showMain() { $('loginView').classList.add('hidden'); $('mainView').classList.remove('hidden'); }
 function logout() {
+  // 伺服器端也把 token 作廢（2026-09-10 登入工作階段改存 DB）；失敗不影響本機登出
+  if (token) fetch(BASE + '/api/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }).catch(() => {});
   token = '';
   sessionStorage.removeItem('token');
   // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
@@ -206,7 +208,9 @@ async function loadConnInfo() {
 function playUrl(masked) {
   if (!connInfo || !connInfo.serverUrl) return '—';
   const key = connInfo.deviceKey || '';
-  return `${connInfo.serverUrl}/play/?device=機器名&key=${masked ? maskKey(key) : key}`;
+  // 伺服器有設預設機器名（PLAY_DEFAULT_DEVICE）：所有螢幕開同一個網址即可，不用帶 device
+  const dev = connInfo.playDefaultDevice ? '' : 'device=機器名&';
+  return `${connInfo.serverUrl}/play/?${dev}key=${masked ? maskKey(key) : key}`;
 }
 /** 金鑰單行顯示、中間以 * 遮住（頭 6 尾 4）；複製仍是完整值。 */
 function maskKey(k) {
@@ -277,7 +281,7 @@ document.addEventListener('click', async (e) => {
   const text = what === 'url' ? connInfo.serverUrl : what === 'play' ? (connInfo.serverUrl && connInfo.deviceKey ? playUrl(false) : '') : connInfo.deviceKey;
   if (!text) return BToast.danger('目前沒有可複製的內容。');
   const ok = await copyText(text);
-  if (ok) BToast.success(what === 'url' ? '已複製伺服器位址。' : what === 'play' ? '已複製播放頁網址，請把「機器名」改成那面螢幕的名字。' : '已複製連線金鑰。');
+  if (ok) BToast.success(what === 'url' ? '已複製伺服器位址。' : what === 'play' ? (connInfo.playDefaultDevice ? '已複製播放頁網址。' : '已複製播放頁網址，請把「機器名」改成那面螢幕的名字。') : '已複製連線金鑰。');
   else BToast.danger('無法複製。請直接選取文字後手動複製。');
 });
 

@@ -23,7 +23,8 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 - 蓋檔範圍與 joye 相同，但目標換成 `KioskAdminSunrise\`（**兩個資料夾都要蓋**，程式碼同一份）。
 - 重啟：`ENV_FILE=.env.sunrise node tools/restart-prod.js https://justdisplay.justhings.com.tw/sunrise`（本機 .env.sunrise 的 sunriseadmin 密碼＝正式站）。改帳號用 `ENV_FILE=.env.sunrise node tools/set-admin.js …`（本機 .env.sunrise 指向 KioskAdminSunriseDev，要改正式站 DB 得暫時把 DB_NAME 換成 KioskAdminSunrise）。
 - 驗證：`/sunrise/admin/` → 200、`/sunrise/` → 301、`/sunrise/api/me` → 401、`/sunrise/play/` → 200。
-- **純顯示播放頁（2026-09-10）**：`/{site}/play/?device=機器名&key=金鑰`（金鑰帶過一次會記在瀏覽器 localStorage；`&fresh=1`＝被後台刪除後重新登錄；`&id=`可自訂機器編號，預設 `web-<機器名>`）。檔案＝public/play.html、play.css、play.js（資源走 ../admin/），server.js 的 `/play`→`/play/` 轉址與路由；讀同一份 config、同一組機器 API（/api/config/{id}、/wait、X-Device-Key），/api/station/current 已改成 requireUserOrDevice 讓播放器帶金鑰用。兩個資料夾都要蓋。改 play.* 不用重啟。
+- **純顯示播放頁（2026-09-10）**：`/{site}/play/?device=機器名&key=金鑰`（機器名與金鑰帶過一次都記在瀏覽器 localStorage，之後裸網址 `/{site}/play/` 即可；`&fresh=1`＝被後台刪除後重新登錄；`&id=`可自訂機器編號，預設 `web-<機器名>`）。**sunrise .env 設了 `PLAY_DEFAULT_DEVICE=展示機`**：網址不帶 device 也能登錄，所有 Windows 螢幕開同一網址＝同一台機器、同一畫面（user 2026-09-10 裁決：網頁版不分機器）。
+- **登入工作階段存 DB（2026-09-10，資料表 KioskSession）**：重啟／部署不會把登入者踢出（啟動時 loadSessions 載回；登出打 POST /api/logout）。之前只在記憶體，今天為了改版重啟七八次害 user 一直被登出。檔案＝public/play.html、play.css、play.js（資源走 ../admin/），server.js 的 `/play`→`/play/` 轉址與路由；讀同一份 config、同一組機器 API（/api/config/{id}、/wait、X-Device-Key），/api/station/current 已改成 requireUserOrDevice 讓播放器帶金鑰用。兩個資料夾都要蓋。改 play.* 不用重啟。
 - 本機測試站：`ENV_FILE=.env.sunrise node src/server.js` → http://localhost:3178/sunrise/admin/（DB KioskAdminSunriseDev、uploads-sunrise/）。
 
 ## 標準流程

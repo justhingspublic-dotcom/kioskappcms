@@ -47,7 +47,16 @@
 
   // ---------- 網址參數與機器身分 ----------
   const params = new URLSearchParams(location.search);
-  const deviceName = (params.get('device') || '').trim().slice(0, 64);
+  // 機器名：網址 ?device= ＞ 這台瀏覽器記住的 ＞ 站台預設（.env PLAY_DEFAULT_DEVICE）。
+  // 所有螢幕開同一個網址＝同一台機器、同一畫面（user 2026-09-10：網頁版不需要每面螢幕不同網址）；
+  // 要讓某面螢幕顯示不同內容，第一次開時帶 ?device=名字，之後裸網址也記得。
+  const LS_DEV = 'play.device:' + BASE;
+  let deviceName = (params.get('device') || '').trim().slice(0, 64);
+  try {
+    if (deviceName) localStorage.setItem(LS_DEV, deviceName);
+    else deviceName = localStorage.getItem(LS_DEV) || '';
+  } catch { /* 無痕模式等 */ }
+  if (!deviceName) deviceName = (document.body.dataset.defaultDevice || '').trim().slice(0, 64);
   const fresh = params.get('fresh') === '1';
   const LS_KEY = 'play.deviceKey:' + BASE;
   let deviceKey = (params.get('key') || '').trim();
@@ -950,7 +959,7 @@
   function boot() {
     document.title = (deviceName ? `${deviceName} · ` : '') + document.title;
     if (!deviceName && !deviceId) {
-      showNotice('請在網址指定這面螢幕的機器名', `例如：<code>${esc(location.origin + BASE)}/play/?device=大廳&amp;key=連線金鑰</code><br>機器名會出現在後台「機器總覽」；金鑰在後台側欄「機器連線資訊」。`);
+      showNotice('請在網址指定這面螢幕的機器名', `例如：<code>${esc(location.origin + BASE)}/play/?device=大廳&amp;key=連線金鑰</code><br>機器名會出現在後台「機器總覽」，這台瀏覽器之後會記住；金鑰在後台側欄「機器連線資訊」。<br>伺服器 .env 設了 PLAY_DEFAULT_DEVICE 的話，網址可以不帶機器名。`);
       return;
     }
     if (!deviceKey) {

@@ -186,6 +186,9 @@ components:
         deviceKey:
           type: string
           description: "`.env` 的 `DEVICE_KEY`（唯讀，更換仍在 `.env` 改並重啟）"
+        playDefaultDevice:
+          type: string
+          description: "`.env` 的 `PLAY_DEFAULT_DEVICE`：播放頁沒帶 ?device= 時用的機器名（空＝網址要帶機器名）"
 
     User:
       type: object
@@ -783,6 +786,20 @@ paths:
                   nextBefore: { type: string, nullable: true }
         "403": { $ref: '#/components/responses/Forbidden' }
         "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/logout:
+    post:
+      tags: [登入]
+      summary: 登出（把 token 作廢）
+      description: 2026-09-10 起登入工作階段存 DB（伺服器重啟不會登出），所以登出要通知伺服器把 token 拿掉；沒呼叫也會在 12 小時後過期。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: 已登出
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
 
   /api/restart:
     post:
