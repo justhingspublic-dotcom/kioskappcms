@@ -1,0 +1,23 @@
+/* ==========================================================================
+   站台主題：揚昇高爾夫球場（sunrise）＝品牌綠 #2E6F40（user 2026-09-10 指定）
+   由 .env SITE_THEME=sunrise 選用，伺服器把它接在 style.css 之後（見 server.js renderAdminIndex）。
+   淺色：只換 --accent，brand 家族由 admin-kit 的 color-mix 衍生。
+   深色：手調 hex（kit 的 oklch ×1.5 會螢光、Safari 不吃相對色），規則與 style.css 藍色那組相同——
+   oklch(from #2E6F40 L calc(c×倍率) h)，基準 L.487 c.100 h150：
+   brand L.55 c.95｜strong L.60 c.95｜medium L.40 c.70｜soft L.31 c.55｜softer L.25 c.45
+   fg L.78 c.70｜fg-strong L.85 c.50｜border L.48 c.70｜border-subtle L.33 c.50｜accent-text L.62 c×.90。
+   算式在 KioskApp 專案 scratchpad 的 oklch.js（用 #0051A8 可重算出 style.css 的藍色那組，誤差 0）。
+   ========================================================================== */
+:root { --accent: #2E6F40; --accent-text: var(--accent); }
+html:root[data-color-mode="dark"] {
+  --brand: #458153;
+  --brand-strong: #549062;
+  --brand-medium: #295233;
+  --brand-soft: #1A3821;
+  --brand-softer: #102816;
+  --fg-brand: #98C5A0;
+  --fg-brand-strong: #B7D8BD;
+  --border-brand: #3F6948;
+  --border-brand-subtle: #213D28;
+  --accent-text: #5C9669;
+}

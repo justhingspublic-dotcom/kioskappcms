@@ -16,7 +16,7 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 - 安全檢查會擋：遠端砍程序、註冊 SYSTEM 排程、一次做太多事的腳本、把密碼寫檔。遇到就拆小步或請 user 自己做。
 
 ## 第二個站台：揚昇高爾夫球場 sunrise（2026-09-10 起，同一份程式碼、另一個 Node 實例）
-- 資料夾 **`D:\WebSite\JustDisplay\KioskAdminSunrise\`**（與 KioskAdmin 並列、不在 IIS 站台底下）；port **3001**；自己的 `.env`（DB_NAME=KioskAdminSunrise、BASE_PATH=/sunrise、PUBLIC_URL=https://justdisplay.justhings.com.tw/sunrise、SITE_NAME=揚昇高爾夫球場、SITE_LOGO= 空、ADMIN_USERNAME=sunriseadmin、另一組 DEVICE_KEY；**ADMIN_PASSWORD 有 # 必須加引號**，dotenv 會把 # 後面當註解）；uploads 在自己資料夾底下、不與 joye 共用。
+- 資料夾 **`D:\WebSite\JustDisplay\KioskAdminSunrise\`**（與 KioskAdmin 並列、不在 IIS 站台底下）；port **3001**；自己的 `.env`（DB_NAME=KioskAdminSunrise、BASE_PATH=/sunrise、PUBLIC_URL=https://justdisplay.justhings.com.tw/sunrise、SITE_NAME=揚昇高爾夫球場、SITE_LOGO= 空、**SITE_THEME=sunrise（public/themes/sunrise.css＝品牌綠 #2E6F40，深色家族用 oklch 規則算，見該檔註解）**、ADMIN_USERNAME=sunriseadmin、另一組 DEVICE_KEY；**ADMIN_PASSWORD 有 # 必須加引號**，dotenv 會把 # 後面當註解）；uploads 在自己資料夾底下、不與 joye 共用。
 - 啟動：`D:\WebSite\JustDisplay\run-sunrise.cmd`（同 run.cmd 迴圈重拉，log 在 `logs\server-sunrise.log`；原檔在 repo `deploy/run-sunrise.cmd`）；開機自啟排程「KioskAdmin (Sunrise)」由 user 在伺服器上註冊。
 - IIS：站台根 web.config 多一條規則 `^sunrise(/.*)?$` → `http://localhost:3001/{R:0}`，放在通用規則前面（deploy/web.config 已含）。
 - 根網址入口清單的卡片由 **joye** 那個實例的 .env `PORTAL_SITES=/joye=卓也小屋;/sunrise=揚昇高爾夫球場` 決定（sunrise 實例收不到根路徑）。

@@ -22,6 +22,14 @@ const DEVICE_KEY = process.env.DEVICE_KEY;
 // 留空＝沒有客戶 logo，登入頁改顯示公司 J 標＋客戶名稱）。沒設＝卓也小屋（正式站 .env 不用改）。
 const SITE_NAME = (process.env.SITE_NAME || '卓也小屋').trim();
 const SITE_LOGO = process.env.SITE_LOGO === undefined ? 'img/joye-logo.png' : process.env.SITE_LOGO.trim();
+// SITE_THEME（2026-09-10）：站台主題色檔 public/themes/<名稱>.css，接在 style.css 之後只換 brand 家族
+// （sunrise＝綠 #2E6F40）。沒設＝style.css 預設的藍（joye）。名稱只准小寫英數與 -，檔案不存在就當沒設並警告。
+const SITE_THEME = (process.env.SITE_THEME || '').trim();
+if (SITE_THEME && !(/^[a-z0-9-]+$/.test(SITE_THEME) && fs.existsSync(path.join(__dirname, '..', 'public', 'themes', SITE_THEME + '.css')))) {
+  log.warn('sys', `SITE_THEME=${SITE_THEME} 找不到 public/themes/${SITE_THEME}.css，改用預設主題`);
+}
+const SITE_THEME_LINK = SITE_THEME && fs.existsSync(path.join(__dirname, '..', 'public', 'themes', SITE_THEME + '.css'))
+  ? `<link rel="stylesheet" href="themes/${SITE_THEME}.css">` : '';
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // 上傳檔資料夾（2026-09-08）：可用 .env 的 UPLOAD_DIR 指到別處。開發機把它指到正式站的 uploads 網路共用，
 // 因為開發機與正式站共用同一個資料庫、設定裡的 /files/ 路徑兩邊都看得到，圖片檔卻各存一份——
@@ -845,7 +853,8 @@ function renderAdminIndex() {
     : `<div class="login-mark"><img src="img/favicon.svg" alt="${escHtml(SITE_NAME)}"></div>
         <h2 class="login-title">${escHtml(SITE_NAME)}</h2>
         <p class="login-sub">展示機管理系統</p>`;
-  return fs.readFileSync(ADMIN_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)).replace('{{LOGIN_HEAD}}', head);
+  return fs.readFileSync(ADMIN_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)).replace('{{LOGIN_HEAD}}', head)
+    .replace('{{SITE_THEME_LINK}}', SITE_THEME_LINK);
 }
 app.get(['/admin/', '/admin/index.html'], (_req, res) => { res.set('Cache-Control', 'no-cache'); res.type('html').send(renderAdminIndex()); });
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
