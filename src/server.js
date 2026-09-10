@@ -22,6 +22,11 @@ const DEVICE_KEY = process.env.DEVICE_KEY;
 // 留空＝沒有客戶 logo，登入頁改顯示公司 J 標＋客戶名稱）。沒設＝卓也小屋（正式站 .env 不用改）。
 const SITE_NAME = (process.env.SITE_NAME || '卓也小屋').trim();
 const SITE_LOGO = process.env.SITE_LOGO === undefined ? 'img/joye-logo.png' : process.env.SITE_LOGO.trim();
+// SITE_LOGO_SHAPE（2026-09-10）：wide＝橫式（卓也 250×89）、square＝方形（揚昇 300×300）；決定登入頁 logo 框的形狀
+const SITE_LOGO_SHAPE = process.env.SITE_LOGO_SHAPE === 'square' ? 'square' : 'wide';
+// PARK_API_URL（2026-09-10 user 指示：揚昇不要預填卓也的 API）：這個站台的園區測站 API，後台切到「園區測站」／
+// 點擊動作「園區資訊」時預填、播放頁園區資訊頁留白時使用；沒設＝不預填、園區資訊頁只當導覽圖。joye 的 .env 設卓也那支。
+const PARK_API = (process.env.PARK_API_URL || '').trim();
 // SITE_THEME（2026-09-10）：站台主題色檔 public/themes/<名稱>.css，接在 style.css 之後只換 brand 家族
 // （sunrise＝綠 #2E6F40）。沒設＝style.css 預設的藍（joye）。名稱只准小寫英數與 -，檔案不存在就當沒設並警告。
 const SITE_THEME = (process.env.SITE_THEME || '').trim();
@@ -289,7 +294,7 @@ app.get('/api/me', requireUser, async (req, res) => {
 /** 機器連線資訊（側欄底部卡片）：所有登入者都可看，方便在機器上抄填。
  *  位址優先用 .env 的 PUBLIC_URL（對外上線時填），否則以這次請求的 host 推算。金鑰唯讀，更換仍走 .env。 */
 app.get('/api/connection-info', requireUser, (req, res) => {
-  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '', playDefaultDevice: PLAY_DEFAULT_DEVICE });
+  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '', playDefaultDevice: PLAY_DEFAULT_DEVICE, parkApi: PARK_API });
 });
 
 // ---- 帳號管理（限管理員）----
@@ -889,7 +894,7 @@ app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301,
 const ADMIN_INDEX = path.join(__dirname, '..', 'public', 'index.html');
 function renderAdminIndex() {
   const head = SITE_LOGO
-    ? `<div class="login-mark wide"><img src="${escHtml(SITE_LOGO)}" alt="${escHtml(SITE_NAME)}"></div>
+    ? `<div class="login-mark ${SITE_LOGO_SHAPE}"><img src="${escHtml(SITE_LOGO)}" alt="${escHtml(SITE_NAME)}"></div>
         <h2 class="login-title">展示機管理系統</h2>`
     : `<div class="login-mark"><img src="img/favicon.svg" alt="${escHtml(SITE_NAME)}"></div>
         <h2 class="login-title">${escHtml(SITE_NAME)}</h2>
@@ -905,7 +910,7 @@ app.get('/play', (req, res, next) => (req.path === '/play' ? res.redirect(301, r
 app.get('/play/', (_req, res) => {
   res.set('Cache-Control', 'no-cache');
   res.type('html').send(fs.readFileSync(PLAY_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME))
-    .replace('{{PLAY_DEFAULT_DEVICE}}', escHtml(PLAY_DEFAULT_DEVICE)));
+    .replace('{{PLAY_DEFAULT_DEVICE}}', escHtml(PLAY_DEFAULT_DEVICE)).replace('{{PARK_API}}', escHtml(PARK_API)));
 });
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 

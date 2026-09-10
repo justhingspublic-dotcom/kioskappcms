@@ -18,7 +18,7 @@ let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡�
 
 const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片', ParkInfo: '園區資訊' };
-const PARK_API = 'https://joye.justhings.com.tw/api/telemetry/current'; // 園區資訊留白時 App 也用這個
+let PARK_API = ''; // 這個站台的園區測站 API（伺服器 .env PARK_API_URL，由 /api/connection-info 帶回；空＝不預填，2026-09-10 user 指示揚昇不要預填卓也的）
 const BG_SWATCHES = ['FF263238','FF37474F','FF1B5E20','FF2E6A43','FF0D47A1','FF4A148C','FFB71C1C','FFF57F17','FF00838F','FF5D4037','FF000000','FFFFFFFF'].map(h => parseInt(h, 16));
 const TXT_SWATCHES = ['FFFFFFFF','FF000000','FFFFEB3B','FFFF9800','FFFF5252','FF69F0AE','FF40C4FF','FFE040FB','FFFFC107','FF80CBC4'].map(h => parseInt(h, 16));
 // App AccentSwatches 同一組（客服聊天頁主題色；null = 預設綠）
@@ -196,6 +196,7 @@ async function loadConnInfo() {
   try {
     connInfo = await api('GET', '/api/connection-info');
   } catch { card.hidden = true; $('connMini').hidden = true; return; }   // 拿不到就整張不顯示，不擋登入流程
+  PARK_API = String(connInfo.parkApi || '').trim();
   $('connUrl').textContent = connInfo.serverUrl || '—';
   $('connUrl').title = connInfo.serverUrl || '';
   $('connKey').textContent = connInfo.deviceKey ? maskKey(connInfo.deviceKey) : '（伺服器尚未設定）';
@@ -1668,11 +1669,11 @@ function renderPanel() {
       subRow('來源', segRow([
         ['一般天氣', !stationMode, () => { cell.wSrc = 'Standard'; setDirty(true); refresh(); }],
         // 切到園區測站就先帶入預設的測站 API（卓也小屋），要接別的園區再改（user 2026-09-08）
-        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; if (!cell.wStUrl) cell.wStUrl = PARK_API; setDirty(true); refresh(); }],
+        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; if (!cell.wStUrl && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); }],
       ]));
       if (stationMode) {
         // 舊設定或機器端建的格子可能沒填測站 API：一樣補上預設值，不讓畫面停在「尚未填寫」
-        if (!cell.wStUrl) { cell.wStUrl = PARK_API; setDirty(true); }
+        if (!cell.wStUrl && PARK_API) { cell.wStUrl = PARK_API; setDirty(true); }
         // 網址打到一半先等 0.6 秒再抓清單；抓到後 fillStationSelect 會補滿下拉
         let urlTimer = null;
         const sel = selInput([], cell.wStation || '', (v) => { cell.wStation = v; sel.dataset.stationId = v; touch(); });
@@ -1747,7 +1748,7 @@ function renderPanel() {
     rowFull(selInput(
       [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊']],
       cell.tap || 'None',
-      (v) => { cell.tap = v; if (v === 'OpenParkInfo' && !cell.wStUrl) cell.wStUrl = PARK_API; setDirty(true); refresh(); },
+      (v) => { cell.tap = v; if (v === 'OpenParkInfo' && !cell.wStUrl && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); },
     ));
     if (cell.tap === 'OpenWeb') {
       subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
@@ -1759,10 +1760,12 @@ function renderPanel() {
       // 內容是園區測站天氣時，測站 API 已在上面填過，不重複問
       const asked = cell.content === 'Weather' && cell.wSrc === 'Station';
       if (asked) {
-        subRow('', hint('點擊後開啟內建的卓也小屋園區地圖，測站狀態使用上方「內容」填的測站 API。'));
+        subRow('', hint('點擊後開啟內建的園區地圖，測站狀態使用上方「內容」填的測站 API。'));
       } else {
         subRow('測站 API', txtInput(cell.wStUrl, 'https://…/api/telemetry/current', (v) => { cell.wStUrl = v; touch(); }, 'url'));
-        subRow('', hint('點擊後開啟內建的卓也小屋園區地圖；測站 API 已預設帶入，留白時也會使用預設網址顯示各站在線狀態與即時數值。'));
+        subRow('', hint(PARK_API
+          ? '點擊後開啟內建的園區地圖；測站 API 已預設帶入，留白時也會使用預設網址顯示各站在線狀態與即時數值。'
+          : '點擊後開啟內建的園區地圖。這個站台沒有設定園區測站 API，地圖僅供導覽；要顯示測站數值，請把上方「內容」改成天氣並填測站 API。'));
       }
     }
     if (cell.tap === 'OpenAssistant') {

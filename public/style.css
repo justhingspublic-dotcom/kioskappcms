@@ -137,6 +137,9 @@ html:root[data-color-mode="dark"] {
 /* 橫式客戶 CI（卓也小屋 250×89 藍色 logo）：寬 200、依原比例撐高；深色模式墊一塊白底才看得清藍色 */
 .login-mark.wide { width: 200px; height: auto; aspect-ratio: 250 / 89; border-radius: var(--radius-md); }
 [data-color-mode="dark"] .login-mark.wide { background: #fff; padding: 8px 12px; box-sizing: content-box; }
+/* 方形客戶 CI（揚昇 300×300，白底盾徽）：96px 方框；深色模式同樣墊白底 */
+.login-mark.square { width: 96px; height: 96px; border-radius: var(--radius-md); }
+[data-color-mode="dark"] .login-mark.square { background: #fff; padding: 6px; box-sizing: content-box; }
 .login-title { margin: 5px 0 0; color: var(--text-heading); font-size: 1.55rem; font-weight: 600; line-height: 1.25; }
 .login-sub { margin: 8px 0 0; color: var(--text-body-subtle); font-size: 14px; }
 .login-card .b-input { margin-top: 6px; width: 100%; }

@@ -17,7 +17,7 @@
   const IDLE_RETURN_MS = 90_000;                                      // 下一頁沒人碰多久回展示（App IDLE_RETURN_MS）
   const RETRY_MS = 15_000;
   const STATION_ROTATE_MS = 10_000;
-  const DEFAULT_PARK_API = 'https://joye.justhings.com.tw/api/telemetry/current'; // 園區資訊留白時 App 也用這個
+  const DEFAULT_PARK_API = (document.body.dataset.parkApi || '').trim(); // 站台的園區測站 API（.env PARK_API_URL；沒設＝園區資訊頁只當導覽圖）
   const PARK_PRESET = { // App ParkPresets.Joye：內建園區地圖與測站位置（百分比）
     name: '卓也小屋', map: '../admin/img/joye-map.jpg', aspect: 1600 / 2253,
     nodes: [
