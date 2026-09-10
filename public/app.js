@@ -493,7 +493,7 @@ async function savePublish(opts = {}) {
     // 都不能用載入時的舊值蓋回去——否則在別處改的名字每存一次就被這個分頁的舊資料覆蓋。
     delete payload.deviceName;
     delete payload.screen;
-    const r = await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: payload });
+    const r = await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: payload, reason: 'publish' }); // reason＝操作紀錄用
     state.version = r.version;
     activePageTouched = false;
     setDirty(false);
@@ -717,7 +717,7 @@ $('showPageBtn').addEventListener('click', async () => {
       activePageTouched = true;
       await savePublish({ doneMsg }); // 失敗時它自己會 toast 並把 dirty 留著
     } else {
-      await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: { activePage: pageIndex } });
+      await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: { activePage: pageIndex }, reason: 'switchPage' });
       state.config.activePage = pageIndex;
       setStatus(doneMsg);
     }
@@ -2078,7 +2078,7 @@ async function publishToDevices(targets, partialConfig, verb) {
   const failed = [];
   for (const d of targets) {
     try {
-      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: partialConfig });
+      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: partialConfig, reason: 'applySettings' });
       done.push(d);
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
@@ -2900,7 +2900,7 @@ async function appendPagesToDevices(opts) {
     // 頁面沒取名就帶版面名，機器的頁籤/admin-pager 上才認得出來
     const appended = stampAppendedPages(srcPages, existing, opts.fallbackName, opts.layoutId);
     try {
-      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: [...existing, ...appended] } });
+      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: [...existing, ...appended] }, reason: { type: 'appendLayout', layoutName: opts.fallbackName || '' } });
       done.push(d);
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
@@ -3608,7 +3608,8 @@ async function showLayoutWizard() {
       } else config = { activePage: p.idx }; // 展示中的也送：把停在管理頁的機器帶進展示模式
     } else { failed.push(p.d.DeviceName || p.d.DeviceId); continue; }
     try {
-      await api('PUT', `/api/config/${encodeURIComponent(p.d.DeviceId)}`, { config });
+      const mode = p.action === 'showing' || p.action === 'switch' ? (p.stale ? 'update' : 'switch') : 'append';
+      await api('PUT', `/api/config/${encodeURIComponent(p.d.DeviceId)}`, { config, reason: { type: 'showLayout', layoutName: layout.name || '', mode } });
       done.push(p.d);
     } catch { failed.push(p.d.DeviceName || p.d.DeviceId); }
   }
@@ -3626,7 +3627,7 @@ async function renameDevice(d) {
     title: "機器更名", value: cur, placeholder: d.DeviceId, confirmText: "儲存",
   });
   if (name === null || name.trim() === cur) return;
-  try { await api("PUT", `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { deviceName: name.trim() } }); }
+  try { await api("PUT", `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { deviceName: name.trim() }, reason: "rename" }); }
   catch (e) { return setStatus("無法更名。" + e.message, true); }
   renderDevicesView();
 }

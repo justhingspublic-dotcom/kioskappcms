@@ -20,6 +20,7 @@
    - `PORTAL_USERNAME` / `PORTAL_PASSWORD`：根網址入口清單頁前面那層登入的帳密（留空＝不擋）
    - `PUBLIC_URL`：對外網址，要含子路徑，正式站＝`https://justdisplay.justhings.com.tw/joye`（顯示在後台側欄「機器連線資訊」，機器就填這個）
    - `PORT=3000`
+   - `LOG_LEVEL=info`（系統 log 等級；檔案寫在 `logs/app-YYYY-MM-DD.log`，一天一檔、預設留 30 天，可用 `LOG_DIR`／`LOG_KEEP_DAYS` 調整）
 3. 先手動測：執行 `start.cmd`，看到「資料庫連線成功」，瀏覽器開 http://localhost:3000 能登入。
 4. 做成常駐服務（擇一）：
    - NSSM：`nssm install KioskAdmin "C:\Program Files\nodejs\node.exe" "D:\WebSite\JustDisplay\src\server.js"`，
@@ -37,3 +38,5 @@
 ## 注意
 - 防火牆只需開 80/443，3000 不用對外。
 - `uploads/` 之後會持續長大，備份時記得含它。
+- `logs/`：系統 log，一天一檔自動清舊檔；出問題先看今天那檔（`run.cmd` 的 `server.log` 只剩起停與沒接住的 crash）。
+- 操作紀錄（誰在後台做了什麼）存 DB 表 `KioskAuditLog`、機器事件（App 啟動／閃退／同步／休眠）存 `KioskDeviceEvent`；後台沒有頁面，用管理員 token 打 `GET /api/audit`、`GET /api/devices/{id}/events` 或直接下 SQL 查。保留天數 `AUDIT_KEEP_DAYS`（180）／`DEVICE_EVENT_KEEP_DAYS`（90）。

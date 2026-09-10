@@ -37,6 +37,10 @@ tags:
     description: JustAI 代理
   - name: 園區測站
     description: 客戶感測器 API 代理（天氣格「園區測站」來源）
+  - name: 操作紀錄
+    description: 誰、什麼時候、對哪台機器／帳號做了什麼（限管理員；保留 180 天）
+  - name: 機器事件
+    description: App 在機器上記的事件（啟動、閃退、同步失敗／恢復、切頁、休眠、喚醒）批次上傳與查詢；保留 90 天
 
 components:
   securitySchemes:
@@ -110,6 +114,39 @@ components:
       schema: { type: string, enum: ["1"] }
 
   schemas:
+    DeviceEvent:
+      type: object
+      properties:
+        at: { type: integer, format: int64, description: 機器上發生的時間（epoch 毫秒） }
+        level: { type: string, enum: [info, warn, error] }
+        kind: { type: string, description: 事件代碼，例 app.start／app.crash／sync.fail／sync.ok／sync.pull／sync.push／page.switch／display.enter／display.exit／sleep.enter／sleep.exit／sleep.wake／sleep.screen_off_confirmed… }
+        message: { type: string, description: 給人看的中文 }
+        detail: { type: string, nullable: true, description: 例如閃退堆疊 }
+        appVersion: { type: string, nullable: true }
+    DeviceEventRow:
+      allOf:
+        - { $ref: '#/components/schemas/DeviceEvent' }
+        - type: object
+          properties:
+            Id: { type: string }
+            At: { type: string, format: date-time }
+            ReceivedAt: { type: string, format: date-time }
+    AuditEntry:
+      type: object
+      description: 一筆操作紀錄
+      properties:
+        Id: { type: string, description: 流水號（字串，當分頁游標用） }
+        At: { type: string, format: date-time }
+        ActorType: { type: string, enum: [user, device, anonymous, system] }
+        ActorId: { type: string, nullable: true }
+        ActorName: { type: string, nullable: true, description: 操作者帳號或機器編號 }
+        Action: { type: string, description: 動作代碼，以「.」分群，例 login.ok／user.delete／device.delete／config.publish／config.showLayout／shared.layout.create／file.upload／sys.restart }
+        TargetType: { type: string, nullable: true, enum: [user, device, layout, shared, file, server] }
+        TargetId: { type: string, nullable: true }
+        TargetName: { type: string, nullable: true }
+        Summary: { type: string, description: 給人看的中文一句話 }
+        Detail: { type: object, nullable: true, description: 附加資料（例如 PUT config 改了哪些欄位） }
+        Ip: { type: string, nullable: true }
     Error:
       type: object
       required: [error]
@@ -654,6 +691,96 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Ok' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/devices/{deviceId}/events:
+    post:
+      tags: [機器事件]
+      summary: 機器上傳事件批次
+      description: App 每輪同步後把本機佇列裡的事件送上來（一次最多 500 筆）；伺服器只存，不回傳內容。已從後台移除的機器回 410。
+      security: [{ deviceKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/deviceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items: { $ref: '#/components/schemas/DeviceEvent' }
+      responses:
+        "200":
+          description: 已收
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  accepted: { type: integer }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+    get:
+      tags: [機器事件]
+      summary: 查某台機器的事件
+      description: 限管理員；由新到舊、游標分頁（nextBefore 有值＝還有更舊的）。後台沒有頁面，這支給工程師查。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/deviceId' }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: before, in: query, schema: { type: string } }
+        - { name: kind, in: query, schema: { type: string }, description: 事件代碼；結尾帶「.」＝前綴（例 sleep.） }
+        - { name: level, in: query, schema: { type: string, enum: [info, warn, error] } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DeviceEventRow' }
+                  nextBefore: { type: string, nullable: true }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/audit:
+    get:
+      tags: [操作紀錄]
+      summary: 操作紀錄查詢
+      description: 由新到舊；一次最多 200 筆。回應的 nextBefore 有值＝還有更舊的，下一頁把它當 before 帶回來。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: before, in: query, schema: { type: string }, description: 只拿比這個 Id 更舊的（分頁游標） }
+        - { name: action, in: query, schema: { type: string }, description: 動作代碼；結尾帶「.」＝前綴（例 config. 拿所有機器設定類） }
+        - { name: targetType, in: query, schema: { type: string } }
+        - { name: targetId, in: query, schema: { type: string }, description: 例如某台機器編號 }
+        - { name: actor, in: query, schema: { type: string }, description: 操作者名稱（完全相符） }
+        - { name: q, in: query, schema: { type: string }, description: 摘要／操作者／對象名稱關鍵字 }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: 不含 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEntry' }
+                  nextBefore: { type: string, nullable: true }
         "403": { $ref: '#/components/responses/Forbidden' }
         "503": { $ref: '#/components/responses/DbNotReady' }
 
