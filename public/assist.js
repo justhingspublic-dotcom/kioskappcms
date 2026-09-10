@@ -332,8 +332,8 @@ window.KioskAssist = (() => {
           ${canAttach ? `<button type="button" class="as-attach" data-act="attach" aria-label="附加檔案"><span class="material-icons">${S.agent.enableImageUpload ? 'add_photo_alternate' : 'insert_drive_file'}</span></button>` : ''}
           ${listening ? `<div class="as-transcript">${esc([value, S.voice.partial].filter(Boolean).join(' ')) || '聆聽中，請說話…'}</div>`
             : `<textarea class="as-field" rows="1" placeholder="${voiceOk ? '說點什麼，或直接打字…' : '輸入訊息…'}">${esc(value)}</textarea>`}
-          ${S.streaming ? `<button type="button" class="as-circle send" data-act="stop" aria-label="停止回覆"><span class="material-icons">stop</span></button>`
-            : `<button type="button" class="as-circle send" data-act="send" aria-label="送出" ${canSend ? '' : 'disabled'}><span class="material-icons">arrow_upward</span></button>`}
+          ${S.streaming ? `<button type="button" class="as-circle send" data-act="stop" aria-label="停止回覆">停止</button>`
+            : `<button type="button" class="as-circle send" data-act="send" aria-label="送出" ${canSend ? '' : 'disabled'}>送出</button>`}
         </div>
       </div>
       <input type="file" class="as-file" hidden accept="${[S.agent?.enableImageUpload ? 'image/jpeg,image/png,image/webp,image/gif' : '', S.agent?.enableFileUpload ? '.pdf,.docx,.txt,.md,.csv' : ''].filter(Boolean).join(',')}">`;

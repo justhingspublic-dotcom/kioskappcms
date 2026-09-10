@@ -1290,6 +1290,19 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .pv-img-scrim { position: absolute; inset: -2px; background: #000; pointer-events: none; }
 
 /* 園區資訊預覽（App ParkCellOverlay 同形）：.h 橫排＝標題左／按鈕右；.v 直排＝標題置中在上／按鈕貼底填滿 */
+/* 可點提示的角落徽章預覽（play.css .pv-hint-badge 同形，尺寸由 renderHintBadge 用 cqw 設） */
+.pv-hint-badge {
+  position: absolute; top: 0; right: 0; z-index: 2; display: inline-flex; align-items: center; gap: .2em;
+  color: #1d1f22; background: rgba(255,255,255,.82); border-radius: 999px; font-weight: 700; line-height: 1; white-space: nowrap;
+  pointer-events: none;
+}
+/* 閃爍預覽：內側邊框＋向內的光（play.css .hint-glow 同形，尺寸用 cqw） */
+.cell.hint-glow::after {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none; box-sizing: border-box;
+  border: .4cqw solid var(--hint-color, #fff);
+  opacity: 0; animation: pvHintFlash 3s ease-in-out infinite;
+}
+@keyframes pvHintFlash { 0% { opacity: 0; } 14% { opacity: 1; } 30% { opacity: 1; } 47% { opacity: 0; } 100% { opacity: 0; } }
 .pv-park { position: absolute; inset: 0; display: flex; }
 .pv-park.h { flex-direction: row; align-items: center; }
 .pv-park.v { flex-direction: column; align-items: stretch; }

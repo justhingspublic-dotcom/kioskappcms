@@ -24,6 +24,19 @@ body {
   background-size: cover; background-position: center; color: #fff;
 }
 .cell.tappable { cursor: pointer; }
+/* 可點提示（user 2026-09-10 定案）：徽章＝右上角「輕觸」小記號，純靜態、無陰影；呼吸光＝格子邊緣柔光持續慢慢呼吸 */
+.pv-hint-badge {
+  position: absolute; top: 0; right: 0; z-index: 2; display: inline-flex; align-items: center; gap: .2em;
+  color: #1d1f22; background: rgba(255,255,255,.82); border-radius: 999px; font-weight: 700; line-height: 1; white-space: nowrap;
+  pointer-events: none;
+}
+/* 閃爍：只有內側 4px 邊框（在格子裡面、不遮內容），顏色 --hint-color；每 3 秒淡入→停→淡出 */
+.cell.hint-glow::after {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none; box-sizing: border-box;
+  border: 4px solid var(--hint-color, #fff);
+  opacity: 0; animation: pvHintFlash 3s ease-in-out infinite; animation-delay: var(--glow-delay, 0ms);
+}
+@keyframes pvHintFlash { 0% { opacity: 0; } 14% { opacity: 1; } 30% { opacity: 1; } 47% { opacity: 0; } 100% { opacity: 0; } }
 
 /* 圖片背景（與 style.css .pv-img-layer 同）：多張輪播、600ms 淡入淡出；模糊時往外撐兩倍半徑讓淡邊被裁掉 */
 .pv-img-layer { position: absolute; inset: 0; background-position: center; background-repeat: no-repeat; transition: opacity .6s; }
@@ -119,16 +132,17 @@ body {
 .blank-hint .material-icons { font-size: 4vmin; opacity: .85; }
 
 /* ---------- 下一頁（網頁／園區資訊） ---------- */
-.overlay { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
+.overlay { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 30; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
 .topbar { flex: none; height: 64px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
 .topbar-btn { width: 56px; height: 56px; border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .topbar-btn .material-icons { font-size: 30px; }
 .topbar-btn:active { background: rgba(0,0,0,.08); }
 .topbar-title { flex: 1; min-width: 0; font-size: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
-.overlay-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.topbar-meta { flex: none; font-size: 18px; color: #5e646b; white-space: nowrap; padding: 0 16px; }
+.overlay-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; container-type: inline-size; }
 .overlay-body iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
-/* 園區資訊頁（App ParkInfoScreen 同形）：地圖照本身比例貼齊上方，下面是選中測站的讀數面板 */
+/* 園區資訊頁：地圖先填滿（寬滿、依比例，高度由 play.js fitLayout 設），上面的讀數面板拿剩下的高度，字級用 --ps 縮放 */
 .park-map { position: relative; flex: none; width: 100%; background: #f4f5f7; }
 .park-map img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .park-marker {
@@ -142,17 +156,16 @@ body {
   display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.25); box-sizing: border-box;
 }
 .park-marker.selected .dot { background: var(--ring); color: #fff; }
-.park-panel { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px; background: #eceef1; box-sizing: border-box; }
-.park-panel-head { display: flex; align-items: center; gap: 12px; }
-.park-panel-title { font-size: 28px; font-weight: 700; flex: 1; min-width: 0; }
-.park-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: 16px; font-weight: 500; border: 1px solid; }
-.park-chip .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
-.park-hint { margin-top: 16px; font-size: 18px; color: #5e646b; }
-.park-metrics { display: flex; margin-top: 16px; }
-.park-metric { flex: 1; text-align: center; }
-.park-metric .v { font-size: 36px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
-.park-metric .k { margin-top: 4px; font-size: 16px; color: #5e646b; }
-.park-updated { margin-top: 12px; font-size: 14px; color: #5e646b; }
+.park-panel { --ps: 1; flex: none; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: calc(20px * var(--ps)) calc(32px * var(--ps)); background: #eceef1; box-sizing: border-box; box-shadow: 0 1px 0 rgba(0,0,0,.08); position: relative; z-index: 1; }
+.park-panel-head { display: flex; align-items: center; gap: calc(16px * var(--ps)); }
+.park-panel-title { font-size: calc(40px * var(--ps)); font-weight: 700; flex: 1; min-width: 0; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.park-chip { display: inline-flex; align-items: center; gap: calc(10px * var(--ps)); padding: calc(8px * var(--ps)) calc(18px * var(--ps)); border-radius: 999px; font-size: calc(22px * var(--ps)); font-weight: 500; border: 1px solid; white-space: nowrap; }
+.park-chip .dot { width: calc(12px * var(--ps)); height: calc(12px * var(--ps)); border-radius: 50%; background: currentColor; }
+.park-hint { margin-top: calc(16px * var(--ps)); font-size: calc(26px * var(--ps)); color: #5e646b; }
+.park-metrics { display: flex; margin-top: calc(18px * var(--ps)); }
+.park-metric { flex: 1; text-align: center; min-width: 0; }
+.park-metric .v { font-size: calc(64px * var(--ps)); font-weight: 700; line-height: 1.1; white-space: nowrap; letter-spacing: -.01em; }
+.park-metric .k { margin-top: calc(6px * var(--ps)); font-size: calc(24px * var(--ps)); color: #5e646b; }
 
 /* ---------- 休眠、離線、toast ---------- */
 .sleep { position: fixed; inset: 0; background: #000; z-index: 60; }

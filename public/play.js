@@ -257,11 +257,15 @@
   // 上報給後台的螢幕尺寸＝舞台尺寸，後台畫布也就是直的。視窗本來就是直的則整個視窗都是舞台。
   function layoutStage() {
     const W = window.innerWidth, H = window.innerHeight;
-    const s = stage.style;
+    const s = stage.style, r = document.documentElement.style;
     if (W > H) {
-      const w = Math.round(H * 9 / 16);
-      s.left = `${Math.round((W - w) / 2)}px`; s.top = '0'; s.width = `${w}px`; s.height = `${H}px`; s.right = 'auto'; s.bottom = 'auto';
-    } else { s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'; s.right = 'auto'; s.bottom = 'auto'; }
+      const w = Math.round(H * 9 / 16), left = Math.round((W - w) / 2);
+      s.left = `${left}px`; s.top = '0'; s.width = `${w}px`; s.height = `${H}px`; s.right = 'auto'; s.bottom = 'auto';
+      r.setProperty('--stage-left', `${left}px`); r.setProperty('--stage-w', `${w}px`); r.setProperty('--stage-h', `${H}px`);
+    } else {
+      s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'; s.right = 'auto'; s.bottom = 'auto';
+      r.setProperty('--stage-left', '0px'); r.setProperty('--stage-w', '100%'); r.setProperty('--stage-h', '100%');
+    }
   }
   function screenSize() { return { w: stage.clientWidth || window.innerWidth, h: stage.clientHeight || window.innerHeight }; }
   async function reportScreenIfChanged() {
@@ -394,8 +398,10 @@
         c.append(f);
       }
     }
-    // 園區資訊：標題＋「點我查看」（App ParkCellOverlay 同形）
-    if (cell.content === 'ParkInfo' || cell.tap === 'OpenParkInfo') renderParkOverlay(c, cell, sizePx, fg);
+    // 園區資訊標題／按鈕式提示（App ParkCellOverlay 同形）；角落徽章式提示
+    if (cell.content === 'ParkInfo' || hintOf(cell) === 'Button') renderParkOverlay(c, cell, sizePx, fg);
+    if (hintOf(cell) === 'Badge') renderHintBadge(c, cell, sizePx);
+    if (hintOf(cell) === 'Glow') renderHintGlow(c, cell);
 
     // ---- 點擊動作 ----
     if (cell.tap && cell.tap !== 'None') {
@@ -530,6 +536,8 @@
       }
       const park = c.querySelector('.pv-park');
       if (park && park._fit) park._fit();
+      const badge = c.querySelector('.pv-hint-badge');
+      if (badge && badge._fit) badge._fit();
     });
   }
 
@@ -791,10 +799,44 @@
     }
   }
 
+  // ---------- 可點提示：徽章／按鈕（app.js hintOf、App effectiveTapHint 同一套） ----------
+  // 沒點擊動作＝無；有設就照設的；沒設＝園區資訊走按鈕（沿用舊版面），其他一律無（user 2026-09-10：預設無、自己選）
+  const HINTS = ['None', 'Badge', 'Glow', 'Button'];
+  function hintOf(cell) {
+    if (!cell.tap || cell.tap === 'None') return 'None';
+    if (HINTS.includes(cell.tapHint)) return cell.tapHint;
+    return cell.tap === 'OpenParkInfo' ? 'Button' : 'None';
+  }
+  // 閃爍：格子內側邊框＋向內的光，淡入→停→淡出每 3 秒一次，顏色可選（預設白）；同頁閃爍格對齊同一時間軸
+  const GLOW_CYCLE_MS = 3000;
+  function renderHintGlow(c, cell) {
+    c.classList.add('hint-glow');
+    c.style.setProperty('--hint-color', colorCss(cell.tapHintColor ?? 0xFFFFFFFF));
+    c.style.setProperty('--glow-delay', `-${Date.now() % GLOW_CYCLE_MS}ms`);
+  }
+  const ctaLabelOf = (cell) => (cell.tapLabel || '').trim() || '點我查看';
+  // 角落徽章：右上角一顆小小的「輕觸」記號，純靜態（不放大、無陰影）
+  function renderHintBadge(c, cell, sizePx) {
+    const b = el('div', 'pv-hint-badge');
+    b.innerHTML = '<span class="material-icons">touch_app</span>輕觸';
+    b._fit = () => {
+      const w = c.offsetWidth || (sizePx && sizePx.w) || 1080;
+      const h = c.offsetHeight || (sizePx && sizePx.h) || 200;
+      const s = clamp(Math.min(w / 520, h / 180), 0.55, 1);
+      b.style.fontSize = `${(20 * s).toFixed(2)}px`;
+      b.style.padding = `${(8 * s).toFixed(2)}px ${(14 * s).toFixed(2)}px ${(8 * s).toFixed(2)}px ${(10 * s).toFixed(2)}px`;
+      b.style.margin = `${(12 * s).toFixed(2)}px`;
+      b.querySelector('.material-icons').style.fontSize = `${(24 * s).toFixed(2)}px`;
+    };
+    b._fit();
+    c.classList.add('hint-badge');
+    c.append(b);
+  }
+
   // ---------- 園區資訊格（App ParkCellOverlay／app.js renderParkOverlay 同一套規則，尺寸用真實像素） ----------
   function renderParkOverlay(c, cell, sizePx, fg) {
     const wrap = el('div', 'pv-park');
-    const cta = cell.tap === 'OpenParkInfo';
+    const cta = hintOf(cell) === 'Button';
     wrap._fit = () => {
       const w = c.offsetWidth || (sizePx && sizePx.w) || 1080;
       const h = c.offsetHeight || (sizePx && sizePx.h) || 200;
@@ -812,7 +854,7 @@
       } else html += '<div class="pv-park-fill"></div>';
       if (cta) {
         const margin = vertical ? `0 ${u(16)} ${u(16)}` : `0 ${u(16)} 0 0`;
-        html += `<div class="pv-park-btn fx-${esc(cell.parkFx || 'Sweep')}" style="font-size:${u(28)};padding:${u(16)} ${u(20)} ${u(16)} ${u(28)};margin:${margin}">點我查看<span class="material-icons" style="font-size:${u(34)}">chevron_right</span></div>`;
+        html += `<div class="pv-park-btn fx-${esc(cell.parkFx || 'Sweep')}" style="font-size:${u(28)};padding:${u(16)} ${u(20)} ${u(16)} ${u(28)};margin:${margin}">${esc(ctaLabelOf(cell))}<span class="material-icons" style="font-size:${u(34)}">chevron_right</span></div>`;
       }
       wrap.innerHTML = html;
     };
@@ -851,6 +893,7 @@
   function openOverlay(kind, title) {
     overlayKind = kind;
     $('ovTitle').textContent = title;
+    $('ovMeta').hidden = true; $('ovMeta').textContent = ''; $('ovHome').hidden = false;
     $('ovBody').innerHTML = '';
     $('overlay').hidden = false;
     armIdle();
@@ -893,13 +936,28 @@
     const img = document.createElement('img'); img.src = PARK_PRESET.map; img.alt = `${PARK_PRESET.name}園區導覽圖`;
     map.append(img);
     const panel = el('div', 'park-panel');
-    body.append(map, panel);
+    // 2026-09-10 user 指示：儀表板在上、地圖在下；地圖先填滿（寬滿、依比例），面板拿剩下的高度、字級縮到放得下
+    body.append(panel, map);
+    $('ovHome').hidden = true; $('ovMeta').hidden = false; // 園區資訊頁：首頁鈕換成右上角的更新時間
     parkState = { apiUrl, selectedId: PARK_PRESET.nodes[0]?.id || '', map, panel };
-    // 地圖：寬填滿、高依比例；超過可用高度的六成就改以高度定
-    const avail = body.clientHeight;
-    let mh = Math.round(body.clientWidth / PARK_PRESET.aspect);
-    if (mh > avail * 0.62) mh = Math.round(avail * 0.62);
-    map.style.height = `${mh}px`;
+    const PANEL_MIN = 130; // 面板最少留這麼高（字級 0.45 時放得下標題＋數字）
+    const fitLayout = () => {
+      const W = body.clientWidth, H = body.clientHeight;
+      let mh = Math.round(W / PARK_PRESET.aspect);
+      if (mh > H - PANEL_MIN) mh = Math.max(0, H - PANEL_MIN);
+      map.style.height = `${mh}px`;
+      const avail = H - mh;
+      panel.style.height = `${avail}px`;
+      // 以 1080 寬、面板 288 高為設計基準，先依寬高算比例，再實測縮到放得下（最小 0.45）
+      let s = clamp(Math.min(W / 1080, avail / 288), 0.45, 1);
+      panel.style.setProperty('--ps', s.toFixed(3));
+      for (let i = 0; i < 4 && panel.scrollHeight > avail + 1 && s > 0.45; i++) {
+        s = Math.max(0.45, s * (avail / panel.scrollHeight) * 0.98);
+        panel.style.setProperty('--ps', s.toFixed(3));
+      }
+    };
+    parkState.fitLayout = fitLayout;
+    fitLayout();
     PARK_PRESET.nodes.forEach((n) => {
       const m = el('div', 'park-marker');
       m.dataset.id = n.id;
@@ -917,8 +975,9 @@
         m.style.left = `${left + dw * n.x / 100}px`; m.style.top = `${top + dh * n.y / 100}px`;
       });
     };
-    place();
     refreshPark();
+    place();
+    parkState.place = place;
     parkTimer = setInterval(refreshPark, 30_000);
   }
   function refreshPark() {
@@ -953,9 +1012,12 @@
         `<div class="park-metric"><div class="v">${m('daily_rainfall', 1, ' mm')}</div><div class="k">今日雨量</div></div></div>`;
       const t = String(r.receivedAt || ''); const i = t.indexOf('T');
       const clock = i >= 0 && t.length >= i + 6 ? t.slice(i + 1, i + 6) : t;
-      if (clock) html += `<div class="park-updated">更新時間 ${esc(clock)}</div>`;
+      $('ovMeta').textContent = clock ? `更新時間 ${clock}` : '';
     }
+    if (hint) $('ovMeta').textContent = '';
     panel.innerHTML = html;
+    if (parkState.fitLayout) parkState.fitLayout();
+    if (parkState.place) parkState.place();
   }
 
   // ---------- 休眠排程（App SleepScheduleController 同：跨午夜的時段歸起始那天） ----------
@@ -1010,6 +1072,7 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       layoutStage();
+      if (parkState && overlayKind === 'park') { parkState.fitLayout?.(); parkState.place?.(); }
       if (!config) return;
       renderPage(pages[activeIndex] || { blocks: [] });
       screenReported = false;

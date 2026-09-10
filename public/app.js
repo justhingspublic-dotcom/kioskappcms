@@ -38,6 +38,27 @@ const DEFAULT_CELL = () => ({
 const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
 // App ParkLayout：園區資訊標題與按鈕的排法（Auto = 寬不到高兩倍就直排）
 const PARK_LAYOUT = [['Auto', '自動'], ['Horizontal', '橫排'], ['Vertical', '直排']];
+// 可點提示樣式（user 2026-09-10 定案：靜的多、動的只有一個）：角落徽章＝右上角小小「輕觸」記號；按鈕＝格內一顆按鈕（動態一頁只留一格）
+const TAP_HINT = [['None', '無'], ['Badge', '角落徽章'], ['Glow', '閃爍'], ['Button', '按鈕']];
+// 沒點擊動作＝無；有設就照設的；沒設＝園區資訊走按鈕（沿用舊版面），其他一律無（user：預設無、自己選）（play.js／App effectiveTapHint 同一套）
+function hintOf(cell) {
+  if (!cell.tap || cell.tap === 'None') return 'None';
+  if (TAP_HINT.some(([k]) => k === cell.tapHint)) return cell.tapHint;
+  return cell.tap === 'OpenParkInfo' ? 'Button' : 'None';
+}
+const ctaLabelOf = (cell) => (cell.tapLabel || '').trim() || '點我查看';
+// 這一頁所有格子（區塊本身或分割後的兩半）
+function pageCells(p) {
+  const out = [];
+  (p?.blocks || []).forEach((b) => { const n = b.node || {}; if (n.t === 'split') { if (n.a) out.push(n.a); if (n.b) out.push(n.b); } else out.push(n); });
+  return out;
+}
+// 一頁只有一格會動：這格開了按鈕動態，同頁其他「按鈕」格的動態改成「無」，回傳改了幾格
+function quietOtherFx(p, cell) {
+  let n = 0;
+  pageCells(p).forEach((c) => { if (c !== cell && hintOf(c) === 'Button' && (c.parkFx || 'Sweep') !== 'None') { c.parkFx = 'None'; n++; } });
+  return n;
+}
 
 // ---------- 子路徑（2026-09-08；2026-09-10 網頁搬到 /admin/）----------
 // 後台可掛在子路徑底下（正式站＝ https://justdisplay.justhings.com.tw/joye/admin/，根網址＝各後台的統一入口）。
@@ -768,6 +789,9 @@ function renderCanvas() {
  * 把一頁畫進 canvas 元素（編輯畫布與縮圖預覽共用）。
  * opts.readonly＝唯讀預覽：不畫分隔把手/角標、格子不可點；opts.timers＝輪播計時器要收進哪個陣列。
  */
+// 預覽畫布現在對應的螢幕寬（裝置 px）：cqw 相對整個畫布，格子內以裝置 px 設計的尺寸要除以它換算，不是除以格子寬
+// （之前分割成兩半的格子，徽章／園區按鈕會放大兩倍——user 2026-09-10 回報）
+let canvasScreenW = 1080;
 function buildCanvas(canvas, pg, screen, opts) {
   opts = opts || {};
   canvas.innerHTML = '';
@@ -775,6 +799,7 @@ function buildCanvas(canvas, pg, screen, opts) {
   const scr = screen;
   const SW = scr && scr.w > 0 ? scr.w : 1080;
   const SH = scr && scr.h > 0 ? scr.h : 1920;
+  canvasScreenW = SW;
   canvas.style.aspectRatio = `${SW} / ${SH}`;
   canvas.classList.toggle('is-landscape', SW > SH); // 橫式改以寬度定尺寸（CSS .is-landscape）
   canvas.classList.toggle('is-readonly', !!opts.readonly); // 唯讀預覽：格子不亮框、不變手指（CSS .is-readonly）
@@ -1263,8 +1288,10 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
     v.innerHTML = `<span class="material-icons">language</span> ${host}`;
     el.appendChild(v);
   }
-  // 園區資訊：標題＋「點我查看」按鈕，版面規則與 App ParkCellOverlay 相同（直橫自動、字級以 28/40sp 為上限縮放）
-  if (cell.content === 'ParkInfo' || cell.tap === 'OpenParkInfo') renderParkOverlay(el, cell, sizePx, fg);
+  // 園區資訊標題／按鈕式提示，版面規則與 App ParkCellOverlay 相同（直橫自動、字級以 28/40sp 為上限縮放）；角落徽章式提示
+  if (cell.content === 'ParkInfo' || hintOf(cell) === 'Button') renderParkOverlay(el, cell, sizePx, fg);
+  if (hintOf(cell) === 'Badge') renderHintBadge(el, cell, sizePx);
+  if (hintOf(cell) === 'Glow') { el.classList.add('hint-glow'); el.style.setProperty('--hint-color', colorCss(cell.tapHintColor ?? 0xFFFFFFFF)); }
 
   if (opts.readonly) return el; // 唯讀預覽：沒有角標、不可點
 
@@ -1756,10 +1783,36 @@ function renderPanel() {
     if (cell.tap === 'OpenWeb') {
       subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
     }
+    if (cell.tap && cell.tap !== 'None') {
+      // 可點提示（2026-09-10）：畫面上靜的多、動的只有一個
+      const h = hintOf(cell);
+      subRow('提示樣式', segRow(TAP_HINT.map(([k, n]) => [n, h === k, () => {
+        cell.tapHint = k;
+        if (k === 'Button' && (cell.parkFx || 'Sweep') !== 'None') { const q = quietOtherFx(page(), cell); if (q) BToast.warning(`一頁只有一格會動，同頁另外 ${q} 格的按鈕動態已改成「無」。`); }
+        setDirty(true); refresh();
+      }])));
+      subRow('', hint(h === 'Badge' ? '右上角一個小小的「輕觸」記號，不會動、不遮內容太多，適合大格子。'
+        : h === 'Glow' ? '格子內側一圈邊框每 3 秒閃一次，不放任何東西在內容上；同頁多格閃爍會同一個節奏。'
+        : h === 'Button' ? '格子裡放一顆按鈕，按鈕文字可改；會動的效果一頁只留給一格。'
+        : '這格不顯示可點提示。'));
+      if (h === 'Glow') {
+        subRow('閃爍顏色', swatchRow(TXT_SWATCHES, cell.tapHintColor, true, (v) => {
+          if (v === null) delete cell.tapHintColor; else cell.tapHintColor = v;
+          touch(); renderPanel();
+        }, '白色'));
+      }
+      if (h === 'Button') {
+        subRow('排版', selInput(PARK_LAYOUT, cell.parkLayout || 'Auto', (v) => { cell.parkLayout = v; touch(); }));
+        subRow('', hint('自動＝寬度不到高度兩倍的格子走直排（標題在上、按鈕貼底），其餘橫排（標題左、按鈕右）。'));
+        subRow('按鈕文字', txtInput(cell.tapLabel, '點我查看', (v) => { cell.tapLabel = v; touch(); }));
+        subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => {
+          cell.parkFx = v;
+          if (v !== 'None') { const q = quietOtherFx(page(), cell); if (q) BToast.warning(`一頁只有一格會動，同頁另外 ${q} 格的按鈕動態已改成「無」。`); }
+          touch(); renderPanel();
+        }));
+      }
+    }
     if (cell.tap === 'OpenParkInfo') {
-      subRow('排版', selInput(PARK_LAYOUT, cell.parkLayout || 'Auto', (v) => { cell.parkLayout = v; touch(); }));
-      subRow('', hint('自動＝寬度不到高度兩倍的格子走直排（標題在上、按鈕貼底），其餘橫排（標題左、按鈕右）。'));
-      subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => { cell.parkFx = v; touch(); }));
       // 內容是園區測站天氣時，測站 API 已在上面填過，不重複問
       const asked = cell.content === 'Weather' && cell.wSrc === 'Station';
       if (asked) {
@@ -3938,17 +3991,29 @@ setInterval(async () => {
  * 字級上限 28sp，格子太窄或太矮時等比縮小（橫：min(w/600, h/90)，直：min(w/300, h/220)）。
  * 機器上 1px ≈ 1dp，所以用實際格子像素算，再換成預覽的 cqw。
  */
+/** 角落徽章預覽：右上角「輕觸」小記號，尺寸依格子真實像素縮放（play.js renderHintBadge 同一套），用 cqw 換算 */
+function renderHintBadge(el, cell, sizePx) {
+  const w = sizePx && sizePx.w ? sizePx.w : 1080;
+  const h = sizePx && sizePx.h ? sizePx.h : 200;
+  const s = Math.max(0.55, Math.min(w / 520, h / 180, 1));
+  const u = (px) => `${(px * s * 100 / canvasScreenW).toFixed(3)}cqw`;
+  const b = document.createElement('div');
+  b.className = 'pv-hint-badge';
+  b.style.cssText = `font-size:${u(20)};padding:${u(8)} ${u(14)} ${u(8)} ${u(10)};margin:${u(12)}`;
+  b.innerHTML = `<span class="material-icons" style="font-size:${u(24)}">touch_app</span>輕觸`;
+  el.appendChild(b);
+}
 function renderParkOverlay(el, cell, sizePx, fg) {
   const w = sizePx && sizePx.w ? sizePx.w : 1080;
   const h = sizePx && sizePx.h ? sizePx.h : 200;
-  // 只有園區資訊有按鈕（開啟網頁、AI 客服都不放）
-  const ctaLabel = cell.tap === 'OpenParkInfo' ? '點我查看' : null;
+  // 提示樣式＝按鈕的格子才有按鈕（園區資訊預設按鈕、其他預設角落徽章）
+  const ctaLabel = hintOf(cell) === 'Button' ? ctaLabelOf(cell) : null;
   const cta = !!ctaLabel;
   const vertical = cta && (cell.parkLayout === 'Vertical' || (cell.parkLayout !== 'Horizontal' && w / h < 2.0));
   const s = vertical
     ? Math.max(0.5, Math.min(w / 300, h / 220, 1))
     : Math.max(0.4, Math.min(w / 600, h / 90, 1));
-  const u = (px) => `${(px * s * 100 / w).toFixed(3)}cqw`;
+  const u = (px) => `${(px * s * 100 / canvasScreenW).toFixed(3)}cqw`;
   const wrap = document.createElement('div');
   wrap.className = 'pv-park ' + (vertical ? 'v' : 'h');
   // 標題字級 = 版面上限（直 40／橫 28）× 字級滑桿%；App 端放不下會自動縮到剛好放得下，
