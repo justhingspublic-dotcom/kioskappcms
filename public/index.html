@@ -85,6 +85,11 @@
           <!-- Material Symbols「developer_guide」（user 指定）：內嵌 SVG，不為一顆 icon 多載一套字型 -->
           <svg class="ms-icon" viewBox="0 -960 960 960" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-640v560h560v-560h-80v280l-100-60-100 60v-280H200Zm0 560v-560 560Z"/></svg>
         </button>
+        <!-- 開啟展示頁（user 2026-09-10 指示：放使用說明右側）：新分頁開這個站台的播放頁 {伺服器位址}/play/，
+             href 由 app.js loadConnInfo 填（連線資訊拿到後才顯示） -->
+        <a class="header-icon-btn header-play-link" id="playLink" href="#" target="_blank" rel="noopener" title="開啟展示頁" aria-label="開啟展示頁" hidden>
+          <i data-lucide="monitor-play"></i>
+        </a>
         <div class="header-user-wrap">
           <button type="button" class="header-user-btn" aria-expanded="false" aria-haspopup="menu">
             <span class="header-user-avatar" aria-hidden="true"><i data-lucide="user-round"></i></span>

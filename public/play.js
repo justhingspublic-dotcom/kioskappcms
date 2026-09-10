@@ -286,6 +286,7 @@
   function renderPage(page) {
     clearRendered();
     closeOverlay(true);
+    if (window.KioskAssist?.isOpen()) window.KioskAssist.close();
     const next = el('div', 'page');
     const blocks = page.blocks || [];
     const SW = stage.clientWidth, SH = stage.clientHeight;
@@ -817,8 +818,15 @@
     } else if (cell.tap === 'OpenParkInfo') {
       openPark((cell.wStUrl || '').trim() || DEFAULT_PARK_API);
     } else if (cell.tap === 'OpenAssistant') {
-      // TODO（第二階段）：AI 智能客服的網頁版；App 端是 AssistantScreen（JustAI 聊天）
-      toast('AI 智能客服的網頁版即將推出。');
+      // AI 智能客服（assist.js）：後台代理 /api/assist/…，用這台機器 config 裡的客服帳號；沒設帳號或沒選客服會顯示提示
+      if (!window.KioskAssist) { toast('智能客服模組尚未載入。'); return; }
+      const chat = config?.chatApi || {};
+      window.KioskAssist.open({
+        base: BASE, deviceId, deviceKey, agentId: cell.agentId || '', accent: cell.agentAccent ?? null,
+        layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
+        onClose: () => logEvent('page.close', '關閉智能客服，回到展示'),
+      });
+      logEvent('page.open', `開啟智能客服${cell.agentName ? '：' + cell.agentName : ''}`);
     }
   }
 
@@ -961,7 +969,7 @@
     if (on !== sleeping) {
       sleeping = on;
       $('sleep').hidden = !on;
-      if (on) closeOverlay(true);
+      if (on) { closeOverlay(true); if (window.KioskAssist?.isOpen()) window.KioskAssist.close(); }
       logEvent(on ? 'sleep.enter' : 'sleep.exit', on ? '依排程進入休眠畫面' : '休眠時段結束，恢復展示');
     }
   }

@@ -787,6 +787,66 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "503": { $ref: '#/components/responses/DbNotReady' }
 
+  /api/assist/{deviceId}/agent:
+    get:
+      tags: [智能客服]
+      summary: 客服資料（網頁播放器用，機器金鑰）
+      description: 後台用這台機器 config 裡的 chatApi 帳號登入 JustAI，回客服名稱、頭像、問候語、建議問題、主題色、附件旗標。src/assist.js。
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "409": { description: 這台機器還沒有設定智能客服帳號（notConfigured=true） }
+        "502": { description: JustAI 平台錯誤（error 為中文原因） }
+  /api/assist/{deviceId}/threads:
+    post:
+      tags: [智能客服]
+      summary: 開對話串（機器金鑰）
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ id }" }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /api/assist/{deviceId}/threads/{threadId}/messages:
+    post:
+      tags: [智能客服]
+      summary: 送訊息，回 SSE 串流（機器金鑰）
+      description: "body：{ content, attachments:[{attachmentId}] }；回 text/event-stream，每行 data: {\"content\":\"增量\",\"done\":false}，JustAI 原樣轉送。"
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: threadId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: SSE 串流 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /api/assist/{deviceId}/attachments:
+    post:
+      tags: [智能客服]
+      summary: 上傳附件（multipart file，≤20MB，依客服旗標；機器金鑰）
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "{ attachmentId, type, name, fileUrl, mimeType }" }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /api/assist/preview:
+    get:
+      tags: [智能客服]
+      summary: 連結預覽 og:title／og:image（機器金鑰）
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: url, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "{ url, host, title, imageUrl }" }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
   /api/logout:
     post:
       tags: [登入]

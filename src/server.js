@@ -909,6 +909,9 @@ app.get('/play/', (_req, res) => {
 });
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
+// AI 智能客服代理（2026-09-10，網頁播放器用）：路由在 src/assist.js，只收機器金鑰
+require('./assist')(app, { db, log, isDevice });
+
 app.use((err, req, res, _next) => {
   // body-parser 的 JSON 壞掉等「要求本身有問題」的錯（帶 statusCode 4xx）：回 400，記 warn 就好
   if (err && err.statusCode >= 400 && err.statusCode < 500) {

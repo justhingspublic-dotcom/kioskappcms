@@ -1331,3 +1331,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   89.6% { transform: translateX(-.18em); } 91.2% { transform: translateX(.18em); }
   92.8% { transform: translateX(-.13em); } 94.4% { transform: translateX(.13em); }
 }
+
+/* 頂欄「開啟展示頁」超連結（2026-09-10）：外觀同 .header-icon-btn（那是 button 的樣式，a 要補上去掉底線與置中） */
+.header-right a.header-play-link { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.header-right a.header-play-link:hover { text-decoration: none; }
