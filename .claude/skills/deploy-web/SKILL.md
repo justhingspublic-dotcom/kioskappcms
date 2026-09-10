@@ -25,6 +25,9 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 - 驗證：`/sunrise/admin/` → 200、`/sunrise/` → 301、`/sunrise/api/me` → 401、`/sunrise/play/` → 200。
 - **純顯示播放頁（2026-09-10）**：`/{site}/play/?device=機器名&key=金鑰`（機器名與金鑰帶過一次都記在瀏覽器 localStorage，之後裸網址 `/{site}/play/` 即可；`&fresh=1`＝被後台刪除後重新登錄；`&id=`可自訂機器編號，預設 `web-<機器名>`）。**sunrise .env 設了 `PLAY_DEFAULT_DEVICE=展示機`**：網址不帶 device 也能登錄，所有 Windows 螢幕開同一網址＝同一台機器、同一畫面（user 2026-09-10 裁決：網頁版不分機器）。
 - **登入工作階段存 DB（2026-09-10，資料表 KioskSession）**：重啟／部署不會把登入者踢出（啟動時 loadSessions 載回；登出打 POST /api/logout）。之前只在記憶體，今天為了改版重啟七八次害 user 一直被登出。檔案＝public/play.html、play.css、play.js（資源走 ../admin/），server.js 的 `/play`→`/play/` 轉址與路由；讀同一份 config、同一組機器 API（/api/config/{id}、/wait、X-Device-Key），/api/station/current 已改成 requireUserOrDevice 讓播放器帶金鑰用。兩個資料夾都要蓋。改 play.* 不用重啟。
+- **AI 客服網頁版（2026-09-10）**：`src/assist.js`（server.js 一行 require 掛載，路由 /api/assist/…，只收機器金鑰，用該機器 config.chatApi 登入 JustAI、SSE 原樣轉送）＋`public/assist.js`／`assist.css`（play.html 載入，play.js 點擊動作 OpenAssistant → `KioskAssist.open`）。部署後要確認 IIS ARR 沒把 SSE 整段緩衝（逐字到達才對；若整段，ARR 設 responseBufferLimit=0）。
+- 後台頂欄「開啟展示頁」連結（使用說明右側，新分頁開 `{serverUrl}/play/`）由 app.js loadConnInfo 填 href。
+- 播放頁機器名優先序：網址 `?device=` → localStorage → `PLAY_DEFAULT_DEVICE` → 螢幕上的填名畫面；左上角連點 5 下改名；`?reset=1` 清掉重填。
 - 本機測試站：`ENV_FILE=.env.sunrise node src/server.js` → http://localhost:3178/sunrise/admin/（DB KioskAdminSunriseDev、uploads-sunrise/）。
 
 ## 標準流程
