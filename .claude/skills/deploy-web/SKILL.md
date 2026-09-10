@@ -40,6 +40,8 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 
 ## 坑
 - **正式站 Node 若還是 abdafc4 之前起的程序，沒有 `/api/restart` 路由**（2026-09-08 部署時 POST 回 404，log 顯示 `POST /joye/api/restart → 404`＝子 app 沒接到）：只能請 user 到伺服器跑 `taskkill /F /IM node.exe`，run.cmd 會自動重拉；之後才能用 restart-prod.js。
+- **伺服器上的 .cmd 批次檔只能純 ASCII＋CRLF**（2026-09-10 run-sunrise.cmd 實際踩到）：cmd.exe 用 CP950 讀批次檔，UTF-8 中文的尾位元組會把換行吃掉，`rem 中文…` 那行會把下一行 `pushd` 一起吞掉，Node 就在 system32 底下找不到 src\server.js。註解用英文；寫檔用 Write 工具再用 node 轉 CRLF 複製（bash 雙引號裡的反斜線會被吃掉，別用 printf／node -e 內嵌字串）。
+- 也因此 run-sunrise.cmd 把 `cd /d` 放在 `:loop` 裡面：改了批次檔不用重啟排程，下一輪就自己修好。
 - Git Bash 會把 `/joye` 這類參數轉成 Windows 路徑：環境變數傳路徑時加 `MSYS_NO_PATHCONV=1`。
 - 這台機器沒有可用的 `python`，腳本用 node。
 - Express 的 `get('/joye')` 連 `/joye/` 也會進，轉址要先判斷 `req.path`，否則無限轉址。
