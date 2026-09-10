@@ -45,25 +45,22 @@
     return String(s).normalize('NFKC').replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 48) || 'player';
   }
 
-  // ---------- 網址參數與機器身分 ----------
+  // ---------- 機器身分 ----------
   const params = new URLSearchParams(location.search);
-  // 機器名：網址 ?device= ＞ 這台瀏覽器記住的 ＞ 站台預設（.env PLAY_DEFAULT_DEVICE）。
-  // 所有螢幕開同一個網址＝同一台機器、同一畫面（user 2026-09-10：網頁版不需要每面螢幕不同網址）；
-  // 要讓某面螢幕顯示不同內容，第一次開時帶 ?device=名字，之後裸網址也記得。
-  const LS_DEV = 'play.device:' + BASE;
-  let deviceName = (params.get('device') || '').trim().slice(0, 64);
-  try {
-    if (deviceName) localStorage.setItem(LS_DEV, deviceName);
-    else deviceName = localStorage.getItem(LS_DEV) || '';
-  } catch { /* 無痕模式等 */ }
-  if (!deviceName) deviceName = (document.body.dataset.defaultDevice || '').trim().slice(0, 64);
-  const fresh = params.get('fresh') === '1';
-  const LS_KEY = 'play.deviceKey:' + BASE;
-  let deviceKey = (params.get('key') || '').trim();
-  try {
-    if (deviceKey) localStorage.setItem(LS_KEY, deviceKey);
-    else deviceKey = localStorage.getItem(LS_KEY) || '';
-  } catch { /* 無痕模式等 */ }
+  // 所有機器開同一個網址（user 2026-09-10 定案）。機器名的優先序：
+  //   網址 ?device= ＞ 這台瀏覽器記住的 ＞ 站台預設（.env PLAY_DEFAULT_DEVICE，＝所有螢幕同一台機器、同一畫面）＞ 螢幕上的填名畫面。
+  // 金鑰：網址 ?key= ＞ 記住的 ＞ 填名畫面。?reset=1 清掉記住的重填；左上角連點 5 下可改名（記住的名字優先於站台預設，
+  // 所以有預設機器名的站台也能讓某面螢幕有自己的名字）。
+  const LS_DEV = 'play.device:' + BASE, LS_KEY = 'play.deviceKey:' + BASE, SS_FRESH = 'play.fresh:' + BASE;
+  const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+  const lsSet = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* 無痕模式等 */ } };
+  if (params.get('reset') === '1') { lsSet(LS_DEV, ''); lsSet(LS_KEY, ''); }
+  const storedName = lsGet(LS_DEV);
+  let deviceName = ((params.get('device') || '').trim() || storedName || (document.body.dataset.defaultDevice || '').trim()).slice(0, 64);
+  if (params.get('device')) lsSet(LS_DEV, deviceName);
+  let deviceKey = (params.get('key') || '').trim() || lsGet(LS_KEY);
+  if (params.get('key')) lsSet(LS_KEY, deviceKey);
+  let fresh = params.get('fresh') === '1' || sessionStorage.getItem(SS_FRESH) === '1';
   const deviceId = (params.get('id') || '').trim().slice(0, 64) || (deviceName ? 'web-' + slug(deviceName) : '');
   const encId = encodeURIComponent(deviceId);
   const LS_VER = `play.lastVersion:${BASE}:${deviceId}`;
@@ -117,7 +114,47 @@
   // ---------- 畫面：狀態層 ----------
   function showBoot(title, sub) { $('bootTitle').textContent = title; $('bootSub').textContent = sub || ''; $('boot').hidden = false; }
   function hideBoot() { $('boot').hidden = true; }
-  function showNotice(title, html) { $('noticeTitle').textContent = title; $('noticeBody').innerHTML = html; $('notice').hidden = false; hideBoot(); }
+  function showNotice(title, html, actions) {
+    $('noticeTitle').textContent = title; $('noticeBody').innerHTML = html;
+    const box = $('noticeActions'); box.innerHTML = '';
+    (actions || []).forEach((a) => { const b = el('button', 'btn ' + (a.primary ? 'primary' : 'secondary'), a.label); b.type = 'button'; b.addEventListener('click', a.onClick); box.append(b); });
+    $('notice').hidden = false; hideBoot();
+  }
+  /** 清掉這台記住的版本、下次請求帶 X-Device-Fresh 重新登錄，然後重新載入。 */
+  function reRegister() {
+    try { sessionStorage.setItem(SS_FRESH, '1'); localStorage.removeItem(LS_VER); } catch { /* ignore */ }
+    location.replace(BASE + '/play/');
+  }
+  // ---------- 填名畫面 ----------
+  function openSetup(allowCancel) {
+    $('setupName').value = storedName || (params.get('device') || '').trim() || '';
+    $('setupKey').value = deviceKey || '';
+    $('setupKeyRow').hidden = !!deviceKey && !allowCancel; // 網址已帶金鑰：第一次只問名字
+    $('setupTitle').textContent = deviceName ? '更改這面螢幕的名字' : '這面螢幕叫什麼名字？';
+    $('setupCancel').hidden = !allowCancel;
+    $('notice').hidden = true; $('setup').hidden = false; hideBoot();
+    setTimeout(() => $('setupName').focus(), 50);
+  }
+  $('setupCancel').addEventListener('click', () => { $('setup').hidden = true; if (removed) $('notice').hidden = false; });
+  $('setupForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('setupName').value.trim().slice(0, 64);
+    const key = $('setupKeyRow').hidden ? deviceKey : $('setupKey').value.trim();
+    if (!name) { $('setupName').focus(); return; }
+    if (!key) { $('setupKeyRow').hidden = false; $('setupKey').focus(); return; }
+    lsSet(LS_DEV, name); lsSet(LS_KEY, key);
+    location.replace(BASE + '/play/'); // 網址收乾淨（參數不留），用記住的值重新啟動
+  });
+  // 左上角連點 5 下（1.5 秒內）→ 改名（App 的隱藏角落同款）
+  (function hiddenCorner() {
+    let taps = 0, last = 0;
+    document.addEventListener('pointerdown', (e) => {
+      if (e.clientX > 160 || e.clientY > 160 || !$('setup').hidden) return;
+      const now = Date.now();
+      taps = now - last <= 1500 ? taps + 1 : 1; last = now;
+      if (taps >= 5) { taps = 0; openSetup(true); }
+    }, { passive: true });
+  })();
   let offlineSince = 0;
   function setOffline(on, text) {
     if (on) { if (!offlineSince) offlineSince = Date.now(); $('offlineText').textContent = text || '連線中斷，重試中…'; $('offline').hidden = false; }
@@ -132,7 +169,10 @@
     if (removed) return;
     removed = true;
     clearRendered();
-    showNotice('這台機器已從後台移除', `後台已刪除「${esc(deviceName || deviceId)}」，畫面已停止更新。<br>要重新登錄，請在網址加上 <code>&amp;fresh=1</code> 後重新載入。`);
+    showNotice('這台機器已從後台移除', `後台已刪除「${esc(deviceName || deviceId)}」，畫面已停止更新。`, [
+      { label: '更改機器名', onClick: () => openSetup(true) },
+      { label: '用同一個名字重新登錄', primary: true, onClick: reRegister },
+    ]);
   }
 
   // ---------- 同步主迴圈（同 App CloudSyncManager：對帳→掛 /wait→對帳…） ----------
@@ -147,7 +187,9 @@
       } catch (e) {
         if (e.removed) { onRemoved(); return; }
         if (e.unauthorized) {
-          showNotice('連線金鑰不正確', `後台沒有接受這把金鑰。請到後台側欄「機器連線資訊」複製金鑰，網址改成<br><code>?device=${esc(deviceName)}&amp;key=金鑰</code> 後重新載入。`);
+          showNotice('連線金鑰不正確', '後台沒有接受這把金鑰。請到後台側欄「機器連線資訊」複製金鑰後重新輸入。', [
+            { label: '重新輸入', primary: true, onClick: () => { lsSet(LS_KEY, ''); deviceKey = ''; openSetup(true); $('setupKeyRow').hidden = false; $('setupKey').value = ''; } },
+          ]);
           return;
         }
         if (!offlineSince) logEvent('sync.fail', `同步失敗：${e.message || e}`, 'warn');
@@ -174,6 +216,7 @@
     const { version } = await api('PUT', `/api/config/${encId}`, body);
     setLastVersion(version);
     screenReported = true;
+    fresh = false; try { sessionStorage.removeItem(SS_FRESH); } catch { /* ignore */ }
     logEvent('sync.push', `已上傳初始設定（第 ${version} 版，網頁播放器）`);
     await pull(version);
   }
@@ -958,14 +1001,8 @@
   // ---------- 啟動 ----------
   function boot() {
     document.title = (deviceName ? `${deviceName} · ` : '') + document.title;
-    if (!deviceName && !deviceId) {
-      showNotice('請在網址指定這面螢幕的機器名', `例如：<code>${esc(location.origin + BASE)}/play/?device=大廳&amp;key=連線金鑰</code><br>機器名會出現在後台「機器總覽」，這台瀏覽器之後會記住；金鑰在後台側欄「機器連線資訊」。<br>伺服器 .env 設了 PLAY_DEFAULT_DEVICE 的話，網址可以不帶機器名。`);
-      return;
-    }
-    if (!deviceKey) {
-      showNotice('請在網址帶上連線金鑰', `第一次開啟要帶 <code>&amp;key=連線金鑰</code>（後台側欄「機器連線資訊」可複製），之後瀏覽器會記住。<br>例如：<code>${esc(location.origin + BASE)}/play/?device=${esc(deviceName)}&amp;key=…</code>`);
-      return;
-    }
+    if (!deviceName || !deviceKey) { openSetup(false); return; }
+    if (location.search) history.replaceState(null, '', BASE + '/play/'); // 參數已記住，網址收乾淨
     showBoot(`「${deviceName || deviceId}」連線中…`, SERVER_URL);
     logEvent('app.start', `網頁播放器啟動（${APP_VERSION}，${navigator.userAgent.slice(0, 80)}，${window.innerWidth}×${window.innerHeight}）`);
     syncLoop();

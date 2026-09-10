@@ -204,13 +204,12 @@ async function loadConnInfo() {
   card.hidden = false;
   $('connMini').hidden = false;
 }
-/** 網頁播放器網址（2026-09-10）：{伺服器位址}/play/?device=機器名&key=金鑰；masked＝顯示用（金鑰遮住）。 */
+/** 網頁播放器網址（2026-09-10）：{伺服器位址}/play/?key=金鑰——所有機器同一個網址；機器名由站台預設（PLAY_DEFAULT_DEVICE）
+ *  或第一次開啟時在螢幕上填。masked＝顯示用（金鑰遮住）。 */
 function playUrl(masked) {
   if (!connInfo || !connInfo.serverUrl) return '—';
   const key = connInfo.deviceKey || '';
-  // 伺服器有設預設機器名（PLAY_DEFAULT_DEVICE）：所有螢幕開同一個網址即可，不用帶 device
-  const dev = connInfo.playDefaultDevice ? '' : 'device=機器名&';
-  return `${connInfo.serverUrl}/play/?${dev}key=${masked ? maskKey(key) : key}`;
+  return `${connInfo.serverUrl}/play/?key=${masked ? maskKey(key) : key}`;
 }
 /** 金鑰單行顯示、中間以 * 遮住（頭 6 尾 4）；複製仍是完整值。 */
 function maskKey(k) {
@@ -281,7 +280,7 @@ document.addEventListener('click', async (e) => {
   const text = what === 'url' ? connInfo.serverUrl : what === 'play' ? (connInfo.serverUrl && connInfo.deviceKey ? playUrl(false) : '') : connInfo.deviceKey;
   if (!text) return BToast.danger('目前沒有可複製的內容。');
   const ok = await copyText(text);
-  if (ok) BToast.success(what === 'url' ? '已複製伺服器位址。' : what === 'play' ? (connInfo.playDefaultDevice ? '已複製播放頁網址。' : '已複製播放頁網址，請把「機器名」改成那面螢幕的名字。') : '已複製連線金鑰。');
+  if (ok) BToast.success(what === 'url' ? '已複製伺服器位址。' : what === 'play' ? '已複製播放頁網址。' : '已複製連線金鑰。');
   else BToast.danger('無法複製。請直接選取文字後手動複製。');
 });
 

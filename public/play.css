@@ -165,3 +165,20 @@ body {
   position: fixed; left: 50%; bottom: 8vmin; transform: translateX(-50%); z-index: 80;
   padding: 1.4vmin 2.4vmin; border-radius: 1vmin; background: rgba(20,22,25,.92); color: #fff; font-size: 2.4vmin; max-width: 80vw; text-align: center;
 }
+
+/* ---------- 第一次開啟：填機器名（有互動，游標要回來） ---------- */
+.setup, .notice { cursor: auto; }
+.setup-card { width: min(640px, 88vw); text-align: center; }
+.setup-label { display: block; text-align: left; margin-top: 2.4vmin; font-size: 2.2vmin; color: #b8bec6; }
+.setup-input {
+  display: block; width: 100%; box-sizing: border-box; margin-top: .8vmin; padding: 1.6vmin 1.8vmin;
+  font: inherit; font-size: 2.8vmin; color: #fff; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); border-radius: 1vmin; outline: none;
+}
+.setup-input:focus { border-color: #E07800; box-shadow: 0 0 0 .4vmin rgba(224,120,0,.28); }
+.actions { display: flex; gap: 1.6vmin; justify-content: center; margin-top: 3.2vmin; }
+.actions:empty { display: none; }
+.btn { font: inherit; font-size: 2.6vmin; font-weight: 600; padding: 1.6vmin 4vmin; border-radius: 1vmin; border: 1px solid transparent; cursor: pointer; min-width: 22vmin; }
+.btn.primary { background: #E07800; color: #fff; }
+.btn.primary:active { background: #C46A00; }
+.btn.secondary { background: transparent; color: #e6e9ec; border-color: rgba(255,255,255,.3); }
+.btn.secondary:active { background: rgba(255,255,255,.08); }

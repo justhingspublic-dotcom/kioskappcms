@@ -28,13 +28,34 @@
     </div>
   </div>
 
-  <!-- 網址沒帶機器名／金鑰、金鑰不對、後台已移除：說明畫面 -->
+  <!-- 金鑰不對、後台已移除：說明畫面（可帶按鈕） -->
   <div id="notice" class="screen notice" hidden>
     <div class="boot-card">
       <div class="boot-mark"><img src="../admin/img/favicon.svg" alt=""></div>
       <div id="noticeTitle" class="boot-title"></div>
       <div id="noticeBody" class="boot-sub"></div>
+      <div id="noticeActions" class="actions"></div>
     </div>
+  </div>
+
+  <!-- 第一次開啟（沒有機器名／金鑰，站台也沒設預設機器名）或左上角連點 5 下：填這面螢幕的名字與金鑰，記在瀏覽器
+       （user 2026-09-10 定案：所有機器同一個網址，身分在螢幕上填一次） -->
+  <div id="setup" class="screen setup" hidden>
+    <form id="setupForm" class="setup-card" autocomplete="off">
+      <div class="boot-mark"><img src="../admin/img/favicon.svg" alt=""></div>
+      <div class="boot-title" id="setupTitle">這面螢幕叫什麼名字？</div>
+      <div class="boot-sub">名字會出現在後台「機器總覽」，之後就用它來發布內容與遠端切頁。只需填一次，這台機器會記住。</div>
+      <label class="setup-label">機器名
+        <input id="setupName" class="setup-input" type="text" maxlength="64" placeholder="例如：大廳、櫃台、二樓走廊" required>
+      </label>
+      <label class="setup-label" id="setupKeyRow">連線金鑰
+        <input id="setupKey" class="setup-input" type="text" maxlength="128" placeholder="後台側欄「機器連線資訊」的連線金鑰" autocapitalize="off" spellcheck="false">
+      </label>
+      <div class="actions">
+        <button type="button" id="setupCancel" class="btn secondary" hidden>取消</button>
+        <button type="submit" id="setupGo" class="btn primary">開始展示</button>
+      </div>
+    </form>
   </div>
 
   <!-- 後台還沒編輯這台機器：畫面上留提示（設定進來後自動消失） -->
