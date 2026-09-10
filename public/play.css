@@ -1,0 +1,167 @@
+/* ==========================================================================
+   純顯示播放頁（play.html）樣式。與後台預覽（style.css 的畫布／.pv-* 規則）同一套畫法，
+   差別只有尺寸：這裡 1px 就是機器的 1px，字級由 play.js 依畫面尺寸算好塞進 style。
+   ========================================================================== */
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+/* 狀態層（overlay／boot／sleep…）自己有 display:flex，會蓋過瀏覽器預設的 [hidden]{display:none}，這裡補回來 */
+[hidden] { display: none !important; }
+body {
+  font-family: "Noto Sans TC", system-ui, -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  color: #fff; -webkit-font-smoothing: antialiased; overscroll-behavior: none; touch-action: manipulation;
+  user-select: none; -webkit-user-select: none; cursor: none;
+}
+.material-icons { font-family: 'Material Icons'; font-weight: normal; font-style: normal; display: inline-block; line-height: 1; text-transform: none; letter-spacing: normal; white-space: nowrap; direction: ltr; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; }
+
+/* ---------- 舞台：整個視窗，一頁一個 .page（切頁時淡入淡出） ---------- */
+.stage { position: fixed; inset: 0; background: #000; overflow: hidden; }
+.page { position: absolute; inset: 0; display: flex; flex-direction: column; opacity: 0; transition: opacity .35s ease; }
+.page.in { opacity: 1; }
+.page.out { opacity: 0; pointer-events: none; }
+.block { display: flex; min-height: 0; position: relative; }
+.cell {
+  flex: 1; min-height: 0; min-width: 0; overflow: hidden; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  background-size: cover; background-position: center; color: #fff;
+}
+.cell.tappable { cursor: pointer; }
+
+/* 圖片背景（與 style.css .pv-img-layer 同）：多張輪播、600ms 淡入淡出；模糊時往外撐兩倍半徑讓淡邊被裁掉 */
+.pv-img-layer { position: absolute; inset: 0; background-position: center; background-repeat: no-repeat; transition: opacity .6s; }
+.pv-img-layer.fit { overflow: hidden; }
+.pv-img-layer.fit > div { position: absolute; inset: 0; background-position: center; background-repeat: no-repeat; }
+.pv-img-layer.fit .pv-img-back { background-size: cover; }
+.pv-img-layer.fit .pv-img-back-scrim { background: rgba(0, 0, 0, .2); }
+.pv-img-layer.fit .pv-img-front { background-size: contain; }
+.pv-img-scrim { position: absolute; inset: 0; background: #000; pointer-events: none; }
+
+/* 內容 */
+.pv-text { position: relative; z-index: 1; text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; line-height: 1.25; max-width: 100%; box-sizing: border-box; }
+.pv-marquee { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; }
+.pv-marquee span { white-space: nowrap; font-weight: 600; will-change: transform; }
+.pv-weather2 { position: absolute; inset: 0; display: flex; align-items: center; z-index: 1; }
+.pv-weather2 .pvw-left { flex: 1; min-width: 0; }
+.pv-weather2 .pvw-loc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1; }
+.pv-weather2 .pvw-info { white-space: nowrap; overflow: hidden; font-weight: 500; line-height: 1.2; }
+.pv-weather2 .pvw-right { display: flex; align-items: center; gap: 4px; }
+.pv-weather2 .pvw-temp { font-weight: 700; line-height: 1; }
+.pv-weather2 .pvw-hint { width: 100%; text-align: center; opacity: .72; }
+.sky { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pv-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: transparent; }
+.pv-web { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+.pv-placeholder {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: #3a3f44; color: #d5d9dd; text-align: center; padding: 24px; box-sizing: border-box;
+}
+.pv-placeholder .material-icons { font-size: 48px; opacity: .8; }
+.pv-placeholder.error { background: #5b2a2a; color: #ffd9d6; }
+
+/* 園區資訊格（App ParkCellOverlay／style.css .pv-park 同形） */
+.pv-park { position: absolute; inset: 0; display: flex; z-index: 1; }
+.pv-park.h { flex-direction: row; align-items: center; }
+.pv-park.v { flex-direction: column; align-items: stretch; }
+.pv-park-title { display: flex; align-items: center; gap: .35em; font-weight: 700; white-space: nowrap; line-height: 1; }
+.pv-park.h .pv-park-title { flex: 1; min-width: 0; overflow: hidden; }
+.pv-park.v .pv-park-title { flex: 1; justify-content: center; }
+.pv-park-fill { flex: 1; }
+.pv-park-btn {
+  position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: .15em;
+  color: #fff; font-weight: 700; line-height: 1; white-space: nowrap;
+  background: rgba(0,0,0,.5); border: 1px solid rgba(221,221,221,.7);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.pv-park.h .pv-park-btn { align-self: center; }
+.pv-park-btn.fx-Sweep::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+  animation: pvParkSweep 3s linear infinite;
+}
+.pv-park-btn.fx-Sweep { animation: pvParkBorderBreathe 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkSweep { 0% { transform: translateX(-100%); } 50%, 100% { transform: translateX(100%); } }
+@keyframes pvParkBorderBreathe { from { border-color: rgba(221,221,221,.45); } to { border-color: rgba(221,221,221,1); } }
+.pv-park-btn.fx-Breathe { animation: pvParkBreathe 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkBreathe { from { transform: scale(1); } to { transform: scale(1.04); } }
+@property --pv-run { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.pv-park-btn.fx-BorderRun::after {
+  content: ''; position: absolute; inset: -1px; padding: 2px; pointer-events: none;
+  background: conic-gradient(from var(--pv-run), transparent 0 72%, rgba(255,255,255,.95) 86%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: pvParkRun 2.5s linear infinite;
+}
+@keyframes pvParkRun { to { --pv-run: 360deg; } }
+.pv-park-btn.fx-ArrowNudge .material-icons { animation: pvParkNudge 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkNudge { from { transform: translateX(0); } to { transform: translateX(.2em); } }
+.pv-park-btn.fx-Pulse { animation: pvParkPulse 1.1s ease-in-out infinite alternate; }
+@keyframes pvParkPulse { from { background-color: rgba(0,0,0,.5); } to { background-color: rgba(0,0,0,.72); } }
+.pv-park-btn.fx-Shake { animation: pvParkShake 5s linear infinite; }
+@keyframes pvParkShake {
+  0%, 88%, 96%, 100% { transform: translateX(0); }
+  89.6% { transform: translateX(-.18em); } 91.2% { transform: translateX(.18em); }
+  92.8% { transform: translateX(-.13em); } 94.4% { transform: translateX(.13em); }
+}
+
+/* ---------- 全螢幕狀態畫面（連線中／說明） ---------- */
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #17191c; z-index: 50; padding: 6vw; box-sizing: border-box; }
+.boot-card { max-width: 72vw; text-align: center; }
+.boot-mark { width: 12vmin; height: 12vmin; margin: 0 auto 3vmin; }
+.boot-mark img { width: 100%; height: 100%; display: block; }
+.boot-title { font-size: 4.2vmin; font-weight: 600; line-height: 1.3; }
+.boot-sub { margin-top: 1.6vmin; font-size: 2.4vmin; line-height: 1.6; color: #b8bec6; white-space: pre-wrap; word-break: break-word; }
+.boot-sub code { font-family: ui-monospace, Consolas, monospace; background: rgba(255,255,255,.08); padding: .1em .4em; border-radius: .3em; font-size: .95em; }
+.notice { background: #1f2327; }
+
+.blank-hint {
+  position: fixed; left: 50%; bottom: 6vmin; transform: translateX(-50%); z-index: 40;
+  display: flex; align-items: center; gap: 1.2vmin; padding: 1.6vmin 2.4vmin; border-radius: 1.2vmin;
+  background: rgba(0,0,0,.55); color: #e6e9ec; font-size: 2.2vmin; line-height: 1.5; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  max-width: 80vw; text-align: left;
+}
+.blank-hint .material-icons { font-size: 4vmin; opacity: .85; }
+
+/* ---------- 下一頁（網頁／園區資訊） ---------- */
+.overlay { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
+.topbar { flex: none; height: 64px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+.topbar-btn { width: 56px; height: 56px; border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.topbar-btn .material-icons { font-size: 30px; }
+.topbar-btn:active { background: rgba(0,0,0,.08); }
+.topbar-title { flex: 1; min-width: 0; font-size: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
+.overlay-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.overlay-body iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+
+/* 園區資訊頁（App ParkInfoScreen 同形）：地圖照本身比例貼齊上方，下面是選中測站的讀數面板 */
+.park-map { position: relative; flex: none; width: 100%; background: #f4f5f7; }
+.park-map img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.park-marker {
+  position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.park-marker .halo { position: absolute; inset: 0; border-radius: 50%; opacity: 0; }
+.park-marker.selected .halo { animation: parkHalo 1.4s linear infinite; }
+@keyframes parkHalo { from { transform: scale(1); opacity: .5; } to { transform: scale(1.6); opacity: 0; } }
+.park-marker .dot {
+  position: relative; width: 80%; height: 80%; border-radius: 50%; border: 3px solid var(--ring); background: #fff; color: var(--ring);
+  display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.25); box-sizing: border-box;
+}
+.park-marker.selected .dot { background: var(--ring); color: #fff; }
+.park-panel { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px; background: #eceef1; box-sizing: border-box; }
+.park-panel-head { display: flex; align-items: center; gap: 12px; }
+.park-panel-title { font-size: 28px; font-weight: 700; flex: 1; min-width: 0; }
+.park-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: 16px; font-weight: 500; border: 1px solid; }
+.park-chip .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.park-hint { margin-top: 16px; font-size: 18px; color: #5e646b; }
+.park-metrics { display: flex; margin-top: 16px; }
+.park-metric { flex: 1; text-align: center; }
+.park-metric .v { font-size: 36px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.park-metric .k { margin-top: 4px; font-size: 16px; color: #5e646b; }
+.park-updated { margin-top: 12px; font-size: 14px; color: #5e646b; }
+
+/* ---------- 休眠、離線、toast ---------- */
+.sleep { position: fixed; inset: 0; background: #000; z-index: 60; }
+.offline {
+  position: fixed; top: 2vmin; right: 2vmin; z-index: 70; display: flex; align-items: center; gap: .6em;
+  padding: .5em .9em; border-radius: 999px; background: rgba(0,0,0,.6); color: #ffd18a; font-size: 2vmin; backdrop-filter: blur(8px);
+}
+.offline .material-icons { font-size: 1.3em; }
+.toast {
+  position: fixed; left: 50%; bottom: 8vmin; transform: translateX(-50%); z-index: 80;
+  padding: 1.4vmin 2.4vmin; border-radius: 1vmin; background: rgba(20,22,25,.92); color: #fff; font-size: 2.4vmin; max-width: 80vw; text-align: center;
+}

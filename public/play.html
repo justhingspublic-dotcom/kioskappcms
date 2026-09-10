@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="robots" content="noindex">
+  <title>{{SITE_NAME}} 展示</title>
+  <!-- 純顯示播放頁（2026-09-10，第二個場域 sunrise 起）：Windows 機器用瀏覽器 kiosk 模式開這一頁，
+       網址帶機器名與金鑰：/{site}/play/?device=大廳&key=…（金鑰第一次帶過後會記在瀏覽器，之後網址可省略）。
+       讀的是和 Android App 同一份 config、同一組 API（/api/config/{id}、/wait 長輪詢、X-Device-Key），
+       畫法與後台預覽（app.js buildCanvas）同一套規則，只是尺寸用真實像素。沒有設定頁、沒有 PIN、不做離線快取。 -->
+  <link rel="icon" type="image/svg+xml" href="../admin/img/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="../admin/play.css">
+</head>
+<body>
+  <div id="stage" class="stage"></div>
+
+  <!-- 尚未拿到設定：機器名＋狀態 -->
+  <div id="boot" class="screen boot">
+    <div class="boot-card">
+      <div class="boot-mark"><img src="../admin/img/favicon.svg" alt=""></div>
+      <div id="bootTitle" class="boot-title">連線中…</div>
+      <div id="bootSub" class="boot-sub"></div>
+    </div>
+  </div>
+
+  <!-- 網址沒帶機器名／金鑰、金鑰不對、後台已移除：說明畫面 -->
+  <div id="notice" class="screen notice" hidden>
+    <div class="boot-card">
+      <div class="boot-mark"><img src="../admin/img/favicon.svg" alt=""></div>
+      <div id="noticeTitle" class="boot-title"></div>
+      <div id="noticeBody" class="boot-sub"></div>
+    </div>
+  </div>
+
+  <!-- 後台還沒編輯這台機器：畫面上留提示（設定進來後自動消失） -->
+  <div id="blankHint" class="blank-hint" hidden>
+    <span class="material-icons">edit_note</span>
+    <div id="blankHintText"></div>
+  </div>
+
+  <!-- 「下一頁」：開啟網頁／園區資訊，頂欄＋內容，90 秒沒人碰自動回展示（與 App WebPageScreen／ParkInfoScreen 同） -->
+  <div id="overlay" class="overlay" hidden>
+    <div class="topbar">
+      <button type="button" id="ovBack" class="topbar-btn" aria-label="上一頁"><span class="material-icons">arrow_back</span></button>
+      <div id="ovTitle" class="topbar-title"></div>
+      <button type="button" id="ovHome" class="topbar-btn" aria-label="回首頁"><span class="material-icons">home</span></button>
+    </div>
+    <div id="ovBody" class="overlay-body"></div>
+  </div>
+
+  <!-- 休眠排程：全黑 -->
+  <div id="sleep" class="sleep" hidden></div>
+
+  <!-- 連線狀態小標（斷線時才出現） -->
+  <div id="offline" class="offline" hidden><span class="material-icons">cloud_off</span><span id="offlineText">連線中斷，重試中…</span></div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="../admin/play.js"></script>
+</body>
+</html>

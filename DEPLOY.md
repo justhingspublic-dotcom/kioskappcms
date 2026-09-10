@@ -18,6 +18,7 @@
    - `DEVICE_KEY`：機器連線金鑰（機器端要填一樣的；沿用原本的值，不然已連線的機器要全部重填）
    - `BASE_PATH`：後台掛的子路徑，正式站填 `/joye`（根網址＝各後台的入口清單頁；留空＝掛在根）。
      2026-09-10 起後台網頁在 `{BASE_PATH}/admin/`，API 與圖片仍在 `{BASE_PATH}/api`、`{BASE_PATH}/files`（機器填的位址不變）；`{BASE_PATH}/` 會轉到 `/admin/`
+     純顯示播放頁在 `{BASE_PATH}/play/?device=機器名&key=金鑰`（沒有 App 的機器用瀏覽器 kiosk 模式開；後台側欄「機器連線資訊」可複製）
    - `PORTAL_USERNAME` / `PORTAL_PASSWORD`：根網址入口清單頁前面那層登入的帳密（留空＝不擋）
    - `PUBLIC_URL`：對外網址，要含子路徑，正式站＝`https://justdisplay.justhings.com.tw/joye`（顯示在後台側欄「機器連線資訊」，機器就填這個）
    - `SITE_NAME` / `SITE_LOGO`：客戶名稱與登入頁 logo（沒設＝卓也小屋／img/joye-logo.png；第二個站台如 sunrise 設 `SITE_NAME=揚昇高爾夫球場`、`SITE_LOGO=` 留空）

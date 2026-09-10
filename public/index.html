@@ -140,6 +140,7 @@
               <div class="b-pop-panel page-help-panel">
                 <p>在機器的「雲端同步」設定頁填入相同的伺服器位址與連線金鑰，機器就會連上這個後台。</p>
                 <p>這兩項只能在伺服器端設定，這裡僅供查看與複製。</p>
+                <p>沒有 App 的機器（例如 Windows 電腦）用瀏覽器開「播放頁網址」就是一台機器：把網址裡的「機器名」改成那面螢幕的名字，機器就會出現在機器總覽。</p>
               </div>
             </div>
           </div>
@@ -155,6 +156,14 @@
             <div class="conn-value-row">
               <div class="conn-value" id="connKey"></div>
               <button type="button" class="b-btn b-btn-text conn-copy" data-copy="key">複製</button>
+            </div>
+          </div>
+          <!-- 網頁播放器（2026-09-10）：Windows 機器用瀏覽器開這個網址就是一台機器；複製後把「機器名」改成那面螢幕的名字 -->
+          <div class="conn-item">
+            <span class="conn-label">播放頁網址</span>
+            <div class="conn-value-row">
+              <div class="conn-value" id="connPlay"></div>
+              <button type="button" class="b-btn b-btn-text conn-copy" data-copy="play">複製</button>
             </div>
           </div>
         </div>

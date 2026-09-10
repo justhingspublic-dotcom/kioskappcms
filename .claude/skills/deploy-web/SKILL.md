@@ -22,7 +22,8 @@ description: 把 KioskAdmin（JustDisplay 後台，c:\Code\KioskAdmin）部署�
 - 根網址入口清單的卡片由 **joye** 那個實例的 .env `PORTAL_SITES=/joye=卓也小屋;/sunrise=揚昇高爾夫球場` 決定（sunrise 實例收不到根路徑）。
 - 蓋檔範圍與 joye 相同，但目標換成 `KioskAdminSunrise\`（**兩個資料夾都要蓋**，程式碼同一份）。
 - 重啟：`ENV_FILE=.env.sunrise node tools/restart-prod.js https://justdisplay.justhings.com.tw/sunrise`（本機 .env.sunrise 的 sunriseadmin 密碼＝正式站）。改帳號用 `ENV_FILE=.env.sunrise node tools/set-admin.js …`（本機 .env.sunrise 指向 KioskAdminSunriseDev，要改正式站 DB 得暫時把 DB_NAME 換成 KioskAdminSunrise）。
-- 驗證：`/sunrise/admin/` → 200、`/sunrise/` → 301、`/sunrise/api/me` → 401。
+- 驗證：`/sunrise/admin/` → 200、`/sunrise/` → 301、`/sunrise/api/me` → 401、`/sunrise/play/` → 200。
+- **純顯示播放頁（2026-09-10）**：`/{site}/play/?device=機器名&key=金鑰`（金鑰帶過一次會記在瀏覽器 localStorage；`&fresh=1`＝被後台刪除後重新登錄；`&id=`可自訂機器編號，預設 `web-<機器名>`）。檔案＝public/play.html、play.css、play.js（資源走 ../admin/），server.js 的 `/play`→`/play/` 轉址與路由；讀同一份 config、同一組機器 API（/api/config/{id}、/wait、X-Device-Key），/api/station/current 已改成 requireUserOrDevice 讓播放器帶金鑰用。兩個資料夾都要蓋。改 play.* 不用重啟。
 - 本機測試站：`ENV_FILE=.env.sunrise node src/server.js` → http://localhost:3178/sunrise/admin/（DB KioskAdminSunriseDev、uploads-sunrise/）。
 
 ## 標準流程

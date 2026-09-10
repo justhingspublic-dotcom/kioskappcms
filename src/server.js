@@ -116,7 +116,8 @@ app.use((req, _res, next) => {
 
 /** 這個後台自己的對外位址：.env 的 PUBLIC_URL，沒設就用這次請求的 host 推算。 */
 function thisServerUrl(req) {
-  return (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  // 沒設 PUBLIC_URL 時要把子路徑接上（本機測試站掛 /sunrise 時，機器要填的是 …:3178/sunrise）
+  return (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}${BASE_PATH}`).replace(/\/+$/, '');
 }
 /** 位址比對用：去頭尾空白與結尾斜線、協定與主機名不分大小寫。 */
 function normalizeServerUrl(u) {
@@ -721,7 +722,7 @@ app.post('/api/justai/agents', requireUser, async (req, res) => {
 // 後台預覽與測站清單要讀客戶的感測器 API（例：卓也小屋 joyeCloud /api/telemetry/current），
 // 對方沒開 CORS，瀏覽器不能直接打；由伺服器代抓並快取 10 秒，多人同時開預覽也只打一次。
 const stationCache = new Map(); // url -> { ts, body }
-app.get('/api/station/current', requireUser, async (req, res) => {
+app.get('/api/station/current', requireUserOrDevice, async (req, res) => {
   const url = String(req.query.url || '').trim();
   if (!/^https?:\/\/\S+$/.test(url)) {
     return res.status(400).json({ error: '測站 API 網址格式不正確。請以 http:// 或 https:// 開頭。' });
@@ -857,6 +858,14 @@ function renderAdminIndex() {
     .replace('{{SITE_THEME_LINK}}', SITE_THEME_LINK);
 }
 app.get(['/admin/', '/admin/index.html'], (_req, res) => { res.set('Cache-Control', 'no-cache'); res.type('html').send(renderAdminIndex()); });
+// 純顯示播放頁（2026-09-10）：/{site}/play/?device=機器名&key=金鑰。Windows 機器用瀏覽器 kiosk 模式開這一頁，
+// 讀的是和 App 同一份 config／同一組機器 API；資源走 ../admin/（play.js、play.css 都在 public/ 底下）。
+const PLAY_INDEX = path.join(__dirname, '..', 'public', 'play.html');
+app.get('/play', (req, res, next) => (req.path === '/play' ? res.redirect(301, req.baseUrl + '/play/' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '')) : next()));
+app.get('/play/', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.type('html').send(fs.readFileSync(PLAY_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)));
+});
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, _next) => {
@@ -893,7 +902,7 @@ function checkApiDocs() {
     log.warn('docs', `API 文件檢查：docs/openapi.yaml 解析失敗（${e.message.split('\n')[0]}）`);
     return;
   }
-  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files') || p === '/' || p.startsWith('/admin');
+  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files') || p === '/' || p.startsWith('/admin') || p.startsWith('/play');
   const inCode = new Set();
   for (const layer of app._router.stack) {
     if (!layer.route) continue;
