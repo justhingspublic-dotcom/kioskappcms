@@ -16,12 +16,13 @@
    - `DB_HOST` `DB_USER` `DB_PASSWORD`（公司 MSSQL，確認這台伺服器連得到）
    - `ADMIN_PASSWORD`：後台 admin 密碼（首次啟動建帳號用）
    - `DEVICE_KEY`：機器連線金鑰（機器端要填一樣的；沿用原本的值，不然已連線的機器要全部重填）
-   - `BASE_PATH`：後台掛的子路徑，正式站填 `/joye`（根網址＝各後台的入口清單頁；留空＝掛在根）
+   - `BASE_PATH`：後台掛的子路徑，正式站填 `/joye`（根網址＝各後台的入口清單頁；留空＝掛在根）。
+     2026-09-10 起後台網頁在 `{BASE_PATH}/admin/`，API 與圖片仍在 `{BASE_PATH}/api`、`{BASE_PATH}/files`（機器填的位址不變）；`{BASE_PATH}/` 會轉到 `/admin/`
    - `PORTAL_USERNAME` / `PORTAL_PASSWORD`：根網址入口清單頁前面那層登入的帳密（留空＝不擋）
    - `PUBLIC_URL`：對外網址，要含子路徑，正式站＝`https://justdisplay.justhings.com.tw/joye`（顯示在後台側欄「機器連線資訊」，機器就填這個）
    - `PORT=3000`
    - `LOG_LEVEL=info`（系統 log 等級；檔案寫在 `logs/app-YYYY-MM-DD.log`，一天一檔、預設留 30 天，可用 `LOG_DIR`／`LOG_KEEP_DAYS` 調整）
-3. 先手動測：執行 `start.cmd`，看到「資料庫連線成功」，瀏覽器開 http://localhost:3000 能登入。
+3. 先手動測：執行 `start.cmd`，看到「資料庫連線成功」，瀏覽器開 http://localhost:3000/admin/ 能登入。
 4. 做成常駐服務（擇一）：
    - NSSM：`nssm install KioskAdmin "C:\Program Files\nodejs\node.exe" "D:\WebSite\JustDisplay\src\server.js"`，
      Startup directory 設 `D:\WebSite\JustDisplay`，然後 `nssm start KioskAdmin`。

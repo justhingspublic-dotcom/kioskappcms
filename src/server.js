@@ -824,7 +824,12 @@ app.use('/files', express.static(UPLOAD_DIR, {
   // express 4 的 mime 表沒有 AVIF，舊上傳的 .avif 會回 application/octet-stream
   setHeaders: (res, filePath) => { if (filePath.toLowerCase().endsWith('.avif')) res.type('image/avif'); },
 }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// ---- 後台網頁（2026-09-10 起掛在 /admin/）：/{site}/admin/＝後台、/{site}/play/＝之後的純顯示前台、
+//      /{site}/api、/{site}/files 兩邊共用且不搬（現場機器存的伺服器位址是 /{site}，API 不動就不用重設）。
+//      舊網址 /{site}/ 轉到 /{site}/admin/（書籤不會壞；瀏覽器會把 #hash 帶過去）。----
+app.get('/', (req, res) => res.redirect(301, req.baseUrl + '/admin/'));
+app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301, req.baseUrl + '/admin/') : next()));
+app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, _next) => {
   // body-parser 的 JSON 壞掉等「要求本身有問題」的錯（帶 statusCode 4xx）：回 400，記 warn 就好
@@ -850,7 +855,7 @@ process.on('uncaughtException', (e) => {
 
 /** 啟動時比對「程式碼實際註冊的路由」與 docs/openapi.yaml：任一邊多了或少了就印警告，
  *  避免改了 API 忘了更新文件。只比路徑＋方法，欄位／回應格式的差異抓不到。
- *  /docs 與 /files（靜態）不列入比對。 */
+ *  /docs 與 /files（靜態）、以及 / 與 /admin（後台網頁的轉址，不是 API）不列入比對。 */
 function checkApiDocs() {
   const yaml = require('js-yaml');
   let spec;
@@ -860,7 +865,7 @@ function checkApiDocs() {
     log.warn('docs', `API 文件檢查：docs/openapi.yaml 解析失敗（${e.message.split('\n')[0]}）`);
     return;
   }
-  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files');
+  const skip = (p) => p.startsWith('/docs') || p.startsWith('/files') || p === '/' || p === '/admin';
   const inCode = new Set();
   for (const layer of app._router.stack) {
     if (!layer.route) continue;
@@ -886,8 +891,8 @@ function checkApiDocs() {
 }
 checkApiDocs();
 
-// 掛載：有 BASE_PATH 就整個後台掛在子路徑底下（/joye/api/…、/joye/files/…、/joye/ 網頁），
-// 沒結尾斜線的 /joye 轉到 /joye/（網頁用相對路徑載資源）；根 / 先暫時轉到後台，未來換成各後台的統一入口。
+// 掛載：有 BASE_PATH 就整個後台掛在子路徑底下（/joye/api/…、/joye/files/…、/joye/admin/ 網頁），
+// 沒結尾斜線的 /joye 轉到 /joye/（再由 app 轉到 /joye/admin/）；根 / ＝各後台的統一入口清單。
 const root = express();
 if (BASE_PATH) {
   // Express 的 get('/joye') 連 '/joye/' 也會進來，只對「沒結尾斜線」的那個轉址，否則會無限轉址
@@ -933,7 +938,7 @@ if (BASE_PATH) {
 }
 
 // 先開站（DB 斷線時網頁仍載得進、看得到明確錯誤），DB 在背景重試連線，連上自動恢復。
-root.listen(PORT, () => log.info('sys', `KioskAdmin API 啟動：http://localhost:${PORT}${BASE_PATH}/`, { logDir: log.LOG_DIR, level: log.level }));
+root.listen(PORT, () => log.info('sys', `KioskAdmin API 啟動：http://localhost:${PORT}${BASE_PATH}/admin/`, { logDir: log.LOG_DIR, level: log.level }));
 
 (async function initDbWithRetry() {
   for (;;) {

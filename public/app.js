@@ -36,10 +36,11 @@ const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸
 // App ParkLayout：園區資訊標題與按鈕的排法（Auto = 寬不到高兩倍就直排）
 const PARK_LAYOUT = [['Auto', '自動'], ['Horizontal', '橫排'], ['Vertical', '直排']];
 
-// ---------- 子路徑（2026-09-08）----------
-// 後台可掛在子路徑底下（正式站＝ https://justdisplay.justhings.com.tw/joye，根網址留給未來各後台的統一入口）。
-// 伺服器端用 BASE_PATH 掛載；前端從目前網址推出前綴，所有根路徑（/api、/files）都要加上它。
-const BASE = location.pathname.replace(/\/[^/]*$/, '');
+// ---------- 子路徑（2026-09-08；2026-09-10 網頁搬到 /admin/）----------
+// 後台可掛在子路徑底下（正式站＝ https://justdisplay.justhings.com.tw/joye/admin/，根網址＝各後台的統一入口）。
+// 伺服器端用 BASE_PATH 掛載；網頁本身在 /{site}/admin/，API 與圖片在 /{site}/api、/{site}/files，
+// 所以前綴＝目前網址去掉檔名再去掉結尾的 /admin，所有根路徑（/api、/files）都要加上它。
+const BASE = location.pathname.replace(/\/[^/]*$/, '').replace(/\/admin$/, '');
 /** 伺服器上的媒體路徑（/files/…）補上子路徑前綴；外部 http(s) 網址原樣。 */
 const mediaSrc = (uri) => (typeof uri === 'string' && uri.startsWith('/files/') ? BASE + uri : uri);
 
