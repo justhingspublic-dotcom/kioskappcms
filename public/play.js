@@ -69,8 +69,8 @@
   let lastVersion = 0;
   try { lastVersion = Number(localStorage.getItem(LS_VER)) || 0; } catch { /* ignore */ }
   let config = null;        // 最近一次套用的整份設定
-  // 閒置回展示頁秒數（2026-09-14）：後台機器設定 idleReturnSec（10～3600），沒設／0＝預設 90 秒
-  const idleReturnMs = () => { const s = Number(config && config.idleReturnSec); return s >= 10 && s <= 3600 ? s * 1000 : DEFAULT_IDLE_RETURN_MS; };
+  // 閒置回展示頁秒數（2026-09-14）：後台機器設定 idleReturnSec（10～3600），沒設／0＝預設 90 秒；-1＝開關關閉→回 0＝不計時（同 App IdleReturn）
+  const idleReturnMs = () => { const s = Number(config && config.idleReturnSec); if (s === -1) return 0; return s >= 10 && s <= 3600 ? s * 1000 : DEFAULT_IDLE_RETURN_MS; };
   let pages = [];
   let activeIndex = 0;
   let sleepSchedule = null;
@@ -257,6 +257,9 @@
   }
   // 一律直向（2026-09-10 user 指示：操作邏輯都是以直向定義的）：視窗是橫的就在中間放一個 9:16 的舞台，兩側留黑；
   // 上報給後台的螢幕尺寸＝舞台尺寸，後台畫布也就是直的。視窗本來就是直的則整個視窗都是舞台。
+  // 解析度係數 K（2026-09-14）：後台畫布與內頁都以 1080 寬為設計基準；比 FHD 寬的螢幕（2K／4K 直式）
+  // 寫死 px 的東西（內頁頂欄、徽章、園區資訊格、測站標記、客服）一律乘 K 等比放大。FHD 以下 K＝1、跟原本一樣。
+  const kScale = () => Math.max(1, (stage.clientWidth || window.innerWidth) / 1080);
   function layoutStage() {
     const W = window.innerWidth, H = window.innerHeight;
     const s = stage.style, r = document.documentElement.style;
@@ -268,6 +271,7 @@
       s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'; s.right = 'auto'; s.bottom = 'auto';
       r.setProperty('--stage-left', '0px'); r.setProperty('--stage-w', '100%'); r.setProperty('--stage-h', '100%');
     }
+    r.setProperty('--k', kScale().toFixed(4));
   }
   function screenSize() { return { w: stage.clientWidth || window.innerWidth, h: stage.clientHeight || window.innerHeight }; }
   async function reportScreenIfChanged() {
@@ -503,7 +507,9 @@
   function fitAll(root) {
     const cw = stage.clientWidth;
     if (!cw) return;
-    root.querySelectorAll('.cell').forEach((c) => {
+    // root 本身就是格子時也要算進去（天氣格資料抓回來後只重排自己；之前 querySelectorAll 不含自己，天氣字級一直停在預設 16px）
+    const cells = root.classList && root.classList.contains('cell') ? [root] : [...root.querySelectorAll('.cell')];
+    cells.forEach((c) => {
       const h = c.offsetHeight, w = c.offsetWidth;
       const text = c.querySelector('.pv-text');
       if (text) {
@@ -824,7 +830,7 @@
     b._fit = () => {
       const w = c.offsetWidth || (sizePx && sizePx.w) || 1080;
       const h = c.offsetHeight || (sizePx && sizePx.h) || 200;
-      const s = clamp(Math.min(w / 520, h / 180), 0.55, 1);
+      const s = clamp(Math.min(w / 520, h / 180), 0.55, kScale());
       b.style.fontSize = `${(20 * s).toFixed(2)}px`;
       b.style.padding = `${(8 * s).toFixed(2)}px ${(14 * s).toFixed(2)}px ${(8 * s).toFixed(2)}px ${(10 * s).toFixed(2)}px`;
       b.style.margin = `${(12 * s).toFixed(2)}px`;
@@ -843,7 +849,8 @@
       const w = c.offsetWidth || (sizePx && sizePx.w) || 1080;
       const h = c.offsetHeight || (sizePx && sizePx.h) || 200;
       const vertical = cta && (cell.parkLayout === 'Vertical' || (cell.parkLayout !== 'Horizontal' && w / h < 2.0));
-      const s = vertical ? Math.max(0.5, Math.min(w / 300, h / 220, 1)) : Math.max(0.4, Math.min(w / 600, h / 90, 1));
+      const K = kScale();
+      const s = vertical ? Math.max(0.5, Math.min(w / 300, h / 220, K)) : Math.max(0.4, Math.min(w / 600, h / 90, K));
       const u = (px) => `${(px * s).toFixed(2)}px`;
       wrap.className = 'pv-park ' + (vertical ? 'v' : 'h');
       const pct = clamp(Number(cell.txtSize) || 100, 50, 300) / 100;
@@ -913,7 +920,8 @@
   let overlayCloseTimer = 0;
   function armIdle() {
     clearTimeout(overlayIdle);
-    overlayIdle = setTimeout(() => closeOverlay(), idleReturnMs());
+    const ms = idleReturnMs();
+    if (ms > 0) overlayIdle = setTimeout(() => closeOverlay(), ms); // 0＝後台關閉自動返回，不計時
   }
   document.addEventListener('pointerdown', () => { if (overlayKind) armIdle(); }, { capture: true, passive: true });
   function openOverlay(kind, title) {
@@ -984,7 +992,7 @@
       const avail = H - mh;
       panel.style.height = `${avail}px`;
       // 以 1080 寬、面板 288 高為設計基準，先依寬高算比例，再實測縮到放得下（最小 0.45）
-      let s = clamp(Math.min(W / 1080, avail / 288), 0.45, 1);
+      let s = Math.max(0.45, Math.min(W / 1080, avail / 288)); // 比 FHD 寬的螢幕跟著放大（上限＝W/1080）
       panel.style.setProperty('--ps', s.toFixed(3));
       for (let i = 0; i < 4 && panel.scrollHeight > avail + 1 && s > 0.45; i++) {
         s = Math.max(0.45, s * (avail / panel.scrollHeight) * 0.98);

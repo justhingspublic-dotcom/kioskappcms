@@ -57,7 +57,7 @@ Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一
 共用範本（版面清單＋客服帳號＋休眠排程＋管理 PIN），2026-09-07 定案改為全站一份、不分帳號（資料列 `UserId='_global'`）。
 GET → `{ "settings": {...}|null, "updatedAt" }`；
 PUT Body：`{ "settings": { "layouts": [ { "id": 1, "name": "...", "pages": [...], "screen": {...},
-"createdBy": "系統管理員", "createdAt": "...", "updatedAt": "..." } ], "chatApi": {...}, "sleep": {...}, "adminPin": "...", "idleReturnSec": 90 } }`（欄位皆可省略；idleReturnSec＝閒置回展示頁秒數，10～3600）。
+"createdBy": "系統管理員", "createdAt": "...", "updatedAt": "..." } ], "chatApi": {...}, "sleep": {...}, "adminPin": "...", "idleReturnSec": 90 } }`（欄位皆可省略；idleReturnSec＝閒置返回秒數，10～3600，-1＝永不）。
 - `createdBy`／`createdAt` 由伺服器在 PUT 時對「新出現的版面 id」蓋章（＝登入者顯示名稱），網頁不用帶。
 - **權限**：管理員可改全部；一般帳號的 PUT 只會套用 `sleep`（休眠排程），其他欄位一律保留現值，沒帶 `sleep` 回 403。
   對應網頁：一般帳號的版面設定只有「加入機器」（無新增／編輯／更名／刪除），機器設定只能改休眠時段。

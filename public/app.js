@@ -2474,32 +2474,35 @@ function pinCard(ctx) {
   });
 }
 
-/* 閒置回展示頁卡（2026-09-14 user 指示）：訪客在客服／園區資訊／網頁頁多久沒碰就回展示畫面，
- * App 與網頁播放頁都照這個秒數。同 PIN 卡一排式；沒設定時欄位直接顯示 90（user 2026-09-14：預設值要填進去，不是 placeholder）；
- * 只收 10～3600 的整數（失焦時夾到範圍內、清空就填回 90）。存檔時 90 也照存，效果同預設。 */
+/* 閒置返回卡（2026-09-14 user 指示）：訪客在客服／園區資訊／網頁頁多久沒碰就回展示畫面，App 與網頁播放頁都照這個值。
+ * 同 PIN 卡一排式：標題在左、右邊一個下拉選單（2026-09-14 16:10 定案：開關放哪都怪，改成 iOS「自動鎖定」式的下拉，
+ * 「永不」是選項之一＝存 -1 不自動返回；App 設定頁同一份選項）。0／省略＝預設 90 秒，顯示成「90 秒」；
+ * 舊資料若是清單外的秒數，動態多一個「N 秒」選項讓它顯示得出來。 */
 const IDLE_RETURN_DEFAULT_SEC = 90;
+const IDLE_RETURN_NEVER = -1;
+// 與 App KioskSettings.IDLE_RETURN_OPTIONS 一致（秒數 → 顯示文字）
+const IDLE_RETURN_OPTIONS = [
+  [30, '30 秒'], [60, '1 分鐘'], [90, '90 秒'], [120, '2 分鐘'], [180, '3 分鐘'], [300, '5 分鐘'],
+  [600, '10 分鐘'], [1800, '30 分鐘'], [3600, '1 小時'], [IDLE_RETURN_NEVER, '永不'],
+];
+function idleReturnLabel(sec) {
+  const hit = IDLE_RETURN_OPTIONS.find(([v]) => v === sec);
+  return hit ? hit[1] : `${sec} 秒`;
+}
 function idleCard(ctx) {
-  return settingsCard('閒置回展示頁', [
-    '訪客在智能客服、園區資訊或網頁頁多久沒有觸碰，就自動回到展示畫面；App 與網頁播放頁都照這個秒數。',
-    `只能輸入 10～3600 的整數；預設 ${IDLE_RETURN_DEFAULT_SEC} 秒。`,
+  return settingsCard('閒置返回', [
+    '訪客在智能客服、園區資訊或網頁頁多久沒有觸碰，就自動回到展示畫面；App 與網頁播放頁都照這個值。',
+    `預設 ${IDLE_RETURN_DEFAULT_SEC} 秒。選「永不」訪客頁會一直停留，直到有人手動回到展示畫面。`,
   ], (g) => {
-    const cur = String(Number(ctx.cfg.idleReturnSec) > 0 ? ctx.cfg.idleReturnSec : IDLE_RETURN_DEFAULT_SEC);
+    const raw = Number(ctx.cfg.idleReturnSec);
+    const cur = raw === IDLE_RETURN_NEVER || raw >= 10 ? raw : IDLE_RETURN_DEFAULT_SEC;
+    const opts = IDLE_RETURN_OPTIONS.map(([v, l]) => [String(v), l]);
+    if (!IDLE_RETURN_OPTIONS.some(([v]) => v === cur)) opts.splice(opts.length - 1, 0, [String(cur), idleReturnLabel(cur)]); // 舊的自訂秒數
+    const sel = selInput(opts, String(cur), (v) => { ctx.cfg.idleReturnSec = Number(v); ctx.markDirty(); });
+    sel.setAttribute('aria-label', '閒置返回');
     const wrap = document.createElement('div');
     wrap.className = 'idle-wrap';
-    const inp = txtInput(cur, String(IDLE_RETURN_DEFAULT_SEC), (v) => {
-      const clean = String(v).replace(/\D/g, '').slice(0, 4);
-      ctx.cfg.idleReturnSec = clean ? Number(clean) : 0; ctx.markDirty();
-    });
-    inp.inputMode = 'numeric'; inp.autocomplete = 'off'; inp.maxLength = 4;
-    inp.addEventListener('input', () => { const c = inp.value.replace(/\D/g, '').slice(0, 4); if (c !== inp.value) inp.value = c; });
-    inp.addEventListener('blur', () => {
-      if (!inp.value) { inp.value = String(IDLE_RETURN_DEFAULT_SEC); return; } // 清空＝回預設（cfg 已是 0）
-      const n = Math.min(3600, Math.max(10, Number(inp.value)));
-      if (String(n) !== inp.value) { inp.value = String(n); ctx.cfg.idleReturnSec = n; ctx.markDirty(); }
-    });
-    const unit = document.createElement('span');
-    unit.className = 'idle-unit'; unit.textContent = '秒';
-    wrap.append(inp, unit);
+    wrap.appendChild(sel);
     const card = g.parentElement;
     card.querySelector('.b-card-head').appendChild(wrap);
     g.remove();
@@ -3092,7 +3095,7 @@ async function applySharedSettings() {
   if (shared.chatApi) partial.chatApi = shared.chatApi;
   if (shared.sleep) partial.sleep = shared.sleep;
   if (shared.adminPin) partial.adminPin = shared.adminPin; // 共用 PIN 留空＝不覆蓋機器的 PIN
-  if (shared.idleReturnSec) partial.idleReturnSec = shared.idleReturnSec; // 共用閒置秒數留空＝不覆蓋
+  if (shared.idleReturnSec) partial.idleReturnSec = shared.idleReturnSec; // 共用閒置秒數留空（0）＝不覆蓋；-1（關閉自動返回）也照覆蓋
   await publishToDevices(picked, partial, '套用到');
 }
 

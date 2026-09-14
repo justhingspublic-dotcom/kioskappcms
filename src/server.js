@@ -529,9 +529,9 @@ app.get('/api/config/:deviceId', async (req, res) => {
 // 網頁端的批量動作（加到其他機器、套用設定、展示版面）在伺服器看來都只是 PUT config，
 // 所以網頁 body 多帶 reason（字串或 { type, layoutName, mode }）說明這次是什麼動作，這裡照 reason 寫成一句話。
 // 機器自報的 PUT 不記（每台每分鐘都有，會洗版）。
-const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置回展示頁', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
-// 閒置回展示頁秒數（2026-09-14）：只收 10～3600 的整數，其他一律存 0＝機器／播放頁用預設 90 秒
-const normIdleSec = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 10 && n <= 3600 ? n : 0; };
+const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置返回', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
+// 閒置回展示頁秒數（2026-09-14）：只收 10～3600 的整數，-1＝開關關閉不自動返回（2026-09-14 晚），其他一律存 0＝機器／播放頁用預設 90 秒
+const normIdleSec = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && (n === -1 || (n >= 10 && n <= 3600)) ? n : 0; };
 function auditConfigPut(req, { incoming, prevParsed, config, deviceName, version }) {
   const prev = prevParsed || {};
   const name = deviceName || prev.deviceName || req.params.deviceId;

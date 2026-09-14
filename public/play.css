@@ -30,10 +30,10 @@ body {
   color: #1d1f22; background: rgba(255,255,255,.82); border-radius: 999px; font-weight: 700; line-height: 1; white-space: nowrap;
   pointer-events: none;
 }
-/* 閃爍：只有內側 4px 邊框（在格子裡面、不遮內容），顏色 --hint-color；每 3 秒淡入→停→淡出 */
+/* 閃爍：只有內側 16px 邊框（在格子裡面、不遮內容），顏色 --hint-color；每 3 秒淡入→停→淡出 */
 .cell.hint-glow::after {
   content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none; box-sizing: border-box;
-  border: 4px solid var(--hint-color, #fff);
+  border: calc(16px * var(--k, 1)) solid var(--hint-color, #fff); /* 2026-09-14 user：4px 在機器上太細，指定 16px */
   opacity: 0; animation: pvHintFlash 3s ease-in-out infinite; animation-delay: var(--glow-delay, 0ms);
 }
 @keyframes pvHintFlash { 0% { opacity: 0; } 14% { opacity: 1; } 30% { opacity: 1; } 47% { opacity: 0; } 100% { opacity: 0; } }
@@ -65,7 +65,7 @@ body {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
   background: #3a3f44; color: #d5d9dd; text-align: center; padding: 24px; box-sizing: border-box;
 }
-.pv-placeholder .material-icons { font-size: 48px; opacity: .8; }
+.pv-placeholder .material-icons { font-size: calc(48px * var(--k, 1)); opacity: .8; }
 .pv-placeholder.error { background: #5b2a2a; color: #ffd9d6; }
 
 /* 園區資訊格（App ParkCellOverlay／style.css .pv-park 同形） */
@@ -150,7 +150,7 @@ body {
 .nav-clip { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 30; pointer-events: none; contain: paint; }
 .nav-clip > * { pointer-events: auto; }
 .overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
-.topbar { flex: none; height: 64px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+.topbar { zoom: var(--k, 1); flex: none; height: 64px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
 .topbar-btn { width: 56px; height: 56px; border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .topbar-btn .material-icons { font-size: 30px; }
 .topbar-btn:active { background: rgba(0,0,0,.08); }
@@ -163,14 +163,14 @@ body {
 .park-map { position: relative; flex: none; width: 100%; background: #f4f5f7; }
 .park-map img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .park-marker {
-  position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  position: absolute; width: calc(64px * var(--k, 1)); height: calc(64px * var(--k, 1)); margin: calc(-32px * var(--k, 1)) 0 0 calc(-32px * var(--k, 1)); display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .park-marker .halo { position: absolute; inset: 0; border-radius: 50%; opacity: 0; }
 .park-marker.selected .halo { animation: parkHalo 1.4s linear infinite; }
 @keyframes parkHalo { from { transform: scale(1); opacity: .5; } to { transform: scale(1.6); opacity: 0; } }
 .park-marker .dot {
-  position: relative; width: 80%; height: 80%; border-radius: 50%; border: 3px solid var(--ring); background: #fff; color: var(--ring);
-  display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.25); box-sizing: border-box;
+  position: relative; width: 80%; height: 80%; border-radius: 50%; border: calc(3px * var(--k, 1)) solid var(--ring); background: #fff; color: var(--ring);
+  display: flex; align-items: center; justify-content: center; font-size: calc(18px * var(--k, 1)); font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.25); box-sizing: border-box;
 }
 .park-marker.selected .dot { background: var(--ring); color: #fff; }
 .park-panel { --ps: 1; flex: none; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: calc(20px * var(--ps)) calc(32px * var(--ps)); background: #eceef1; box-sizing: border-box; box-shadow: 0 1px 0 rgba(0,0,0,.08); position: relative; z-index: 1; }

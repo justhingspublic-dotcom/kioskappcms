@@ -687,11 +687,10 @@ html:root[data-color-mode="dark"] {
    2026-09-14 user 裁決：兩張並排各佔半欄（省一列），不再各跨整條；半欄下標題不折行、輸入框可縮（最窄 120）。 */
 .settings-card-full .b-card-head { border-bottom: 0; padding: 12px 12px 12px 20px; } /* 右側＝上下同 12px，輸入框與卡框等距（2026-09-07 user 指示） */
 .settings-card-full .b-card-head .card-title-wrap { flex: none; white-space: nowrap; }
-.settings-card-full .b-card-head .pw-wrap { flex: 0 1 220px; min-width: 120px; margin-left: auto; }
-/* 閒置回展示頁卡（2026-09-14）：同 PIN 卡一排式，輸入框右邊掛「秒」 */
-.settings-card-full .b-card-head .idle-wrap { flex: 0 1 220px; min-width: 120px; margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.idle-wrap .b-input { flex: 1; min-width: 0; }
-.idle-unit { flex: none; color: var(--text-body-subtle); }
+.settings-card-full .b-card-head .pw-wrap { flex: 0 1 110px; min-width: 90px; margin-left: auto; } /* 2026-09-14 15:50 user：輸入框縮一半 */
+/* 閒置返回卡（2026-09-14 16:10 定案）：同 PIN 卡一排式，右邊一個下拉（寬度同 PIN 輸入框 110px） */
+.settings-card-full .b-card-head .idle-wrap { flex: 0 1 110px; min-width: 90px; margin-left: auto; }
+.idle-wrap .b-select { width: 100%; }
 /* 右欄卡片的 ? 說明面板往左開：往右開會超出 modal 內容區、把 body 撐出水平捲動 */
 .settings-body > .settings-card:nth-child(even) .page-help .b-pop-panel { left: auto; right: 0; transform-origin: top right; }
 @media (max-width: 1100px) { .settings-body { grid-template-columns: 1fr; } }
@@ -1325,7 +1324,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 閃爍預覽：內側邊框＋向內的光（play.css .hint-glow 同形，尺寸用 cqw） */
 .cell.hint-glow::after {
   content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none; box-sizing: border-box;
-  border: .4cqw solid var(--hint-color, #fff);
+  border: 1.5cqw solid var(--hint-color, #fff); /* 2026-09-14：機器（play.css）改 16px，16/1080≈1.5cqw；之前 .4cqw 在預覽只有 1px 看不到 */
   opacity: 0; animation: pvHintFlash 3s ease-in-out infinite;
 }
 @keyframes pvHintFlash { 0% { opacity: 0; } 14% { opacity: 1; } 30% { opacity: 1; } 47% { opacity: 0; } 100% { opacity: 0; } }

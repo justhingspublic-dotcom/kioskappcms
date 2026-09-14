@@ -300,7 +300,7 @@ components:
         chatApi: { $ref: '#/components/schemas/ChatApi' }
         sleep: { $ref: '#/components/schemas/SleepSchedule' }
         adminPin: { type: string, description: 機器管理介面 PIN（限管理員設定） }
-        idleReturnSec: { type: integer, minimum: 10, maximum: 3600, description: 閒置多少秒回展示頁（限管理員設定；0 或省略＝預設 90 秒；伺服器會把不合法的值存成 0） }
+        idleReturnSec: { type: integer, minimum: -1, maximum: 3600, description: 閒置多少秒回展示頁（限管理員設定；10～3600，後台與 App 的下拉提供 30/60/90/120/180/300/600/1800/3600；-1＝永不（不自動返回）；0 或省略＝預設 90 秒；伺服器會把不合法的值存成 0） }
         pages:
           type: array
           maxItems: 8
@@ -434,7 +434,7 @@ components:
         chatApi: { $ref: '#/components/schemas/ChatApi' }
         sleep: { $ref: '#/components/schemas/SleepSchedule' }
         adminPin: { type: string }
-        idleReturnSec: { type: integer, description: 閒置回展示頁秒數範本（0 或省略＝不覆蓋） }
+        idleReturnSec: { type: integer, description: 閒置返回秒數範本（10～3600 或 -1＝永不；0 或省略＝不覆蓋） }
 
     Layout:
       type: object

@@ -6,7 +6,7 @@
    - 開場＝頭像＋問候語＋建議問題 chips；使用者泡泡靠右、AI 靠左無框；串流游標；typing 三點；回到底部鈕。
    - AI 回覆解析成文字／圖片／YouTube／連結卡片（同 App MessageBlocks）；圖片全螢幕、影片內嵌播放、連結內嵌瀏覽。
    - 語音輸入：Web Speech API（zh-TW，連續聆聽、5 秒沒聲音自動停）；附件依客服旗標。
-   - 沒人碰自動關閉並清空對話（秒數由 opts.idleMs 帶入＝後台「閒置回展示頁」，預設 90 秒；同 App IdleReturn）。固定淺色。
+   - 沒人碰自動關閉並清空對話（秒數由 opts.idleMs 帶入＝後台「閒置回展示頁」，預設 90 秒；0＝後台關閉自動返回，不計時；同 App IdleReturn）。固定淺色。
    ========================================================================== */
 window.KioskAssist = (() => {
   'use strict';
@@ -45,12 +45,13 @@ window.KioskAssist = (() => {
       accent: colorCss(opts.accent) || null, layout: opts.layout === 'Mobile' ? 'Mobile' : 'Kiosk', configured: !!opts.configured && !!String(opts.agentId || '').trim(),
       onClose: opts.onClose || (() => {}),
       agent: null, agentError: null, messages: [], pending: [], threadId: null, streaming: false, abort: null,
-      nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS, atBottom: true,
+      nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: opts.idleMs === 0 ? 0 : (Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS), atBottom: true,
       voice: null, layer: null,
       openedAt: Date.now(), history: null, historyLoading: false, historyError: null, openingThread: null,
     };
     root = h('div', 'as-root' + (opts.layout === 'Mobile' ? '' : ' kiosk'));
-    root.style.setProperty('--as-scale', String(Math.min(1.5, Math.max(1, window.innerWidth / 820))));
+    fitStage();
+    window.addEventListener('resize', fitStage);
     root.style.setProperty('--as-fs', S.layout === 'Kiosk' ? '1.45' : '1');
     applyAccent();
     root.innerHTML = `
@@ -77,6 +78,15 @@ window.KioskAssist = (() => {
     if (S.configured) loadAgent();
   }
 
+  /** 依舞台寬度自適應（2026-09-14）：FHD（1080 寬）以下＝原本的 --as-scale（820 寬起放大到 1.32）；
+   *  比 FHD 寬的螢幕（2K／4K 直式）整層等比 zoom，字、按鈕、氣泡最大寬度全部跟著放大，不用每台去查解析度。 */
+  function fitStage() {
+    if (!root) return;
+    const w = document.getElementById('stage')?.clientWidth || window.innerWidth;
+    root.style.setProperty('--as-scale', String(Math.min(1080 / 820, Math.max(1, w / 820))));
+    root.style.zoom = String(Math.max(1, w / 1080));
+  }
+
   function close(silent) {
     if (!root) return;
     stopStream(true);
@@ -84,13 +94,14 @@ window.KioskAssist = (() => {
     clearTimeout(S.idle);
     if (S.reveal) clearInterval(S.reveal);
     const el = root; root = null;
+    window.removeEventListener('resize', fitStage);
     // 非靜默關閉：滑出後才移除；靜默（重開／休眠）直接移除並把展示畫面復原
     if (!silent && window.KioskNav) window.KioskNav.leave(el, () => el.remove());
     else { window.KioskNav?.restore(el); el.remove(); }
     const cb = S.onClose; S = null;
     if (!silent) cb();
   }
-  function touch() { if (!S) return; clearTimeout(S.idle); S.idle = setTimeout(() => close(), S.idleMs); }
+  function touch() { if (!S) return; clearTimeout(S.idle); if (S.idleMs > 0) S.idle = setTimeout(() => close(), S.idleMs); }
 
   async function loadAgent() {
     try {
@@ -349,7 +360,7 @@ window.KioskAssist = (() => {
       <input type="file" class="as-file" hidden accept="${[S.agent?.enableImageUpload ? 'image/jpeg,image/png,image/webp,image/gif' : '', S.agent?.enableFileUpload ? '.pdf,.docx,.txt,.md,.csv' : ''].filter(Boolean).join(',')}">`;
     const ta = f.querySelector('.as-field');
     if (ta) {
-      const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; };
+      const grow = () => { ta.style.height = 'auto'; const max = parseFloat(getComputedStyle(ta).maxHeight) || 140; ta.style.height = Math.min(ta.scrollHeight + 1, max) + 'px'; }; // +1：zoom 後的小數高度不溢出；上限跟 CSS max-height（KIOSK 字大時 140 只夠兩行）
       grow();
       ta.addEventListener('input', () => { S.draft = ta.value; grow(); const b = f.querySelector('[data-act="send"]'); if (b) b.disabled = !((ta.value.trim() || ready) && !uploading); });
       ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta.value); } });
