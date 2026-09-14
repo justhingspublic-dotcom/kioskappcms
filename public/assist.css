@@ -4,7 +4,7 @@
    底部一條圓角輸入區（大麥克風置中、附件／輸入框／送出或停止）；90 秒沒人碰自動關閉。
    尺寸：--as-scale＝KIOSK 展示模式 1.45（站著看的看板），手機操作模式 1。
    ========================================================================== */
-.as-root { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 35; display: flex; flex-direction: column; background: #fff; color: #1b1c1e; --as-scale: 1; --as-accent: #6366F1; --as-fs: 1; font-size: calc(17px * var(--as-scale) * var(--as-fs)); cursor: auto; }
+.as-root { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 2; display: flex; flex-direction: column; background: #fff; color: #1b1c1e; --as-scale: 1; --as-accent: #6366F1; --as-fs: 1; font-size: calc(17px * var(--as-scale) * var(--as-fs)); cursor: auto; }
 .as-root [hidden] { display: none !important; }
 .as-root * { box-sizing: border-box; }
 .as-root button { font: inherit; color: inherit; }
@@ -12,12 +12,14 @@
 
 /* 頂欄 */
 .as-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px; min-height: calc(64px * var(--as-scale)); background: #fff; border-bottom: 1px solid #e6e8eb; }
+.as-root.kiosk .as-top { zoom: 1.35; } /* KIOSK：整條頂欄放大（同 App KioskTopBarScale）*/
 .as-icon-btn { width: calc(52px * var(--as-scale)); height: calc(52px * var(--as-scale)); border: 0; background: transparent; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #1b1c1e; flex: none; position: relative; }
 .as-icon-btn:active { background: rgba(0,0,0,.08); }
 .as-icon-btn:disabled { opacity: .35; }
 .as-top-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
 .as-top-title .as-name { font-weight: 700; font-size: 1.15em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.as-avatar { flex: none; border-radius: 50%; overflow: hidden; background: var(--as-accent); display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.as-avatar { flex: none; border-radius: 50%; overflow: hidden; background: var(--as-accent); display: inline-flex; align-items: center; justify-content: center; color: #fff; position: relative; }
+.as-avatar::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 max(1px, min(3px, .04em)) rgba(27,28,30,.12); pointer-events: none; } /* 淺色外框（2026-09-14 user）*/
 .as-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .as-avatar .material-icons { font-size: 55%; }
 .as-menu { position: absolute; top: 100%; right: 0; background: #fff; border: 1px solid #e6e8eb; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 6px; z-index: 5; min-width: 8em; }
@@ -30,6 +32,8 @@
 .as-scroll::-webkit-scrollbar { display: none; }
 .as-empty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 32px; text-align: center; }
 .as-empty .as-avatar { width: calc(72px * var(--as-scale)); height: calc(72px * var(--as-scale)); }
+.as-root.kiosk .as-empty .as-avatar { width: calc(160px * var(--as-scale)); height: calc(160px * var(--as-scale)); }
+.as-root.kiosk .as-greeting { margin-top: 32px; }
 .as-greeting { margin-top: 20px; font-size: 1.5em; font-weight: 700; line-height: 1.4; max-width: 24em; }
 .as-chips { margin-top: 28px; width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 10px; }
 .as-chip { border: 0; background: #eef0f3; color: #1b1c1e; border-radius: 16px; padding: 14px 20px; text-align: left; font-size: 1em; line-height: 1.35; cursor: pointer; min-height: 52px; }
@@ -45,7 +49,9 @@
 .as-msg.user { flex-direction: column; align-items: flex-end; gap: 6px; }
 .as-bubble { max-width: min(560px, 85%); background: #eef0f3; border-radius: 18px 18px 6px 18px; padding: 12px 16px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .as-msg.bot { gap: 10px; align-items: flex-start; }
-.as-msg.bot .as-avatar { width: calc(30px * var(--as-scale)); height: calc(30px * var(--as-scale)); margin-top: 2px; }
+.as-msg.bot .as-avatar { width: calc(44px * var(--as-scale)); height: calc(44px * var(--as-scale)); margin-top: 0; }
+.as-msg.bot { gap: 12px; }
+.as-msg.bot .as-bot-body { padding-top: calc(8px * var(--as-scale)); }
 .as-bot-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; line-height: 1.65; }
 .as-text { white-space: pre-wrap; word-break: break-word; }
 .as-text.error { color: #5c6168; }
@@ -104,6 +110,27 @@
 .as-field { flex: 1; min-width: 0; border: 0; background: transparent; resize: none; font: inherit; line-height: 1.4; padding: 8px; max-height: 5.8em; outline: none; color: #1b1c1e; }
 .as-field::placeholder { color: #5c6168; }
 .as-transcript { flex: 1; min-width: 0; padding: 8px; color: #5c6168; line-height: 1.4; }
+
+/* 歷史對話：右側滑入面板＋暗幕；每筆是淺灰圓角卡片（2026-09-14，同 App HistoryPanel） */
+.as-history { position: absolute; inset: 0; z-index: 38; overflow: hidden; } /* 裁切：面板滑入時不露到舞台外（橫式螢幕上的直式舞台）*/
+.as-history-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.32); opacity: 0; transition: opacity .22s ease; }
+.as-history-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(86%, calc(460px * var(--as-scale))); background: #fff; border-radius: 28px 0 0 28px; box-shadow: -8px 0 28px rgba(0,0,0,.18); display: flex; flex-direction: column; transform: translateX(100%); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
+.as-history.open .as-history-scrim { opacity: 1; }
+.as-history.open .as-history-panel { transform: none; }
+.as-history-head { flex: none; display: flex; align-items: center; padding: 18px 24px; }
+.as-history-title { flex: 1; font-weight: 700; font-size: 1.15em; }
+.as-history-sub { color: #5c6168; font-size: .85em; }
+.as-history-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 32px; display: flex; flex-direction: column; gap: 10px; }
+.as-history-card { position: relative; display: flex; flex-direction: column; align-items: stretch; text-align: left; border: 0; background: #eef0f3; color: #1b1c1e; border-radius: 18px; padding: 14px 18px; cursor: pointer; }
+.as-history-card:active { background: #e0e3e8; }
+.as-history-card:disabled { cursor: default; }
+.as-history-card .t { font-weight: 500; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding-right: 2em; }
+.as-history-card .d { margin-top: 4px; color: #5c6168; font-size: .85em; }
+.as-history-card .busy, .as-history-busy { display: flex; align-items: center; justify-content: center; }
+.as-history-card .busy { position: absolute; right: 18px; top: 50%; margin-top: -11px; }
+.as-history-busy { padding: 40px; }
+.as-history-card .busy i, .as-history-busy i { width: 22px; height: 22px; border: 2px solid rgba(0,0,0,.12); border-top-color: var(--as-accent); border-radius: 50%; animation: asSpin .8s linear infinite; }
+.as-history-note { margin: 0; padding: 24px 8px; color: #5c6168; line-height: 1.6; }
 
 /* 全螢幕層：圖片／影片／內嵌瀏覽器 */
 .as-layer { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; }

@@ -14,7 +14,7 @@
   const APP_VERSION = 'web 1.0';
   const BASE = location.pathname.replace(/\/play\/?$/, '');          // '/sunrise' 或 ''
   const SERVER_URL = location.origin + BASE;                          // 自報給後台的伺服器位址（與機器填的一致）
-  const IDLE_RETURN_MS = 90_000;                                      // 下一頁沒人碰多久回展示（App IDLE_RETURN_MS）
+  const DEFAULT_IDLE_RETURN_MS = 90_000;                              // 下一頁沒人碰多久回展示：後台「閒置回展示頁」沒設時的預設（同 App）
   const RETRY_MS = 15_000;
   const STATION_ROTATE_MS = 10_000;
   const DEFAULT_PARK_API = (document.body.dataset.parkApi || '').trim(); // 站台的園區測站 API（.env PARK_API_URL；沒設＝園區資訊頁只當導覽圖）
@@ -69,6 +69,8 @@
   let lastVersion = 0;
   try { lastVersion = Number(localStorage.getItem(LS_VER)) || 0; } catch { /* ignore */ }
   let config = null;        // 最近一次套用的整份設定
+  // 閒置回展示頁秒數（2026-09-14）：後台機器設定 idleReturnSec（10～3600），沒設／0＝預設 90 秒
+  const idleReturnMs = () => { const s = Number(config && config.idleReturnSec); return s >= 10 && s <= 3600 ? s * 1000 : DEFAULT_IDLE_RETURN_MS; };
   let pages = [];
   let activeIndex = 0;
   let sleepSchedule = null;
@@ -876,18 +878,42 @@
       const chat = config?.chatApi || {};
       window.KioskAssist.open({
         base: BASE, deviceId, deviceKey, agentId: cell.agentId || '', accent: cell.agentAccent ?? null,
-        layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
+        idleMs: idleReturnMs(), layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
         onClose: () => logEvent('page.close', '關閉智能客服，回到展示'),
       });
       logEvent('page.open', `開啟智能客服${cell.agentName ? '：' + cell.agentName : ''}`);
     }
   }
 
+  // ---- 內頁進出轉場（2026-09-14，同 App sharedAxisX）：內頁層滑入、展示畫面滑出；關閉時反向。
+  //      靜默關閉（休眠、重載）不做動畫，直接把展示畫面復原。類別與時間定義在 play.css。 ----
+  const NAV_MS = 450;
+  const KioskNav = {
+    enter(layer) {
+      const st = $('stage');
+      st.classList.remove('nav-in'); st.classList.add('nav-out');
+      layer.classList.remove('nav-leave'); layer.classList.add('nav-enter');
+    },
+    leave(layer, done) {
+      const st = $('stage');
+      st.classList.remove('nav-out'); st.classList.add('nav-in');
+      layer.classList.remove('nav-enter'); layer.classList.add('nav-leave');
+      setTimeout(() => { layer.classList.remove('nav-leave'); if (done) done(); }, NAV_MS);
+    },
+    /** 不做動畫：展示畫面立刻復原（休眠／重載時用） */
+    restore(layer) {
+      $('stage').classList.remove('nav-out', 'nav-in');
+      if (layer) layer.classList.remove('nav-enter', 'nav-leave');
+    },
+  };
+  window.KioskNav = KioskNav;
+
   let overlayIdle = 0;
   let overlayKind = '';
+  let overlayCloseTimer = 0;
   function armIdle() {
     clearTimeout(overlayIdle);
-    overlayIdle = setTimeout(() => closeOverlay(), IDLE_RETURN_MS);
+    overlayIdle = setTimeout(() => closeOverlay(), idleReturnMs());
   }
   document.addEventListener('pointerdown', () => { if (overlayKind) armIdle(); }, { capture: true, passive: true });
   function openOverlay(kind, title) {
@@ -895,7 +921,9 @@
     $('ovTitle').textContent = title;
     $('ovMeta').hidden = true; $('ovMeta').textContent = ''; $('ovHome').hidden = false;
     $('ovBody').innerHTML = '';
+    clearTimeout(overlayCloseTimer); overlayCloseTimer = 0;
     $('overlay').hidden = false;
+    KioskNav.enter($('overlay'));
     armIdle();
     logEvent('page.open', kind === 'web' ? `開啟網頁：${title}` : '開啟園區資訊');
   }
@@ -903,9 +931,16 @@
     if (!overlayKind) return;
     clearTimeout(overlayIdle);
     const kind = overlayKind; overlayKind = '';
-    $('overlay').hidden = true;
-    $('ovBody').innerHTML = '';
     if (parkTimer) { clearInterval(parkTimer); parkTimer = 0; }
+    const ov = $('overlay');
+    const hide = () => { ov.hidden = true; $('ovBody').innerHTML = ''; };
+    if (silent) { KioskNav.restore(ov); hide(); }
+    else {
+      // 內容留著陪滑出，動畫結束才藏起來；期間若又開了新內頁，openOverlay 會取消這個計時器
+      clearTimeout(overlayCloseTimer);
+      KioskNav.leave(ov, () => {});
+      overlayCloseTimer = setTimeout(() => { overlayCloseTimer = 0; if (!overlayKind) hide(); }, NAV_MS);
+    }
     if (!silent) logEvent('page.close', kind === 'web' ? '關閉網頁，回到展示' : '關閉園區資訊，回到展示');
   }
   $('ovBack').addEventListener('click', () => {

@@ -6,7 +6,7 @@
    - 開場＝頭像＋問候語＋建議問題 chips；使用者泡泡靠右、AI 靠左無框；串流游標；typing 三點；回到底部鈕。
    - AI 回覆解析成文字／圖片／YouTube／連結卡片（同 App MessageBlocks）；圖片全螢幕、影片內嵌播放、連結內嵌瀏覽。
    - 語音輸入：Web Speech API（zh-TW，連續聆聽、5 秒沒聲音自動停）；附件依客服旗標。
-   - 90 秒沒人碰自動關閉並清空對話（同 App IdleReturn）。固定淺色。
+   - 沒人碰自動關閉並清空對話（秒數由 opts.idleMs 帶入＝後台「閒置回展示頁」，預設 90 秒；同 App IdleReturn）。固定淺色。
    ========================================================================== */
 window.KioskAssist = (() => {
   'use strict';
@@ -45,23 +45,27 @@ window.KioskAssist = (() => {
       accent: colorCss(opts.accent) || null, layout: opts.layout === 'Mobile' ? 'Mobile' : 'Kiosk', configured: !!opts.configured && !!String(opts.agentId || '').trim(),
       onClose: opts.onClose || (() => {}),
       agent: null, agentError: null, messages: [], pending: [], threadId: null, streaming: false, abort: null,
-      nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, atBottom: true,
+      nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS, atBottom: true,
       voice: null, layer: null,
+      openedAt: Date.now(), history: null, historyLoading: false, historyError: null, openingThread: null,
     };
-    root = h('div', 'as-root');
+    root = h('div', 'as-root' + (opts.layout === 'Mobile' ? '' : ' kiosk'));
     root.style.setProperty('--as-scale', String(Math.min(1.5, Math.max(1, window.innerWidth / 820))));
     root.style.setProperty('--as-fs', S.layout === 'Kiosk' ? '1.45' : '1');
     applyAccent();
     root.innerHTML = `
       <header class="as-top">
         <button type="button" class="as-icon-btn" data-act="back" aria-label="返回展示"><span class="material-icons">arrow_back</span></button>
-        <div class="as-top-title"><span class="as-avatar as-avatar-top"></span><span class="as-name">智能客服</span></div>
+        <div class="as-top-title"><span class="as-name">智能客服</span></div>
         <button type="button" class="as-icon-btn" data-act="font" aria-label="字體大小"><span class="material-icons">format_size</span></button>
+        <button type="button" class="as-icon-btn" data-act="history" aria-label="歷史對話"><span class="material-icons">history</span></button>
         <button type="button" class="as-icon-btn" data-act="new" aria-label="新對話" disabled><span class="material-icons">add</span></button>
       </header>
       <div class="as-body"><div class="as-scroll"></div><button type="button" class="as-jump" data-act="jump" hidden aria-label="回到底部"><span class="material-icons">arrow_downward</span></button></div>
-      <footer class="as-input" hidden></footer>`;
-    document.body.appendChild(root);
+      <footer class="as-input" hidden></footer>
+      <div class="as-history" hidden><div class="as-history-scrim" data-act="history-close"></div><aside class="as-history-panel"><div class="as-history-head"><span class="as-history-title">歷史對話</span><span class="as-history-sub">最近 7 天</span></div><div class="as-history-list"></div></aside></div>`;
+    (document.getElementById('navClip') || document.body).appendChild(root); // 舞台裁切容器（play.html）
+    window.KioskNav?.enter(root); // 進場轉場（play.js；同 App sharedAxisX）
     root.addEventListener('click', onRootClick);
     root.addEventListener('pointerdown', touch, { capture: true, passive: true });
     root.addEventListener('keydown', touch, { capture: true });
@@ -79,11 +83,14 @@ window.KioskAssist = (() => {
     stopVoice();
     clearTimeout(S.idle);
     if (S.reveal) clearInterval(S.reveal);
-    root.remove(); root = null;
+    const el = root; root = null;
+    // 非靜默關閉：滑出後才移除；靜默（重開／休眠）直接移除並把展示畫面復原
+    if (!silent && window.KioskNav) window.KioskNav.leave(el, () => el.remove());
+    else { window.KioskNav?.restore(el); el.remove(); }
     const cb = S.onClose; S = null;
     if (!silent) cb();
   }
-  function touch() { if (!S) return; clearTimeout(S.idle); S.idle = setTimeout(() => close(), IDLE_MS); }
+  function touch() { if (!S) return; clearTimeout(S.idle); S.idle = setTimeout(() => close(), S.idleMs); }
 
   async function loadAgent() {
     try {
@@ -105,16 +112,18 @@ window.KioskAssist = (() => {
     a.style.width = `calc(${size}px * var(--as-scale))`; a.style.height = `calc(${size}px * var(--as-scale))`;
     const fallback = () => { a.innerHTML = '<span class="material-icons">smart_toy</span>'; a.querySelector('.material-icons').style.fontSize = `calc(${size * 0.55}px * var(--as-scale))`; };
     if (S.agent?.avatarUrl) {
-      const img = new Image(); img.alt = ''; img.src = S.agent.avatarUrl;
+      // 每次開啟都帶新的查詢字串：JustAI 換圖但網址沒變時，不會拿到瀏覽器快取的舊圖（同 App fetchedAt cache key）
+      const u = S.agent.avatarUrl;
+      const img = new Image(); img.alt = ''; img.src = u + (u.includes('?') ? '&' : '?') + '_=' + S.openedAt;
       img.onerror = fallback; a.appendChild(img);
     } else fallback();
     return a;
   }
   function renderTop() {
-    const top = root.querySelector('.as-avatar-top');
-    top.replaceWith(Object.assign(avatarEl(36), { className: 'as-avatar as-avatar-top' }));
+    // 頂欄只放名字：logo 已在開場大圖與每則回覆旁（2026-09-14 user）
     root.querySelector('.as-name').textContent = S.agent?.name || '智能客服';
     root.querySelector('[data-act="new"]').disabled = !S.messages.length;
+    root.querySelector('[data-act="history"]').disabled = !(S.configured && !S.agentError);
   }
   function renderBody() {
     const sc = root.querySelector('.as-scroll');
@@ -129,7 +138,7 @@ window.KioskAssist = (() => {
     }
     if (!S.messages.length) {
       const empty = h('div', 'as-empty');
-      empty.appendChild(avatarEl(72));
+      empty.appendChild(avatarEl(S.layout === 'Kiosk' ? 160 : 72)); // KIOSK：logo 是開場主視覺（同 App EmptyLogoSizeKiosk）
       empty.appendChild(h('div', 'as-greeting', esc(greeting())));
       const qs = (S.agent?.suggestQuestions || []).slice(0, 4);
       if (qs.length) {
@@ -166,8 +175,9 @@ window.KioskAssist = (() => {
       if (m.text) el.appendChild(h('div', 'as-bubble', esc(m.text)));
       return;
     }
-    el.appendChild(avatarEl(30));
+    el.appendChild(avatarEl(44));
     const body = h('div', 'as-bot-body');
+    el.classList.toggle('typing', !!(m.streaming && !m.text));
     if (m.streaming && !m.text) body.appendChild(h('span', 'as-typing', '<i></i><i></i><i></i>'));
     else {
       const blocks = parseBlocks(m.text, m.streaming);
@@ -331,7 +341,7 @@ window.KioskAssist = (() => {
         <div class="as-text-row">
           ${canAttach ? `<button type="button" class="as-attach" data-act="attach" aria-label="附加檔案"><span class="material-icons">${S.agent.enableImageUpload ? 'add_photo_alternate' : 'insert_drive_file'}</span></button>` : ''}
           ${listening ? `<div class="as-transcript">${esc([value, S.voice.partial].filter(Boolean).join(' ')) || '聆聽中，請說話…'}</div>`
-            : `<textarea class="as-field" rows="1" placeholder="${voiceOk ? '說點什麼，或直接打字…' : '輸入訊息…'}">${esc(value)}</textarea>`}
+            : `<textarea class="as-field" rows="1" placeholder="詢問任何問題">${esc(value)}</textarea>`}
           ${S.streaming ? `<button type="button" class="as-circle send" data-act="stop" aria-label="停止回覆">停止</button>`
             : `<button type="button" class="as-circle send" data-act="send" aria-label="送出" ${canSend ? '' : 'disabled'}>送出</button>`}
         </div>
@@ -357,6 +367,9 @@ window.KioskAssist = (() => {
     const act = btn.dataset.act;
     if (act === 'back') close();
     else if (act === 'new') reset();
+    else if (act === 'history') openHistory();
+    else if (act === 'history-close') closeHistory();
+    else if (act === 'history-pick') openThread(btn.dataset.tid);
     else if (act === 'jump') scrollToBottom(true);
     else if (act === 'font') toggleFontMenu(btn);
     else if (act === 'mic') toggleVoice();
@@ -389,6 +402,7 @@ window.KioskAssist = (() => {
     const attachments = ready.map((p) => ({ name: p.name, previewUrl: p.uploaded.fileUrl || p.previewUrl, isImage: p.isImage }));
     const attachmentIds = ready.map((p) => p.uploaded.attachmentId);
     S.pending = []; S.draft = ''; S.inputError = '';
+    root.querySelector('.as-field')?.blur(); // 送出＝打字結束，收鍵盤（同 App）
     const first = !S.messages.length;
     S.messages.push({ id: S.nextId++, text: trimmed, fromUser: true, streaming: false, isError: false, attachments });
     const reply = { id: S.nextId++, text: '', fromUser: false, streaming: true, isError: false, attachments: [] };
@@ -457,6 +471,71 @@ window.KioskAssist = (() => {
     S.messages = S.messages.map((m) => (m.streaming ? { ...m, streaming: false, text: m.fromUser ? m.text : (full || m.text) } : m)).filter((m) => m.fromUser || m.text);
     S.streaming = false;
     if (!silent) { renderBody(); renderTop(); renderInput(); }
+  }
+
+  // ---------- 歷史對話（2026-09-14，同 App HistoryPanel）：右側滑入、淺灰圓角卡片、點了載回並關閉 ----------
+  const HISTORY_DAYS = 7, HISTORY_MAX = 30;
+  function openHistory() {
+    const box = root.querySelector('.as-history');
+    box.hidden = false;
+    requestAnimationFrame(() => box.classList.add('open'));
+    loadHistory();
+  }
+  function closeHistory() {
+    const box = root?.querySelector('.as-history');
+    if (!box || box.hidden) return;
+    box.classList.remove('open');
+    setTimeout(() => { if (root && !box.classList.contains('open')) box.hidden = true; }, 240);
+  }
+  async function loadHistory() {
+    if (S.historyLoading) return;
+    S.historyLoading = true; S.historyError = null; renderHistory();
+    try {
+      const all = await (await api('GET', `/api/assist/${dev()}/threads?agentId=${ag()}`)).json();
+      const cutoff = Date.now() - HISTORY_DAYS * 86_400_000;
+      S.history = all.map((t) => ({ ...t, at: parseServerTime(t.createdAt) })).filter((t) => t.at >= cutoff).slice(0, HISTORY_MAX);
+    } catch (e) { S.historyError = e.message || '無法連線'; }
+    S.historyLoading = false;
+    if (root) renderHistory();
+  }
+  function renderHistory() {
+    const list = root.querySelector('.as-history-list');
+    if (S.historyLoading && !S.history?.length) { list.innerHTML = '<div class="as-history-busy"><i></i></div>'; return; }
+    if (S.historyError && !S.history?.length) { list.innerHTML = `<p class="as-history-note">無法載入歷史對話。${esc(S.historyError)}</p>`; return; }
+    if (!S.history?.length) { list.innerHTML = '<p class="as-history-note">最近 7 天沒有對話。</p>'; return; }
+    list.innerHTML = S.history.map((t) => `<button type="button" class="as-history-card" data-act="history-pick" data-tid="${esc(t.id)}" ${S.openingThread ? 'disabled' : ''}><span class="t">${esc(t.title)}</span><span class="d">${esc(formatHistoryTime(t.at))}</span>${S.openingThread === t.id ? '<span class="busy"><i></i></span>' : ''}</button>`).join('');
+  }
+  async function openThread(threadId) {
+    if (S.openingThread || !threadId) return;
+    S.openingThread = threadId; renderHistory();
+    try {
+      const rows = await (await api('GET', `/api/assist/${dev()}/threads/${encodeURIComponent(threadId)}/messages?agentId=${ag()}`)).json();
+      stopStream(true); stopVoice();
+      S.threadId = threadId; S.pending = []; S.draft = '';
+      S.messages = rows.filter((m) => !m.isGreeting && (m.content.trim() || m.attachments.length)).map((m) => ({
+        id: S.nextId++, text: m.content, fromUser: m.fromUser, streaming: false, isError: false,
+        attachments: m.attachments.map((a) => ({ name: a.name, previewUrl: a.fileUrl || '', isImage: a.isImage })),
+      }));
+      S.openingThread = null;
+      closeHistory();
+      renderTop(); renderBody(); renderInput();
+    } catch (e) {
+      S.openingThread = null; S.historyError = e.message || '無法連線'; renderHistory();
+    }
+  }
+  /** "2026-09-14T11:23:17.170000"（伺服器當地時間、無時區）→ 毫秒；解析不了回 0。 */
+  function parseServerTime(s) {
+    const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : 0;
+  }
+  /** 今天 11:23／昨天 15:50／9/10 15:28 */
+  function formatHistoryTime(ms) {
+    if (!ms) return '';
+    const d = new Date(ms), now = new Date();
+    const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    return same(d, now) ? `今天 ${hm}` : same(d, y) ? `昨天 ${hm}` : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
   }
 
   // ---------- 附件 ----------

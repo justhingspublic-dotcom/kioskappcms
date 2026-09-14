@@ -269,9 +269,9 @@
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
                 <p>設定一次、一次套到多台：在這裡填好客服帳號與休眠時段，按「套用到機器」勾選機器。</p>
-                <p>「套用到機器」＝以這裡的設定覆蓋所選機器目前的客服帳號、休眠時段與管理 PIN 並立即發布，版面不受影響。</p>
+                <p>「套用到機器」＝以這裡的設定覆蓋所選機器目前的客服帳號、休眠時段、管理 PIN 與閒置回展示頁秒數並立即發布，版面不受影響。</p>
                 <p>套用之後各機獨立：到機器裡改設定不會動到這裡；這裡改了也不會動到已套用的機器，要更新就再套用一次。</p>
-                <p>這份範本是全公司共用的。一般帳號只能修改休眠時段；客服帳號與管理 PIN 限管理員。</p>
+                <p>這份範本是全公司共用的。一般帳號只能修改休眠時段；客服帳號、管理 PIN 與閒置回展示頁秒數限管理員。</p>
               </div>
             </div>
           </div>
@@ -305,13 +305,13 @@
                     <tr class="grp"><td colspan="3">機器</td></tr>
                     <tr><td>查看機器、編輯版面、更名</td><td class="yes">✓</td><td class="yes">✓</td></tr>
                     <tr><td>機器設定：智能客服、休眠排程</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-                    <tr><td>機器設定：管理 PIN</td><td class="yes">✓</td><td class="no">—</td></tr>
+                    <tr><td>機器設定：管理 PIN、閒置回展示頁</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr><td>刪除機器</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr class="grp"><td colspan="3">共用設定</td></tr>
                     <tr><td>把版面加到機器</td><td class="yes">✓</td><td class="yes">✓</td></tr>
                     <tr><td>新增、編輯、更名、刪除版面</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr><td>共用休眠排程</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-                    <tr><td>共用智能客服、管理 PIN</td><td class="yes">✓</td><td class="no">—</td></tr>
+                    <tr><td>共用智能客服、管理 PIN、閒置回展示頁</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr class="grp"><td colspan="3">帳號</td></tr>
                     <tr><td>帳號管理（新增、編輯、刪除）</td><td class="yes">✓</td><td class="no">—</td></tr>
                   </tbody>
@@ -376,7 +376,8 @@
               <div class="editor-body">
                 <!-- 左欄＝畫布＋其下的區塊操作鈕（寬度對齊畫布，2026-09-03 指示） -->
                 <div class="canvas-col">
-                  <div id="canvas" class="canvas"></div>
+                  <!-- 底框固定 9:16，裡面的畫布照機器真實比例置中（2026-09-14 user 指示：之前畫布被下方按鈕列撐寬、比例失真） -->
+                  <div class="canvas-frame"><div id="canvas" class="canvas"></div></div>
                   <div class="canvas-actions">
                     <button id="addBlockBtn" class="b-btn b-btn-sm">新增大區塊</button>
                     <div class="canvas-actions-row">
@@ -495,6 +496,7 @@
               <div class="gd-tbl">
                 <div class="gd-row"><b>智能客服 API</b><span>填 JustAI 帳號的 Email 與密碼，按<span class="gd-ui">測試連線並載入客服清單</span>確認可用。申請帳號見下一章。</span></div>
                 <div class="gd-row"><b>管理 PIN</b><span>從展示畫面回到管理頁時要輸入的驗證碼。只能是數字、最長 8 碼，留空＝預設 0000。限管理員。</span></div>
+                <div class="gd-row"><b>閒置回展示頁</b><span>訪客在智能客服、園區資訊或網頁頁多久沒碰就自動回到展示畫面，App 與網頁播放頁都照這個秒數。10～3600 秒，預設 90 秒。限管理員。</span></div>
                 <div class="gd-row"><b>休眠時段</b><span>啟用排程後逐日設定停止播放、顯示黑畫面的時段。開始時間晚於結束時間代表跨午夜。</span></div>
               </div>
               <figure class="gd-shot"><img src="img/manual/settings-tab.png" alt="機器設定頁籤" loading="lazy"><figcaption class="gd-shot-cap">機器設定：智能客服 API、管理 PIN、休眠時段。</figcaption></figure>

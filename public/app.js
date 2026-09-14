@@ -185,6 +185,25 @@ document.querySelectorAll('.page-help').forEach((h) => {
   h.addEventListener('pointerenter', () => h.classList.remove('is-dismissed'));
   h.addEventListener('focusout', () => h.classList.remove('is-dismissed'));
 });
+// modal 內的問號面板改 fixed 懸浮（2026-09-14 user 回報：絕對定位的面板 hover 時放開 overflow 會把 modal 內容區
+// 撐出捲動、畫面亂跳，最下面的 Danger Zone 尤其明顯）：位置在 hover／focus／點擊時由這裡算，脫離文件流所以
+// 捲動區高度不受影響；右邊貼到視窗就往內縮、下面放不下就改開在上方（同 attachTip）。捲動時跟著重算。
+function placeModalHelp(h) {
+  const btn = h.querySelector('.page-help-btn'), panel = h.querySelector('.b-pop-panel');
+  if (!btn || !panel) return;
+  const r = btn.getBoundingClientRect(), w = panel.offsetWidth, ph = panel.offsetHeight;
+  const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left));
+  let y = r.bottom + 8, up = false;
+  if (y + ph > window.innerHeight - 8) { y = r.top - ph - 8; up = true; }
+  panel.style.left = x + 'px'; panel.style.top = y + 'px';
+  h.classList.toggle('is-up', up);
+}
+const modalHelpOf = (e) => (e.target && e.target.closest ? e.target.closest('.b-modal .page-help') : null);
+document.addEventListener('pointerover', (e) => { const h = modalHelpOf(e); if (h) placeModalHelp(h); });
+document.addEventListener('focusin', (e) => { const h = modalHelpOf(e); if (h) placeModalHelp(h); });
+document.addEventListener('scroll', () => {
+  document.querySelectorAll('.b-modal .page-help:is(:hover, :focus-within, .is-open)').forEach(placeModalHelp);
+}, true);
 
 async function confirmDiscard() {
   if (!dirty) return true;
@@ -801,7 +820,8 @@ function buildCanvas(canvas, pg, screen, opts) {
   const SH = scr && scr.h > 0 ? scr.h : 1920;
   canvasScreenW = SW;
   canvas.style.aspectRatio = `${SW} / ${SH}`;
-  canvas.classList.toggle('is-landscape', SW > SH); // 橫式改以寬度定尺寸（CSS .is-landscape）
+  canvas.style.setProperty('--sr', (SW / SH).toFixed(5)); // 底框內 contain 縮放用（CSS .canvas-frame > .canvas）
+  canvas.classList.toggle('is-landscape', SW > SH); // 橫式（縮圖放大預覽 .tp-canvas 以寬度定尺寸）
   canvas.classList.toggle('is-readonly', !!opts.readonly); // 唯讀預覽：格子不亮框、不變手指（CSS .is-readonly）
   const blocks = pg.blocks || [];
   const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0) || 1;
@@ -2319,11 +2339,16 @@ function renderSettingsView() {
   body.innerHTML = '';
   if (!state || !state.config) return; // 機器還沒上傳過設定：版面頁籤已顯示空狀態
   const ctx = { cfg: state.config, markDirty: () => setDirty(true), rerender: renderSettingsView };
+  // 上排＝客服 API｜休眠時段，下排＝管理 PIN｜閒置回展示頁並排各佔半欄（2026-09-14 user 裁決：
+  // 內容多了、modal 捲動沒關係，只把兩張一排式小卡並排省一列）；Danger Zone 跨欄放最下面
   body.appendChild(chatApiCard(ctx));
   body.appendChild(sleepCard(ctx));
   const pin = body.appendChild(pinCard(ctx));
   pin.classList.add('settings-card-full');
   if (!meIsAdmin) lockSettingsCard(pin); // 單機的管理 PIN 也限管理員（2026-09-07 定案）；伺服器端同步剝掉 adminPin
+  const idle = body.appendChild(idleCard(ctx));
+  idle.classList.add('settings-card-full');
+  if (!meIsAdmin) lockSettingsCard(idle); // 閒置秒數同 PIN 限管理員（伺服器端同步剝掉 idleReturnSec）
   if (wsMode !== 'shared' && meIsAdmin) body.appendChild(dangerZoneCard()); // 刪除機器＝限管理員、只在單機工作區
   if (window.BDropdown) BDropdown.init(body);
   if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
@@ -2427,7 +2452,7 @@ function chatApiCard(ctx) {
   });
 }
 
-/* 管理 PIN 卡（2026-09-07）：整條跨兩欄放在客服 API 與休眠卡之下，共用設定與單機設定都有。
+/* 管理 PIN 卡（2026-09-07）：一排式小卡，2026-09-14 起與「閒置回展示頁」並排放在客服 API 與休眠卡之下（共用設定與單機設定都有）。
  * 規則同 App PinSheet：只收數字、最長 8 碼；空白＝機器端用預設 PIN 0000。 */
 function pinCard(ctx) {
   return settingsCard('管理 PIN', [
@@ -2443,6 +2468,38 @@ function pinCard(ctx) {
     inp.inputMode = 'numeric'; inp.autocomplete = 'off'; inp.maxLength = 8;
     inp.addEventListener('input', () => { const c = inp.value.replace(/\D/g, '').slice(0, 8); if (c !== inp.value) inp.value = c; });
     // 一排就好（2026-09-07 user 指示）：標題在左、輸入框在右，沒有欄位區也沒有說明字
+    const card = g.parentElement;
+    card.querySelector('.b-card-head').appendChild(wrap);
+    g.remove();
+  });
+}
+
+/* 閒置回展示頁卡（2026-09-14 user 指示）：訪客在客服／園區資訊／網頁頁多久沒碰就回展示畫面，
+ * App 與網頁播放頁都照這個秒數。同 PIN 卡一排式；沒設定時欄位直接顯示 90（user 2026-09-14：預設值要填進去，不是 placeholder）；
+ * 只收 10～3600 的整數（失焦時夾到範圍內、清空就填回 90）。存檔時 90 也照存，效果同預設。 */
+const IDLE_RETURN_DEFAULT_SEC = 90;
+function idleCard(ctx) {
+  return settingsCard('閒置回展示頁', [
+    '訪客在智能客服、園區資訊或網頁頁多久沒有觸碰，就自動回到展示畫面；App 與網頁播放頁都照這個秒數。',
+    `只能輸入 10～3600 的整數；預設 ${IDLE_RETURN_DEFAULT_SEC} 秒。`,
+  ], (g) => {
+    const cur = String(Number(ctx.cfg.idleReturnSec) > 0 ? ctx.cfg.idleReturnSec : IDLE_RETURN_DEFAULT_SEC);
+    const wrap = document.createElement('div');
+    wrap.className = 'idle-wrap';
+    const inp = txtInput(cur, String(IDLE_RETURN_DEFAULT_SEC), (v) => {
+      const clean = String(v).replace(/\D/g, '').slice(0, 4);
+      ctx.cfg.idleReturnSec = clean ? Number(clean) : 0; ctx.markDirty();
+    });
+    inp.inputMode = 'numeric'; inp.autocomplete = 'off'; inp.maxLength = 4;
+    inp.addEventListener('input', () => { const c = inp.value.replace(/\D/g, '').slice(0, 4); if (c !== inp.value) inp.value = c; });
+    inp.addEventListener('blur', () => {
+      if (!inp.value) { inp.value = String(IDLE_RETURN_DEFAULT_SEC); return; } // 清空＝回預設（cfg 已是 0）
+      const n = Math.min(3600, Math.max(10, Number(inp.value)));
+      if (String(n) !== inp.value) { inp.value = String(n); ctx.cfg.idleReturnSec = n; ctx.markDirty(); }
+    });
+    const unit = document.createElement('span');
+    unit.className = 'idle-unit'; unit.textContent = '秒';
+    wrap.append(inp, unit);
     const card = g.parentElement;
     card.querySelector('.b-card-head').appendChild(wrap);
     g.remove();
@@ -2997,12 +3054,14 @@ async function renderSharedSettingsView() {
   const body = $('sharedBody');
   body.innerHTML = '';
   const ctx = { cfg: shared, markDirty: scheduleSharedSave, rerender: renderSharedSettingsView };
-  const chat = body.appendChild(chatApiCard(ctx));
+  const chat = body.appendChild(chatApiCard(ctx)); // 同單機工作區：上排客服｜休眠、下排 PIN｜閒置並排
   body.appendChild(sleepCard(ctx));
   const pin = body.appendChild(pinCard(ctx));
   pin.classList.add('settings-card-full');
+  const idle = body.appendChild(idleCard(ctx));
+  idle.classList.add('settings-card-full');
   if (window.BDropdown) BDropdown.init(body);
-  if (!meIsAdmin) { lockSettingsCard(chat); lockSettingsCard(pin); } // 一般帳號只能改休眠排程（2026-09-07 定案）
+  if (!meIsAdmin) { lockSettingsCard(chat); lockSettingsCard(pin); lockSettingsCard(idle); } // 一般帳號只能改休眠排程（2026-09-07 定案）
   if (window.lucide) lucide.createIcons(); // 密碼欄眼睛鈕
 }
 
@@ -3017,14 +3076,14 @@ function lockSettingsCard(card) {
 }
 
 async function applySharedSettings() {
-  if (!shared.chatApi && !shared.sleep && !shared.adminPin) return setStatus('請先設定客服帳號、休眠時段或管理 PIN，再套用到機器。', true);
+  if (!shared.chatApi && !shared.sleep && !shared.adminPin && !shared.idleReturnSec) return setStatus('請先設定客服帳號、休眠時段、管理 PIN 或閒置回展示頁秒數，再套用到機器。', true);
   if (sharedDirty && !(await saveShared(true))) return; // 自動存檔還沒跑完就先 flush，套用的內容＝存下來的內容
   let devices;
   try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus('無法取得機器清單。' + e.message, true); }
   if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
   const picked = await pickDevicesDialog({
     title: '套用共用設定到機器',
-    desc: '會以共用的客服帳號、休眠時段與管理 PIN 覆蓋所選機器並立即發布；版面不受影響。',
+    desc: '會以共用的客服帳號、休眠時段、管理 PIN 與閒置回展示頁秒數覆蓋所選機器並立即發布；版面不受影響。',
     confirmText: '套用並發布',
     items: devices.map((d) => ({ d })),
   });
@@ -3033,6 +3092,7 @@ async function applySharedSettings() {
   if (shared.chatApi) partial.chatApi = shared.chatApi;
   if (shared.sleep) partial.sleep = shared.sleep;
   if (shared.adminPin) partial.adminPin = shared.adminPin; // 共用 PIN 留空＝不覆蓋機器的 PIN
+  if (shared.idleReturnSec) partial.idleReturnSec = shared.idleReturnSec; // 共用閒置秒數留空＝不覆蓋
   await publishToDevices(picked, partial, '套用到');
 }
 
@@ -3714,7 +3774,7 @@ async function renameDevice(d) {
  * 要再接回來得在機器上重新輸入位址/編號/金鑰（跟第一次設定一樣）。 */
 function dangerZoneCard() {
   // 版型照 GitHub repo settings 的 Danger Zone（2026-09-07 user 指示）：卡片外上方「Danger Zone」標題、
-  // 紅框卡（#C30F16）、列＝左粗體標題＋灰字說明／右淺底外框紅字鈕；不放 ?、盡量不讓頁籤捲動
+  // 紅框卡（#C30F16）、列＝左粗體標題＋標題旁 ? 說明（2026-09-14 user 指示：灰字說明收進問號）／右淺底外框紅字鈕
     const sec = document.createElement('section');
     sec.className = 'danger-zone-sec';
     const heading = document.createElement('h3');
@@ -3725,8 +3785,12 @@ function dangerZoneCard() {
     row.className = 'dz-row';
     const text = document.createElement('div');
     text.className = 'dz-text';
+    text.className = 'dz-text card-title-wrap'; // 同設定卡：標題＋問號 hover 展開說明
     text.innerHTML = '<span class="dz-title">刪除這台機器</span>' +
-      `<p class="dz-desc">從後台移除「${esc(curDevName())}」並停止同步；機器端需重新輸入連線資料才能再接回來。</p>`;
+      '<div class="b-pop page-help"><button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>' +
+      '<div class="b-pop-panel page-help-panel"><p class="b-pop-panel-title">說明</p>' +
+      `<p>從後台移除「${esc(curDevName())}」並停止同步。</p>` +
+      '<p>機器端的連線資料會一併清除，需重新輸入伺服器位址、機器編號與金鑰才能再接回來。</p></div></div>';
     const actions = document.createElement('div');
     actions.className = 'danger-actions';
     const cancel = document.createElement('button');

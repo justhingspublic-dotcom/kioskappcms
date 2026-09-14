@@ -106,6 +106,35 @@ module.exports = function mountAssist(app, { db, log, isDevice }) {
     res.json({ id: o.id });
   }));
 
+  // ---- 歷史對話（2026-09-14，同 App）：這組帳號跟該客服的所有對話串，新到舊；只有問候語沒提問的空串不列 ----
+  app.get('/api/assist/:deviceId/threads', requireDevice, (req, res) => withApi(req, res, async (api) => {
+    const agentId = String(req.query.agentId || '').trim();
+    if (!agentId) return res.status(400).json({ error: '沒有指定客服。' });
+    const r = await upstream(api, 'GET', `/api/threads?agent_id=${encodeURIComponent(agentId)}`);
+    if (!r.ok) return res.status(502).json({ error: `無法取得歷史對話：${await errorText(r)}` });
+    const arr = await r.json();
+    const list = (Array.isArray(arr) ? arr : []).map((t) => ({ id: t.id, title: String(t.title || '').trim(), createdAt: t.createdAt || '' }))
+      .filter((t) => t.id && t.title)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json(list);
+  }));
+
+  // ---- 某一串的完整訊息，舊到新（載回對話用）----
+  app.get('/api/assist/:deviceId/threads/:threadId/messages', requireDevice, (req, res) => withApi(req, res, async (api) => {
+    const agentId = String(req.query.agentId || '').trim();
+    if (!agentId) return res.status(400).json({ error: '沒有指定客服。' });
+    const r = await upstream(api, 'GET', `/api/threads/${encodeURIComponent(req.params.threadId)}/messages?agent_id=${encodeURIComponent(agentId)}`);
+    if (!r.ok) return res.status(502).json({ error: `無法載入對話：${await errorText(r)}` });
+    const arr = await r.json();
+    res.json((Array.isArray(arr) ? arr : []).map((m) => ({
+      fromUser: m.role === 'user', content: String(m.content || ''), isGreeting: !!m.isGreeting,
+      attachments: (Array.isArray(m.attachments) ? m.attachments : []).map((a) => ({
+        name: a.name || a.fileName || '附件', fileUrl: absolutize(api.root, a.fileUrl || ''),
+        isImage: a.type === 'image' || String(a.mimeType || '').startsWith('image/'),
+      })),
+    })));
+  }));
+
   // ---- 送訊息：JustAI 的 SSE 原樣轉給瀏覽器（data: {"content":"…","done":false}）----
   app.post('/api/assist/:deviceId/threads/:threadId/messages', requireDevice, (req, res) => withApi(req, res, async (api) => {
     const agentId = String(req.query.agentId || '').trim();

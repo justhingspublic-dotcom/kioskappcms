@@ -529,7 +529,9 @@ app.get('/api/config/:deviceId', async (req, res) => {
 // 網頁端的批量動作（加到其他機器、套用設定、展示版面）在伺服器看來都只是 PUT config，
 // 所以網頁 body 多帶 reason（字串或 { type, layoutName, mode }）說明這次是什麼動作，這裡照 reason 寫成一句話。
 // 機器自報的 PUT 不記（每台每分鐘都有，會洗版）。
-const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
+const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置回展示頁', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
+// 閒置回展示頁秒數（2026-09-14）：只收 10～3600 的整數，其他一律存 0＝機器／播放頁用預設 90 秒
+const normIdleSec = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 10 && n <= 3600 ? n : 0; };
 function auditConfigPut(req, { incoming, prevParsed, config, deviceName, version }) {
   const prev = prevParsed || {};
   const name = deviceName || prev.deviceName || req.params.deviceId;
@@ -581,6 +583,9 @@ app.put('/api/config/:deviceId', async (req, res) => {
   }
   // 管理 PIN 限管理員（2026-09-07 定案）：一般帳號送來的 adminPin 直接剝掉，下面的淺合併會沿用舊值
   if (!isDevice(req) && !user.isAdmin) delete config.adminPin;
+  // 閒置回展示頁秒數（2026-09-14）：同 PIN 限管理員；值一律正規化（不合法＝0＝預設 90 秒）
+  if (!isDevice(req) && !user.isAdmin) delete config.idleReturnSec;
+  if ('idleReturnSec' in config) config.idleReturnSec = normIdleSec(config.idleReturnSec);
   // 展示頁來源（2026-09-08 遠端切換展示頁）：這次請求有帶 activePage 才蓋章，記下是網頁指定還是機器自報。
   // 機器拉回設定時只有 'web' 才會照雲端的值切頁（'device' 只是它自己以前上報的舊值，機器以本機為準，避免跳頁）；
   // 機器切完會再上報一次（帶 activePage）把來源翻回 'device'，之後網頁只發布版面不會再把它拉回去。
@@ -670,7 +675,7 @@ async function migrateSharedToGlobal() {
     for (const l of j.layouts || []) {
       merged.layouts.push({ ...l, id: nextId++, createdBy: l.createdBy || who, createdAt: l.createdAt || row.UpdatedAt || null });
     }
-    for (const k of ['chatApi', 'sleep', 'adminPin']) if (merged[k] === undefined && j[k] !== undefined) merged[k] = j[k];
+    for (const k of ['chatApi', 'sleep', 'adminPin', 'idleReturnSec']) if (merged[k] === undefined && j[k] !== undefined) merged[k] = j[k];
   }
   await writeShared(merged);
   log.info('db', `共用設定已合併為全站一份（來源 ${rows.length} 個帳號、${merged.layouts.length} 個版面）`);
@@ -694,7 +699,7 @@ function auditSharedPut(req, current, next) {
   for (const [id, l] of curL) {
     if (!nxL.has(id)) audit.record(req, { action: 'shared.layout.delete', summary: `刪除共用版面${q(l.name)}`, targetType: 'layout', targetId: String(id), targetName: l.name || '' });
   }
-  const changed = ['chatApi', 'sleep', 'adminPin'].filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(nx[k]));
+  const changed = ['chatApi', 'sleep', 'adminPin', 'idleReturnSec'].filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(nx[k]));
   if (changed.length) {
     audit.record(req, { action: 'shared.settings.update', targetType: 'shared', targetId: 'settings', summary: `修改共用機器設定：${changed.map((k) => CONFIG_FIELD_NAMES[k]).join('、')}`, detail: { changed } });
   }
@@ -713,6 +718,7 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
   let next;
   if (req.user.isAdmin) {
     next = incoming;
+    if ('idleReturnSec' in next) next.idleReturnSec = normIdleSec(next.idleReturnSec);
     // 建立者由伺服器蓋章（新出現的版面 id，或舊資料沒記的）：用登入者的顯示名稱
     const known = new Map((current.layouts || []).map((l) => [l.id, l]));
     const me = await db.getPool().request().input('id', db.sql.NVarChar(64), req.user.userId)
@@ -907,10 +913,19 @@ app.get(['/admin/', '/admin/index.html'], (_req, res) => { res.set('Cache-Contro
 // 讀的是和 App 同一份 config／同一組機器 API；資源走 ../admin/（play.js、play.css 都在 public/ 底下）。
 const PLAY_INDEX = path.join(__dirname, '..', 'public', 'play.html');
 app.get('/play', (req, res, next) => (req.path === '/play' ? res.redirect(301, req.baseUrl + '/play/' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '')) : next()));
+// 播放頁的 js／css 帶檔案修改時間當版本參數（2026-09-14）：部署新版後展示機瀏覽器不用清快取就拿到新檔
+const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css'];
+function playAssetStamp() {
+  let max = 0;
+  for (const f of PLAY_ASSETS) { try { max = Math.max(max, fs.statSync(path.join(__dirname, '..', 'public', f)).mtimeMs); } catch { /* ignore */ } }
+  return Math.floor(max / 1000).toString(36);
+}
 app.get('/play/', (_req, res) => {
   res.set('Cache-Control', 'no-cache');
+  const v = playAssetStamp();
   res.type('html').send(fs.readFileSync(PLAY_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME))
-    .replace('{{PLAY_DEFAULT_DEVICE}}', escHtml(PLAY_DEFAULT_DEVICE)).replace('{{PARK_API}}', escHtml(PARK_API)));
+    .replace('{{PLAY_DEFAULT_DEVICE}}', escHtml(PLAY_DEFAULT_DEVICE)).replace('{{PARK_API}}', escHtml(PARK_API))
+    .replace(/(\.\.\/admin\/(?:play|assist)\.(?:js|css))"/g, '$1?v=' + v + '"'));
 });
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 

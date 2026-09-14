@@ -288,7 +288,7 @@ components:
           description: |
             **部分更新（淺合併）**：沒帶的頂層欄位一律沿用舊值。
             所以「更名」只帶 `deviceName`、「複製版面」只帶 `pages`、「套用共用設定」只帶 `chatApi`+`sleep`、網頁存檔不帶 `activePage`（機器不跳頁）。
-            `adminPin` 限管理員；一般帳號送來會被剝掉。
+            `adminPin`、`idleReturnSec` 限管理員；一般帳號送來會被剝掉。
 
     KioskConfig:
       type: object
@@ -300,6 +300,7 @@ components:
         chatApi: { $ref: '#/components/schemas/ChatApi' }
         sleep: { $ref: '#/components/schemas/SleepSchedule' }
         adminPin: { type: string, description: 機器管理介面 PIN（限管理員設定） }
+        idleReturnSec: { type: integer, minimum: 10, maximum: 3600, description: 閒置多少秒回展示頁（限管理員設定；0 或省略＝預設 90 秒；伺服器會把不合法的值存成 0） }
         pages:
           type: array
           maxItems: 8
@@ -433,6 +434,7 @@ components:
         chatApi: { $ref: '#/components/schemas/ChatApi' }
         sleep: { $ref: '#/components/schemas/SleepSchedule' }
         adminPin: { type: string }
+        idleReturnSec: { type: integer, description: 閒置回展示頁秒數範本（0 或省略＝不覆蓋） }
 
     Layout:
       type: object
@@ -802,6 +804,19 @@ paths:
         "409": { description: 這台機器還沒有設定智能客服帳號（notConfigured=true） }
         "502": { description: JustAI 平台錯誤（error 為中文原因） }
   /api/assist/{deviceId}/threads:
+    get:
+      tags: [智能客服]
+      summary: 歷史對話清單（機器金鑰）
+      description: 這組客服帳號跟該客服的所有對話串，新到舊；只有問候語沒提問的空串不列。回 [{ id, title, createdAt }]。2026-09-14，同 App。
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "[{ id, title, createdAt }]" }
+        "400": { description: 沒有指定客服 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "502": { description: JustAI 平台錯誤（error 為中文原因） }
     post:
       tags: [智能客服]
       summary: 開對話串（機器金鑰）
@@ -813,6 +828,20 @@ paths:
         "200": { description: "{ id }" }
         "401": { $ref: '#/components/responses/Unauthorized' }
   /api/assist/{deviceId}/threads/{threadId}/messages:
+    get:
+      tags: [智能客服]
+      summary: 某一串的完整訊息，舊到新（載回歷史對話用；機器金鑰）
+      description: "回 [{ fromUser, content, isGreeting, attachments:[{ name, fileUrl, isImage }] }]，fileUrl 已轉成絕對網址。"
+      security: [{ deviceKey: [] }]
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+        - { name: threadId, in: path, required: true, schema: { type: string } }
+        - { name: agentId, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: 訊息陣列 }
+        "400": { description: 沒有指定客服 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "502": { description: JustAI 平台錯誤（error 為中文原因） }
     post:
       tags: [智能客服]
       summary: 送訊息，回 SSE 串流（機器金鑰）

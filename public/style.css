@@ -301,7 +301,8 @@ html:root[data-color-mode="dark"] {
 #layoutTab > .editor { flex: 1; min-height: 0; }
 .editor-body { display: flex; gap: 24px; height: 100%; }
 /* 左欄＝畫布（flex:1 吃高度）＋其下操作鈕（寬度跟畫布同欄自然對齊） */
-.canvas-col { flex-shrink: 0; height: 100%; display: flex; flex-direction: column; gap: 10px; }
+/* 欄寬固定＝底框寬（不再由下方按鈕列的內容寬決定：之前按鈕列比畫布寬，畫布被 stretch 撐寬、機器比例失真，2026-09-14 user 回報） */
+.canvas-col { flex-shrink: 0; width: var(--ws-canvas-w); min-width: 280px; height: 100%; display: flex; flex-direction: column; gap: 10px; }
 /* 右欄＝格子面板（滿高：底部對齊畫布欄；2026-09-03 指示） */
 .panel-col {
   flex: 1; min-width: 320px; height: 100%; /* 不設上限：填滿畫布右側剩餘寬度（2026-09-07 指示） */
@@ -318,18 +319,24 @@ html:root[data-color-mode="dark"] {
 .canvas-actions-row .b-btn-icon.is-idle { background: var(--neutral-secondary-medium); border-color: var(--border-default); color: var(--brand); }
 .canvas-actions-row .b-btn-icon.is-idle:hover { background: var(--neutral-tertiary-medium); color: var(--brand-strong); }
 
+/* ── 底框（2026-09-14 user 指示）：固定 9:16 的框，機器畫布照真實比例置中放在裡面，
+      直式手機（9:20）兩側留框、橫式機器上下留框，版面永遠整齊。
+      高度＝欄高減下方操作鈕列（兩種模式都是 2 列鈕 32+8+32+10gap；shared 少扣會多 40px、body 會捲，user 2026-09-09）。
+      container-type:size → 畫布可用 cqw/cqh 對框做 contain 縮放，且框不會被內容撐大。 */
+.canvas-frame {
+  height: calc(100% - 82px); width: 100%;
+  background: var(--neutral-secondary-medium); border: 1px solid var(--border-default);
+  border-radius: 20px; /* 同心：畫布 12px ＋ 內距 8px */ padding: 8px;
+  container-type: size; display: grid; place-items: center; overflow: hidden;
+}
 /* ── 畫布：模擬機器螢幕，永遠黑底（不跟深淺色） ── */
 .canvas {
-  /* 高度＝欄高減下方操作鈕列（flex:1 會讓 aspect-ratio 的寬算不出來→塌成細條，不能用）。
-     兩種模式都是 2 列鈕（32+8+32+10gap）：device＝新增大區塊／加到其他機器＋本機複製＋展示；
-     shared＝新增大區塊／本機複製頁面。之前 shared 只扣 1 列（42px）→ 畫布多 40px 高，body 會捲（user 2026-09-09） */
-  height: calc(100% - 82px); width: auto; max-width: 420px; aspect-ratio: 9 / 16;
   background: #000; border-radius: 12px; padding: 4px;
   display: flex; flex-direction: column; user-select: none; touch-action: none;
   container-type: inline-size;
 }
-/* 橫式螢幕的機器（renderCanvas 依上報比例加 class）：改以寬度定尺寸，避免高度撐滿把比例拉爆 */
-.canvas.is-landscape { height: auto; width: 100%; min-width: 480px; max-width: 560px; }
+/* 框內畫布＝contain：寬取「框寬」與「框高×機器比例」的小者，高由 aspect-ratio（buildCanvas 寫入 --sr 與 inline aspect-ratio）推得 */
+.canvas-frame > .canvas { width: min(100cqw, calc(100cqh * var(--sr, 0.5625))); height: auto; }
 .canvas .block { display: flex; min-height: 0; position: relative; }
 .canvas .cell {
   flex: 1; min-height: 0; min-width: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
@@ -611,6 +618,7 @@ html:root[data-color-mode="dark"] {
   left: 0; right: auto; transform-origin: top left;
   width: max-content; min-width: 260px; max-width: min(420px, calc(100vw - 48px));
   font-size: 13.5px; line-height: 1.7; color: var(--text-body);
+  white-space: normal; /* 一排式卡標題容器是 nowrap，面板在裡面會繼承到、整段不換行超出去（2026-09-14 user 回報） */
 }
 .page-help .b-pop-panel p { margin: 0; }
 .page-help .b-pop-panel p + p { margin-top: 8px; }
@@ -624,6 +632,12 @@ html:root[data-color-mode="dark"] {
   .page-help:hover:not(.is-dismissed) .b-pop-panel,
   .page-help:focus-within:not(.is-dismissed) .b-pop-panel { opacity: 1; visibility: visible; transform: none; }
 }
+/* modal 內的面板改 fixed 懸浮（2026-09-14）：座標由 app.js placeModalHelp 算（inline left/top），
+   脫離文件流 → 不會把 .b-modal-body 撐出捲動；遮罩有 backdrop-filter，fixed 的參考框＝整個遮罩＝視窗，座標不用換算。
+   .is-up＝下面放不下改開在上方：動畫原點與 hover 橋改到底邊。 */
+.b-modal .page-help .b-pop-panel { position: fixed; top: auto; left: auto; right: auto; }
+.page-help.is-up .b-pop-panel { transform-origin: bottom left; }
+.page-help.is-up .b-pop-panel::before { top: auto; bottom: -10px; }
 /* 字級三段跟著放大（kit boost 清單沒涵蓋專案元件，這裡自己補） */
 [data-fs] .page-help .b-pop-panel { font-size: calc(13.5px + var(--b-fs-boost)); }
 /* 新增帳號 modal：兩欄表單格（名稱佔整列），窄幕退單欄；
@@ -665,17 +679,25 @@ html:root[data-color-mode="dark"] {
 /* ══════════════════ 機器設定頁 ══════════════════ */
 /* 兩張卡均分並排（tiri 郵件設定同款；窄幕直排），
    卡＝b-card-head 標題列＋.settings-fields 雙欄欄位＋.settings-foot 左說明右動作 */
-.settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; } /* 24→16：大字級下盡量不捲（2026-09-07） */
-.settings-body .settings-card-full { grid-column: 1 / -1; } /* 管理 PIN 卡：整條放在 API 與休眠之下 */
-/* PIN 卡＝一排：標題列左邊「管理 PIN ?」、右邊輸入框；沒有欄位區，標題列底線拿掉 */
+.settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: stretch; } /* 24→16→12：筆電視窗（約 830 高）不捲（2026-09-14） */
+/* 機器設定頁籤時內容區上下留白 20→12（2026-09-14 user 回報 MacBook 上微微捲動：90vh＝745 只差 10px）；
+   版面頁籤維持 20（畫布框高 --ws-frame-h 是照 20 算的，別動） */
+.b-modal.is-ws .b-modal-body:has(> #settingsTab:not(.hidden)) { padding-top: 12px; padding-bottom: 12px; }
+/* 一排式卡（管理 PIN／閒置回展示頁）：標題列左邊「管理 PIN ?」、右邊輸入框；沒有欄位區，標題列底線拿掉。
+   2026-09-14 user 裁決：兩張並排各佔半欄（省一列），不再各跨整條；半欄下標題不折行、輸入框可縮（最窄 120）。 */
 .settings-card-full .b-card-head { border-bottom: 0; padding: 12px 12px 12px 20px; } /* 右側＝上下同 12px，輸入框與卡框等距（2026-09-07 user 指示） */
-.settings-card-full .b-card-head .pw-wrap { width: 260px; flex: none; }
+.settings-card-full .b-card-head .card-title-wrap { flex: none; white-space: nowrap; }
+.settings-card-full .b-card-head .pw-wrap { flex: 0 1 220px; min-width: 120px; margin-left: auto; }
+/* 閒置回展示頁卡（2026-09-14）：同 PIN 卡一排式，輸入框右邊掛「秒」 */
+.settings-card-full .b-card-head .idle-wrap { flex: 0 1 220px; min-width: 120px; margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.idle-wrap .b-input { flex: 1; min-width: 0; }
+.idle-unit { flex: none; color: var(--text-body-subtle); }
 /* 右欄卡片的 ? 說明面板往左開：往右開會超出 modal 內容區、把 body 撐出水平捲動 */
-.settings-body .settings-card:nth-child(2) .page-help .b-pop-panel { left: auto; right: 0; transform-origin: top right; }
+.settings-body > .settings-card:nth-child(even) .page-help .b-pop-panel { left: auto; right: 0; transform-origin: top right; }
 @media (max-width: 1100px) { .settings-body { grid-template-columns: 1fr; } }
 .settings-card { display: flex; flex-direction: column; }
 .settings-fields {
-  padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr; /* 20→16：機器設定頁籤在 modal 內不捲動 */
+  padding: 14px 20px; display: grid; grid-template-columns: 1fr 1fr; /* 20→16→14：機器設定頁籤在 modal 內不捲動 */
   gap: 14px 20px; align-items: start;
 }
 .settings-fields .field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -735,6 +757,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 @supports not (corner-shape: squircle) { input[type=checkbox].b-switch { --radius-full: 9999px; } } /* Safari fallback：真膠囊維持（::after 繼承） */
 .switch-row { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
 /* 休眠卡＝固定 7 列清單（高度不跳動；點「編輯」跳單日 modal） */
+.settings-fields .sleep-list { gap: 6px; } /* 行距 8→6（要蓋過 .settings-fields .field 的 8）：筆電視窗不捲（2026-09-14） */
 .sleep-list.is-off { opacity: .55; }
 .sleep-item { display: flex; align-items: center; gap: 12px; padding: 1px 0; } /* 壓扁：設定頁籤在 modal 內不捲動 */
 .sleep-item .sleep-day { width: 40px; flex: none; font-size: 13.5px; color: var(--text-heading); }
@@ -900,14 +923,18 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
    捲動全交給 .b-modal-body → 標題列（機器名＋儲存/關閉）永遠釘在頂端。 */
 .b-modal.is-ws {
   /* 寬度貼合內容、右側不留大片空白（2026-09-03 指示）：
-     畫布寬＝畫布高×9/16，畫布高＝90vh−head/footer/padding−操作鈕列≈90vh−208px
-     → 寬度＝畫布寬＋24 欄間距＋右欄上限 560＋body padding 40。短視窗以 min-width 保底。 */
-  width: calc((90vh - 208px) * 9 / 16 + 626px);
+     寬度＝底框寬＋24 欄間距＋右欄上限 560＋body padding 40。短視窗以 min-width 保底。 */
+  /* 底框寬（.canvas-col 用同一值）：框高＝90vh−326（head＋頁籤列＋footer＋padding＋操作鈕列 82；2026-09-14 實測），
+     框內（扣 8px 內距＋1px 邊框）剛好 9:16 → 9:16 機器貼滿框、其他比例照真實比例置中留框。 */
+  --ws-frame-h: calc(90vh - 326px);
+  --ws-canvas-w: calc((var(--ws-frame-h) - 18px) * 9 / 16 + 18px);
+  width: calc(var(--ws-canvas-w) + 626px);
   min-width: 880px; max-width: calc(100vw - 48px);
   height: 90vh;
   display: flex; flex-direction: column;
   overflow: hidden;   /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
 }
+#wsModal.is-shared-mode .b-modal.is-ws { --ws-frame-h: calc(90vh - 262px); } /* 共用版面編輯器沒有頁籤列（48＋16 margin）→ 框高多 64 */
 .b-modal.is-ws .b-modal-head { flex: none; border-bottom: 0; } /* 內容不捲動 → 頂部分隔線拿掉 */
 .b-modal.is-ws .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* modal 內一律不畫捲軸（2026-09-03 指示）：body、右側面板、設定頁、對話框清單全包；
@@ -1021,12 +1048,11 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
    左側分裂滑出取消鈕；第二下再開倒數 3 秒的警告框。寬度由 JS 量測補間、字淡出淡入。 */
 :root { --dz-red: var(--fg-danger); } /* 文字層：淺色＝#C30F16、深色＝提亮版；實色填底用 var(--danger) */
 .danger-zone-sec { grid-column: 1 / -1; }
-.dz-heading { margin: 0 0 8px; font-size: 15px; font-weight: 600; color: var(--dz-red); } /* 標題也用紅（2026-09-07 user 指示） */
+.dz-heading { margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--dz-red); } /* 標題也用紅（2026-09-07 user 指示）；下距 8→4 省高（2026-09-14） */
 .settings-card.danger-zone { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .dz-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; }
 .dz-row .dz-text { min-width: 0; }
-.dz-row .dz-title { display: block; font-size: 14px; font-weight: 600; color: var(--text-heading); margin-bottom: 2px; }
-.dz-row .dz-desc { margin: 0; font-size: 13px; color: var(--text-body-subtle); }
+.dz-row .dz-title { font-size: 14px; font-weight: 600; color: var(--text-heading); } /* 說明收進旁邊的 ?（2026-09-14） */
 .danger-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .b-btn.dz-delbtn {
   font-weight: 600; font-size: 13px;

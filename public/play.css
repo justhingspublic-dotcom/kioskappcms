@@ -132,7 +132,24 @@ body {
 .blank-hint .material-icons { font-size: 4vmin; opacity: .85; }
 
 /* ---------- 下一頁（網頁／園區資訊） ---------- */
-.overlay { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 30; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
+/* 內頁進出轉場（2026-09-14，user 要 iOS 推入式）：內頁整頁從右側滑到定位、左緣帶陰影；
+   底下的展示畫面不動、只稍微變暗。退出反向。
+   400ms、iOS 曲線 cubic-bezier(.32,.72,0,1)。類別由 play.js 的 KioskNav 掛在 #stage 與內頁層（#overlay／.as-root）上。 */
+@keyframes navSlideIn { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes navSlideOut { from { transform: none; } to { transform: translateX(100%); } }
+/* 展示畫面不位移（user 2026-09-14）：內頁蓋上來時只稍微變暗，退出時恢復 */
+@keyframes stageSlideOut { from { opacity: 1; } to { opacity: .8; } }
+@keyframes stageSlideIn { from { opacity: .8; } to { opacity: 1; } }
+.nav-enter { animation: navSlideIn 400ms cubic-bezier(.32, .72, 0, 1) both; box-shadow: -6px 0 24px rgba(0,0,0,.22); }
+.nav-leave { animation: navSlideOut 400ms cubic-bezier(.32, .72, 0, 1) both; box-shadow: -6px 0 24px rgba(0,0,0,.22); pointer-events: none; }
+.stage.nav-out { animation: stageSlideOut 400ms cubic-bezier(.32, .72, 0, 1) both; }
+.stage.nav-in { animation: stageSlideIn 400ms cubic-bezier(.32, .72, 0, 1) both; }
+
+/* 內頁裁切容器（2026-09-14）：固定在舞台範圍、本身不動，contain: paint 把裡面的內頁（含 position: fixed 的全螢幕層）都裁在舞台內，
+   內頁只做位移、不再用 clip-path 同步裁切（位移在 GPU、clip-path 在主執行緒，會不同步、看起來像從中間展開）。 */
+.nav-clip { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 30; pointer-events: none; contain: paint; }
+.nav-clip > * { pointer-events: auto; }
+.overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
 .topbar { flex: none; height: 64px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
 .topbar-btn { width: 56px; height: 56px; border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .topbar-btn .material-icons { font-size: 30px; }
