@@ -26,6 +26,8 @@ const BG_SWATCHES = ['FF263238','FF37474F','FF1B5E20','FF2E6A43','FF0D47A1','FF4
 const TXT_SWATCHES = ['FFFFFFFF','FF000000','FFFFEB3B','FFFF9800','FFFF5252','FF69F0AE','FF40C4FF','FFE040FB','FFFFC107','FF80CBC4'].map(h => parseInt(h, 16));
 // App AccentSwatches 同一組（客服聊天頁主題色；null = 預設綠）
 const ACCENT_SWATCHES = ['FF2E6A43','FF1565C0','FF00695C','FF6A1B9A','FFAD1457','FFC62828','FFEF6C00','FF37474F'].map(h => parseInt(h, 16));
+// 客服主題色的「JustAI」色票（2026-09-14）：JustAI CI 橘 #DB892E 底＋白色 J 標（chat.justhings.ai favicon.svg 的字形）；值＝哨兵 0
+const JUSTAI_CHIP = { label: 'JustAI', value: 0, cls: 'justai', icon: '<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="#fff" d="M6.33,25.43c-.97-1.18-.9-2.8.15-3.77.77-.71,1.81-.89,2.73-.41.75.39,1.22.89,2.07.71,1-.22,1.18-1.32,1.18-2.21V7.6c0-1.05.39-2.01,1.3-2.54,1.01-.59,2.22-.47,3.1.3.54.5.8,1.17.9,1.92,0,.01,0,.02,0,.04v13.24s0,.01,0,.02c-.11,1.93-.86,3.7-2.28,4.98-.66.59-1.35,1.04-2.18,1.37-1.59.63-3.36.61-4.94-.08-.78-.34-1.49-.78-2.03-1.44Z"/><path fill="#fff" d="M24.63,10.27c-.65.29-1.34.35-1.97.22-.59-.12-1.03-.39-1.44-.79-.7-.69-1.01-1.59-.85-2.6.16-1.01.88-1.92,1.84-2.29,1.48-.57,3.04.03,3.79,1.4.49.89.48,2.06-.11,2.92-.33.48-.73.9-1.26,1.14Z"/></svg>' };
 const DEFAULT_CHAT_BASE = 'https://chat-api.justhings.ai'; // App ChatApiConfig.DEFAULT_BASE_URL
 
 const DEFAULT_CELL = () => ({
@@ -73,6 +75,12 @@ const mediaSrc = (uri) => (typeof uri === 'string' && uri.startsWith('/files/') 
 // api() 只丟「原因句」（請檢查…／請稍後再試…），toast 由呼叫端補主詞「無法○○。」再接原因。
 const NET_ERROR = '目前無法連接伺服器。請檢查網路連線後再試一次。';
 const GENERIC_ERROR = '請稍後再試一次。';
+// 請求逾時（2026-09-15）：以前 fetch 沒有時限，伺服器卡住時登入鈕會轉 2 分鐘等 IIS 放棄再顯示錯的文案。
+// 一般 API 20 秒、上傳檔案 2 分鐘（大圖慢網路）。
+const API_TIMEOUT_MS = 20_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
+const TIMEOUT_ERROR = '伺服器沒有在時限內回應。請稍後再試一次。';
+const isTimeout = (e) => e && (e.name === 'TimeoutError' || e.name === 'AbortError');
 function reasonFor(status, serverMsg) {
   if (serverMsg) return serverMsg;
   switch (status) {
@@ -87,8 +95,11 @@ async function api(method, url, body, isForm) {
   if (body && !isForm) headers['Content-Type'] = 'application/json';
   let res;
   try {
-    res = await fetch(BASE + url, { method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined });
-  } catch { throw new Error(NET_ERROR); }
+    res = await fetch(BASE + url, {
+      method, headers, body: isForm ? body : body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(isForm ? UPLOAD_TIMEOUT_MS : API_TIMEOUT_MS),
+    });
+  } catch (e) { throw new Error(isTimeout(e) ? TIMEOUT_ERROR : NET_ERROR); }
   if (res.status === 401) { logout(); throw new Error('登入已過期。請重新登入。'); }
   if (!res.ok) throw new Error(reasonFor(res.status, (await res.json().catch(() => ({}))).error));
   return res.json();
@@ -130,8 +141,11 @@ $('loginForm').addEventListener('submit', async (e) => {
       r = await fetch(BASE + '/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: $('username').value, password: $('password').value }),
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-    } catch { await minCrawl(); throw new Error('無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
+    } catch (e) { await minCrawl(); throw new Error(isTimeout(e) ? '無法登入。伺服器沒有在時限內回應，請稍後再試一次。' : '無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
+    // 5xx／代理逾時（IIS 502 回的是 HTML，沒有 .error）不能說成「帳號或密碼不正確」（2026-09-15）
+    if (r.status >= 500) { await minCrawl(); throw new Error('無法登入。伺服器暫時無法處理，請稍後再試一次。'); }
     if (!r.ok) { await minCrawl(); throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼不正確。'); }
     token = (await r.json()).token;
     sessionStorage.setItem('token', token);
@@ -229,6 +243,7 @@ async function refreshMe() {
   $('whoamiSub').textContent = `${me.username}・${me.isAdmin ? '管理員' : '一般帳號'}`;
   meIsAdmin = !!me.isAdmin;
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
+  $('themeBtn').hidden = !meIsAdmin; // 主題色：管理員限定
 }
 
 // ---------- 側欄底部「機器連線資訊」卡片 ----------
@@ -1880,11 +1895,12 @@ function renderPanel() {
         [['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']],
         cell.assistantLayout || 'Kiosk', (v) => { cell.assistantLayout = v; touch(); },
       ));
+      // 客服主題色（2026-09-14 定案）：「自動」＝站台主題色（後台 nav 設的那個）；「JustAI」＝客服後台設定的顏色（哨兵值 0）；其餘＝指定色。App／播放頁同規則
       const accentRow = subRow('主題色', swatchRow(ACCENT_SWATCHES, cell.agentAccent, true, (v) => {
         if (v === null) delete cell.agentAccent; else cell.agentAccent = v;
         touch(); renderPanel();
-      }));
-      accentRow.querySelector('.ins-label').title = '此格開啟的聊天頁主色（頭像、按鈕、游標）；「自動」使用預設綠色';
+      }, '自動', [JUSTAI_CHIP]));
+      accentRow.querySelector('.ins-label').title = '此格開啟的聊天頁主色（頭像、按鈕、游標）；「自動」跟隨站台主題色，「JustAI」用客服後台設定的顏色';
     }
   }
 
@@ -2007,22 +2023,44 @@ function checkRow(text, checked, onChange) {
 // ARGB 整數 ↔ <input type=color> 的 #rrggbb（調色盤只有 RGB，存回時一律不透明）
 const hexOfArgb = (argb) => '#' + (Number(argb) & 0xFFFFFF).toString(16).padStart(6, '0');
 const argbOfHex = (hex) => parseInt('FF' + hex.replace('#', ''), 16);
-function swatchRow(colors, current, withAuto, onPick, autoLabel) {
+/** 色票是否偏亮（相對亮度 > 0.5）：選取的勾要用深色（同 App SwatchCircle 的 luminance 規則） */
+function isLightArgb(argb) {
+  const n = Number(argb) >>> 0, lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255) > 0.5;
+}
+/* 選取放大／縮回的過場（user 2026-09-14）：呼叫端點完通常整段重建 DOM（renderPanel／主題色 modal render），新元素一出現就是
+   最終狀態、沒有動畫可跑。所以點下去先記住「哪一列、從哪個值到哪個值」，同一列重建時讓新的選取格先以未選取狀態出現、
+   舊的選取格先以放大狀態出現，下一幀再各自切到最終 class，transition 就跑得起來。 */
+let swatchAnim = null;
+function swatchRow(colors, current, withAuto, onPick, autoLabel, extra) {
   const row = document.createElement('div');
   row.className = 'swatches';
+  const cur = current == null ? null : Number(current);
+  const pick = (value) => { swatchAnim = { colors, from: String(cur), to: String(value) }; onPick(value); };
   if (withAuto) {
     const a = document.createElement('button');
     a.className = 'swatch auto' + (current == null ? ' active' : '');
+    a.dataset.val = 'null';
     a.textContent = autoLabel || '自動';
-    a.onclick = () => onPick(null);
+    a.onclick = () => pick(null);
     row.appendChild(a);
   }
-  const cur = current == null ? null : Number(current);
+  // 額外選項（例：客服主題色的「JustAI」＝哨兵值 0，不是顏色）：有 icon 就畫成同形色塊（底色＋圖），否則文字 chip
+  const extraVals = (extra || []).map((x) => x.value);
+  for (const x of extra || []) {
+    const b = document.createElement('button');
+    b.className = 'swatch ' + (x.icon ? x.cls || 'icon' : 'auto') + (cur === x.value ? ' active' : '');
+    if (x.icon) { b.innerHTML = x.icon; b.title = x.label; b.setAttribute('aria-label', x.label); } else b.textContent = x.label;
+    b.dataset.val = String(x.value);
+    b.onclick = () => pick(x.value);
+    row.appendChild(b);
+  }
   for (const c of colors) {
     const b = document.createElement('button');
-    b.className = 'swatch' + (cur === c ? ' active' : '');
+    b.className = 'swatch' + (cur === c ? ' active' : '') + (isLightArgb(c) ? ' light' : '');
     b.style.background = colorCss(c);
-    b.onclick = () => onPick(c);
+    b.dataset.val = String(c);
+    b.onclick = () => pick(c);
     row.appendChild(b);
   }
   // 調色盤（user 2026-09-09）：不限預設色。原生 <input type=color> 藏在旁邊，按調色盤鈕才叫出來；
@@ -2030,20 +2068,23 @@ function swatchRow(colors, current, withAuto, onPick, autoLabel) {
   const picker = document.createElement('input');
   picker.type = 'color'; picker.className = 'swatch-picker'; picker.tabIndex = -1;
   picker.value = hexOfArgb(cur != null ? cur : colors[0]);
-  picker.addEventListener('change', () => onPick(argbOfHex(picker.value)));
-  if (cur != null && !colors.includes(cur)) {
-    // 目前是自訂色：多顯示一格，選取狀態才看得到；再點一次可繼續調
-    const b = document.createElement('button');
-    b.className = 'swatch active'; b.title = '自訂顏色';
-    b.style.background = colorCss(cur);
-    b.onclick = () => picker.click();
-    row.appendChild(b);
-  }
+  picker.addEventListener('change', () => pick(argbOfHex(picker.value)));
+  // 目前是自訂色（user 2026-09-14）：不另外長一格，調色盤鈕本身就顯示成那個顏色並標選取；再點可繼續調
+  const isCustom = cur != null && !colors.includes(cur) && !extraVals.includes(cur);
   const custom = document.createElement('button');
-  custom.className = 'swatch custom'; custom.title = '自訂顏色'; custom.setAttribute('aria-label', '自訂顏色');
+  custom.className = 'swatch custom' + (isCustom ? ' active' : ''); custom.title = '自訂顏色'; custom.setAttribute('aria-label', '自訂顏色');
+  if (isCustom) { custom.style.background = colorCss(cur); custom.dataset.val = String(cur); if (isLightArgb(cur)) custom.classList.add('light'); }
   custom.innerHTML = '<span class="material-icons">palette</span>';
   custom.onclick = () => picker.click();
   row.append(custom, picker);
+  // 同一列剛被點過而重建：讓新選取格從未選取長大、舊選取格從放大縮回（見 swatchAnim 註解）
+  if (swatchAnim && swatchAnim.colors === colors && String(cur) === swatchAnim.to) {
+    const { from, to } = swatchAnim; swatchAnim = null;
+    const toEl = row.querySelector('[data-val="' + to + '"]'), fromEl = from !== to ? row.querySelector('[data-val="' + from + '"]') : null;
+    if (toEl) toEl.classList.remove('active');
+    if (fromEl) fromEl.classList.add('leaving');
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (toEl) toEl.classList.add('active'); if (fromEl) fromEl.classList.remove('leaving'); }));
+  }
   return row;
 }
 function thumbList(cell, cellPx) {
@@ -3126,7 +3167,7 @@ function switchView(view) {
   $('sharedSettingsView').classList.toggle('hidden', view !== 'sharedSettings');
   $('usersView').classList.toggle('hidden', view !== 'users');
   spaFade();
-  if (view === 'devices') renderDevicesView();
+  if (view === 'devices') renderDevicesView().catch((e) => setStatus('無法取得機器清單。' + e.message, true)); // 以前失敗＝默默空表
   if (view === 'sharedLayout') renderSharedLayoutView();
   if (view === 'sharedSettings') renderSharedSettingsView();
   if (view === 'users') renderUsersView();
@@ -3195,6 +3236,66 @@ document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
   overlay.addEventListener('click', (e) => { if (!modal.contains(e.target)) closeGuide(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlay.classList.contains('is-visible')) closeGuide(); }, true);
   $('manualLink').addEventListener('click', () => window.openGuideModal());
+})();
+
+// ---------- 主題色 modal（2026-09-14）----------
+// nav 調色盤鈕（管理員限定）。顏色存共用設定 shared.themeColor（全站一份），後台深淺色與展示機 App 都跟它走。
+// 選色只在 modal 的樣本列預覽（#themePreview 作用域 CSS；user：要按儲存才能變）；儲存才 PUT 並把 #siteTheme 換成新色。變數推導在 theme-color.js（與伺服器同一支）。
+// 色票＝最前面 JusThings 公司橘 #E07800（預設色，user 2026-09-14 指定），接著以 joye 藍 #0051A8 的色調（oklch L.448 c.156）為準、色相每 45° 一格共 8 色、不重複（綠那格改用揚昇綠 #2E6F40，user 指定）；
+// 算法同 theme-color.js 的 fromLch（超出色域收彩度）。目前站台色不在清單裡時 swatchRow 會多顯示一格自訂色。
+const THEME_SWATCHES = ['FFE07800', 'FF0051A8', 'FF00606D', 'FF2E6F40', 'FF4C5D00', 'FF724C00', 'FF982312', 'FF8C2366', 'FF65389B'].map((h) => parseInt(h, 16));
+(function () {
+  const overlay = $('themeModal');
+  const T = window.KioskThemeColor;
+  const styleEl = () => $('siteTheme');
+  let draft = '', lastFocus = null;
+  const saved = () => T.normalize(shared && shared.themeColor) || T.DEFAULT;
+  const preview = (hex) => { $('themePreview').textContent = T.scopedCss(hex, '#themeModal .theme-sample'); };
+  function render() {
+    const box = $('themeSwatches');
+    box.innerHTML = '';
+    box.appendChild(swatchRow(THEME_SWATCHES, argbOfHex(draft), false, (c) => { draft = T.normalize(hexOfArgb(c)); render(); }));
+    $('themeHex').textContent = draft;
+    preview(draft);
+    $('th-save').disabled = draft === saved();
+  }
+  async function open() {
+    if (!(await ensureSharedLoaded())) return;
+    lastFocus = document.activeElement;
+    draft = saved();
+    render();
+    overlay.classList.remove('is-closing');
+    overlay.classList.add('is-visible');
+    document.body.classList.add('b-modal-lock');
+    if (window.lucide) lucide.createIcons({ nodes: [overlay] });
+    $('th-close').focus();
+  }
+  function close() {
+    if (!overlay.classList.contains('is-visible') || overlay.classList.contains('is-closing')) return;
+    overlay.classList.add('is-closing');
+    overlay.addEventListener('animationend', function h(e) {
+      if (e.target !== overlay) return;
+      overlay.removeEventListener('animationend', h);
+      overlay.classList.remove('is-visible', 'is-closing');
+      if (!$('wsModal').classList.contains('is-visible')) document.body.classList.remove('b-modal-lock');
+    });
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  async function save() {
+    const prev = shared.themeColor;
+    shared.themeColor = draft;
+    if (await saveShared(true)) {
+      const el = styleEl(); if (el) el.textContent = T.css(draft); // 儲存成功才套到整站
+      setStatus('主題色已更新。展示機會在幾秒內跟著換。');
+      close();
+    } else shared.themeColor = prev;
+  }
+  $('themeBtn').addEventListener('click', open);
+  $('th-close').addEventListener('click', close);
+  $('th-save').addEventListener('click', save);
+  // 只認點在 overlay 本身：色票點下去會重建色票列，冒泡到這裡時 target 已不在 modal 裡，不能用 modal.contains 判斷
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlay.classList.contains('is-visible')) close(); }, true);
 })();
 
 // ---------- 機器總覽（首頁列表） ----------
@@ -3275,6 +3376,18 @@ function attachTip(el, title, body, cls) {
 function shortServer(u) {
   try { const x = new URL(u); return x.host; } catch { return String(u || '').replace(/^https?:\/\//i, ''); }
 }
+/** 「尺寸」「解析度」欄（2026-09-14）：與編號同款灰色等寬字。吋數＝App v1.45 起自報（網頁播放頁拿不到實體尺寸＝不支援），
+ *  整數不留小數（43 吋）、否則一位小數（42.5 吋）；沒有＝—。解析度沒回報過也＝—。 */
+function screenInchText(d) {
+  const scr = d.Screen;
+  // 網頁播放頁（版本 web x.x／編號 web-…）：瀏覽器拿不到實體尺寸，標「不支援」（user 2026-09-14 指示），與舊版 App 的「—」區分
+  if (!(scr && scr.inch > 0) && (/^web/i.test(d.LastAppVersion || '') || /^web-/i.test(d.DeviceId || ''))) return '不支援';
+  if (!scr || !(scr.inch > 0)) return '—';
+  return (Number.isInteger(scr.inch) ? String(scr.inch) : scr.inch.toFixed(1)) + ' 吋';
+}
+function screenResText(scr) {
+  return scr && scr.w > 0 && scr.h > 0 ? `${scr.w} × ${scr.h}` : '—';
+}
 function agoText(sec) {
   if (sec < 90) return `${Math.round(sec)} 秒`;
   const m = sec / 60;
@@ -3301,7 +3414,7 @@ async function renderDevicesView() {
   if (!devices.length) {
     // tiri 規範：空清單不留光禿表頭，換 b-empty 空狀態
     tb.innerHTML =
-      '<tr><td colspan="6"><div class="b-empty">' +
+      '<tr><td colspan="8"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>' +
       '<p class="b-empty-title">還沒有機器連上來</p>' +
       '<p class="b-empty-sub">在 kiosk 機器的 App 裡開啟「雲端同步」，機器會自動出現在這裡。</p>' +
@@ -3327,6 +3440,8 @@ async function renderDevicesView() {
     tr.appendChild(nameTd);
     tr.insertAdjacentHTML('beforeend',
       `<td class="device-id-dim device-mono">${esc(d.DeviceId)}</td>` +
+      `<td class="device-id-dim device-mono">${screenInchText(d)}</td>` +
+      `<td class="device-id-dim device-mono">${screenResText(d.Screen)}</td>` +
       `<td class="num device-id-dim">${updated}</td>`);
     tr.appendChild(statusCell(d));
     // 「版本」「屬於（帳號分配）」欄先不放（2026-09-03 指示）；
@@ -4034,9 +4149,11 @@ $('addUserForm').addEventListener('submit', async (e) => {
 });
 
 // ---------- 自動同步：機器（或其他人）發布新版時，網頁 5 秒內自動載入 ----------
+let versionPollBusy = false; // 上一輪還沒回來就不再發（伺服器慢時不能堆一排 /version 請求；2026-09-15）
 setInterval(async () => {
-  if (!token || !state || dirty || !deviceId) return;
+  if (!token || !state || dirty || !deviceId || versionPollBusy) return;
   if (!$('wsModal').classList.contains('is-visible')) return;
+  versionPollBusy = true;
   try {
     const r = await api('GET', `/api/config/${encodeURIComponent(deviceId)}/version`);
     if (r.version === state.version) return;
@@ -4046,7 +4163,7 @@ setInterval(async () => {
     selected = keepSel && getCell(keepSel) ? keepSel : null;
     render();
     setStatus(`「${curDevName()}」有新的變更，已自動更新。`);
-  } catch { /* 網路暫時異常就等下一輪 */ }
+  } catch { /* 網路暫時異常就等下一輪 */ } finally { versionPollBusy = false; }
 }, 5000);
 
 // ---------- 啟動 ----------

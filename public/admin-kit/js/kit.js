@@ -40,6 +40,12 @@
   function softApply(fn) {
     var root = document.documentElement;
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { fn(); return; }
+    /* 同文件 View Transitions（Chrome 111+／Safari 18+）：整頁快照交叉淡入，只在合成層做，
+       不像下面的備援讓每個元素各跑 transition（含 font-size 觸發全頁重排）而掉幀（2026-09-14 user 回報）。
+       時長在 shell.css 的 ::view-transition-old/new(root) 設定。 */
+    if (typeof document.startViewTransition === 'function') {
+      try { document.startViewTransition(fn); return; } catch (e) { /* 退回 class 過場 */ }
+    }
     root.classList.add('b-mode-anim');
     clearTimeout(modeAnimT);
     requestAnimationFrame(function () {

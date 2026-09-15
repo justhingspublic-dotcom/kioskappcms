@@ -43,6 +43,18 @@
 2. 把新的 zip 解壓覆蓋到同一個資料夾（`.env`、`uploads/` 不在包裡，不會被動到）。
 3. 重新啟動服務。
 
+## 常駐與自我修復（2026-09-15）
+- `node src/server.js` 先變成**保母程序**（`src/supervisor.js`），再開一個子程序跑真正的後台。保母每 15 秒打 `GET {BASE_PATH}/api/health`，
+  連續 8 次沒回應（約 3 分鐘）就強制結束子程序並重拉；子程序自己結束（`POST /api/restart`、崩潰、DB 心跳連續失敗 5 分鐘）也 2 秒內重拉。
+  外層 `run.cmd` 迴圈仍在：保母被砍才會用到。子程序每 5 秒確認保母還在，不在就跟著結束，不會留孤兒佔 port。
+- 後台啟動時把自己的**程序優先權拉回「正常」**（`src/health.js`）：工作排程器啟動的程序預設是「低於正常」，同一台伺服器
+  IIS 站台一多、上班時間 CPU 一忙，低優先權的程序就整段被晾著（頁面轉不出來、DB 連線「15 秒逾時」、靜態檔吐不出來，記憶體卻很小），
+  2026-09-15 揚昇就是這樣。不必改排程。
+- `GET /api/health`（不需登入）：pid、uptime、優先權、事件迴圈延遲 p50／p99／max、CPU、記憶體、DB 心跳；出問題先看這支和 `logs/app-*.log`
+  裡 `health`（每 5 分鐘一行摘要，卡頓立刻 warn）與 `guard`（保母）兩類的行。
+- 診斷：`node tools\db-ping.js`（在站台資料夾內）從這台機器開一條全新的 DB 連線，分辨「機器連不到 DB」還是「只有正在跑的程序有問題」。
+- 重啟：`POST /api/restart`（`node tools/restart-prod.js`）；程序卡死到 API 都不回時，在伺服器砍掉該 port 的 node（`netstat -ano | findstr :3001` 找 PID → `taskkill /F /PID`），保母或 run.cmd 會重拉。
+
 ## 注意
 - 防火牆只需開 80/443，3000 不用對外。
 - `uploads/` 之後會持續長大，備份時記得含它。

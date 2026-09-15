@@ -271,11 +271,13 @@ components:
       type: object
       properties:
         version: { type: integer, example: 3, description: 該機器沒設定過為 0 }
+        themeColor: { type: string, example: "#0051A8", description: "站台主題色 #RRGGBB（2026-09-14）：機器每輪對帳讀到就套用；/wait 回應也帶" }
 
     ConfigResponse:
       type: object
       properties:
         version: { type: integer }
+        themeColor: { type: string, example: "#0051A8", description: "站台主題色 #RRGGBB（2026-09-14，後台 nav「主題色」設定）" }
         updatedAt: { type: string, format: date-time }
         config: { $ref: '#/components/schemas/KioskConfig' }
 
@@ -311,6 +313,8 @@ components:
       properties:
         w: { type: integer, example: 1080 }
         h: { type: integer, example: 1920 }
+        inch: { type: number, nullable: true, example: 43, description: 實體吋數（對角線），App v1.45 起自報（EDID／裝置樹／實測 dpi）；機器報不出來時伺服器依 model 查機型表補上；網頁播放頁與舊版 App 沒有 }
+        model: { type: string, nullable: true, example: FarBar-YH02, description: 機型（Build.MODEL），App v1.48 起自報 }
 
     ChatApi:
       type: object
@@ -535,6 +539,31 @@ paths:
               schema: { $ref: '#/components/schemas/ConnectionInfo' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/health:
+    get:
+      tags: [登入]
+      summary: 程序健康狀態（不需登入）
+      description: |
+        保母程序（src/supervisor.js）每 15 秒打這支確認後台程序還會回應；DB 沒連上也回 200（內容的 db 欄位看得出來）。
+        內容：pid、uptimeSec、priority（程序優先權）、loop（事件迴圈延遲 p50／p99／max，毫秒）、cpuPct、mem、db 心跳。不含機密。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                properties:
+                  ok: { type: boolean }
+                  pid: { type: integer }
+                  uptimeSec: { type: integer }
+                  priority: { type: string, nullable: true }
+                  loop: { type: object, properties: { p50: { type: integer }, p99: { type: integer }, max: { type: integer } } }
+                  cpuPct: { type: integer }
+                  mem: { type: object, properties: { rssMB: { type: integer }, heapMB: { type: integer } } }
+                  db: { type: object, properties: { ok: { type: boolean, nullable: true }, ms: { type: integer, nullable: true }, failures: { type: integer }, lastOkAt: { type: string, nullable: true } } }
 
   /api/users:
     get:

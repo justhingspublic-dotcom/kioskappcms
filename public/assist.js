@@ -1,6 +1,6 @@
 /* ==========================================================================
    AI 智能客服（網頁播放器版，2026-09-10）— App AssistantScreen／AssistantViewModel 的網頁翻版。
-   用法：KioskAssist.open({ base, deviceId, deviceKey, agentId, accent, layout, configured, onClose })
+   用法：KioskAssist.open({ base, deviceId, deviceKey, agentId, accent, theme, layout, configured, onClose })（accent：null＝站台主題色 theme、0＝JustAI 顏色、ARGB＝指定色）
    - 對話走後台代理 /api/assist/…（帶 X-Device-Key），後台用這台機器 config 裡的客服帳號登入 JustAI；
      訊息回覆是 SSE 逐字，這裡再用「緩衝逐字揭露」打字機效果（同 App REVEAL_INTERVAL_MS=26）。
    - 開場＝頭像＋問候語＋建議問題 chips；使用者泡泡靠右、AI 靠左無框；串流游標；typing 三點；回到底部鈕。
@@ -42,7 +42,7 @@ window.KioskAssist = (() => {
     close(true);
     S = {
       base: opts.base || '', deviceId: opts.deviceId, deviceKey: opts.deviceKey, agentId: String(opts.agentId || '').trim(),
-      accent: colorCss(opts.accent) || null, layout: opts.layout === 'Mobile' ? 'Mobile' : 'Kiosk', configured: !!opts.configured && !!String(opts.agentId || '').trim(),
+      accent: Number(opts.accent) === 0 ? 'justai' : (colorCss(opts.accent) || null), theme: colorCss(opts.theme) || null, layout: opts.layout === 'Mobile' ? 'Mobile' : 'Kiosk', configured: !!opts.configured && !!String(opts.agentId || '').trim(),
       onClose: opts.onClose || (() => {}),
       agent: null, agentError: null, messages: [], pending: [], threadId: null, streaming: false, abort: null,
       nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: opts.idleMs === 0 ? 0 : (Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS), atBottom: true,
@@ -114,7 +114,12 @@ window.KioskAssist = (() => {
       renderBody(); renderInput();
     }
   }
-  function applyAccent() { if (root) root.style.setProperty('--as-accent', S.accent || S.agent?.color || '#6366F1'); }
+  // 主色（2026-09-14 定案）：格子指定色 → 用它；「JustAI」(0) → 客服後台的顏色；「自動」(null) → 站台主題色；都沒有才退回紫
+  function applyAccent() {
+    if (!root) return;
+    const c = S.accent === 'justai' ? (S.agent?.color || S.theme) : (S.accent || S.theme || S.agent?.color);
+    root.style.setProperty('--as-accent', c || '#6366F1');
+  }
   const greeting = () => (S.agent?.greeting || '').trim() || (S.agent?.name ? `您好！我是${S.agent.name}，很高興為您服務。` : '您好！很高興為您服務，請問需要什麼協助？');
 
   // ---------- 畫面 ----------

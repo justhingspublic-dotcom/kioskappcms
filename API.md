@@ -41,6 +41,9 @@ Body：`{ "username": "...", "password": "..." }` → `{ "token": "...", "user":
 - `DELETE /api/users/{userId}`：主管理員、自己不能刪（400）。
 
 ### GET /api/config/{deviceId}/version
+
+回應多帶 `themeColor`（#RRGGBB，站台主題色，2026-09-14）；`/wait` 與 `GET /api/config/{deviceId}` 也帶。機器每輪對帳讀到就套用；後台改色會把掛在 /wait 的機器全部叫醒。
+
 → `{ "version": 3 }`（該機器沒設定過則 `0`）
 kiosk 每 30–60 秒輪詢這支；版本比本機記錄的大才抓整份設定。
 
@@ -54,6 +57,9 @@ Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一
 `pages`、「套用共用設定」只帶 `chatApi`+`sleep`、網頁存檔不帶 `activePage`（機器不跳頁）。
 
 ### GET / PUT /api/shared-settings（限管理網頁，**全站一份**）
+
+settings.themeColor（#RRGGBB）＝站台主題色（2026-09-14）：後台深淺色與展示機 App 共用；只有管理員能改（nav 調色盤鈕），沒設＝ #E07800。
+
 共用範本（版面清單＋客服帳號＋休眠排程＋管理 PIN），2026-09-07 定案改為全站一份、不分帳號（資料列 `UserId='_global'`）。
 GET → `{ "settings": {...}|null, "updatedAt" }`；
 PUT Body：`{ "settings": { "layouts": [ { "id": 1, "name": "...", "pages": [...], "screen": {...},
@@ -91,7 +97,7 @@ Body：`{ "baseUrl": "...", "email": "...", "password": "..." }`（即 config �
 {
   "activePage": 0,
   "deviceName": "一樓大廳",
-  "screen": { "w": 1080, "h": 1920 },
+  "screen": { "w": 1080, "h": 1920, "inch": 43 },
   "chatApi": { "baseUrl": "https://chat-api.justhings.ai", "email": "...", "password": "..." },
   "sleep": {
     "enabled": true, "sameEveryDay": false, "experimentalSystemSleep": false,

@@ -460,7 +460,9 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   .b-dash-side { display: flex; flex-direction: column; }
 }
 
-/* ── 深淺切換柔和過場：.b-mode-anim 暫掛 <html> 500ms，期間全元素色彩屬性開 transition ── */
+/* ── 深淺切換柔和過場（2026-09-14 改）：支援 View Transitions 的瀏覽器走 kit.js softApply 的 startViewTransition
+   ＝整頁快照交叉淡入（合成層、不掉幀）；下面的 .b-mode-anim 全元素 transition 只當舊瀏覽器的備援 ── */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .35s; animation-timing-function: ease; }
 html.b-mode-anim, html.b-mode-anim *, html.b-mode-anim *::before, html.b-mode-anim *::after {
   transition: background .35s ease, background-color .35s ease, color .35s ease,
               border-color .35s ease, fill .35s ease, stroke .35s ease,

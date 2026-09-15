@@ -11,7 +11,14 @@ const baseConfig = {
     encrypt: false,
     trustServerCertificate: true,
   },
-  pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
+  // min 1（2026-09-15）：閒置時也留一條連線，配合 src/health.js 每 15 秒的心跳，永遠有熱的連線可用，
+  // 不用等閒置被收掉後下次再從頭握手（揚昇整晚沒人用、早上一登入就要重新握手：tedious 的握手要 4 個事件迴圈
+  // 回合共用一個 15 秒計時器，程序被晾著時那一步就逾時）。
+  // 三個逾時要互相一致（tarn 取連線時先 SELECT 1 驗證，驗證逾時＋5 秒取消＋重新連線都算在 acquire 裡）：
+  // acquireTimeoutMillis ≥ requestTimeout + 5000 + connectionTimeout，否則會出現「operation timed out for an unknown reason」。
+  pool: { max: 10, min: 1, idleTimeoutMillis: 600000, acquireTimeoutMillis: 75000 },
+  connectionTimeout: 30000,
+  requestTimeout: 30000,
 };
 
 const DB_NAME = process.env.DB_NAME || 'KioskAdmin';
@@ -28,8 +35,8 @@ async function init() {
   await master.close();
 
   pool = await new sql.ConnectionPool({ ...baseConfig, database: DB_NAME }).connect();
-  // 連線池斷線（DB 重啟/網路抖動）不能炸掉整個伺服器：記 log，之後的查詢會自動重連
-  pool.on('error', (e) => log.error('db', `DB 連線池錯誤（將自動重連）：${e.message}`));
+  // 連線池斷線（DB 重啟/網路抖動）不能炸掉整個伺服器：記 log；池子沒有「壞掉的狀態」，下次要用時 tarn 會再開新連線
+  pool.on('error', (e) => log.error('db', `DB 連線池錯誤（開新連線失敗，下次使用時再試）：${e.message}`));
   await pool.request().query(`
     IF OBJECT_ID('dbo.KioskConfig') IS NULL
     CREATE TABLE dbo.KioskConfig (
@@ -147,4 +154,11 @@ function isReady() {
   return !!pool;
 }
 
-module.exports = { sql, init, getPool, isReady };
+/** 心跳：SELECT 1（src/health.js 每 15 秒打一次，保持連線熱著、斷線立刻知道）。 */
+async function ping() {
+  const r = await getPool().request().query('SELECT 1 AS ok');
+  if (!r.recordset.length || r.recordset[0].ok !== 1) throw new Error('SELECT 1 回傳不是 1');
+  return true;
+}
+
+module.exports = { sql, init, getPool, isReady, ping };

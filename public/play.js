@@ -223,8 +223,10 @@
     await pull(version);
   }
 
+  let siteTheme = null; // 站台主題色（/api/config 回應的 themeColor，2026-09-14）：客服「自動」色用
   async function pull(version) {
     const root = await api('GET', `/api/config/${encId}`);
+    if (typeof root.themeColor === 'string') siteTheme = root.themeColor;
     const cfg = root.config || {};
     const nextPages = Array.isArray(cfg.pages) && cfg.pages.length ? cfg.pages : [];
     const cloudActive = clamp(Number(cfg.activePage) || 0, 0, Math.max(0, nextPages.length - 1));
@@ -884,7 +886,7 @@
       if (!window.KioskAssist) { toast('智能客服模組尚未載入。'); return; }
       const chat = config?.chatApi || {};
       window.KioskAssist.open({
-        base: BASE, deviceId, deviceKey, agentId: cell.agentId || '', accent: cell.agentAccent ?? null,
+        base: BASE, deviceId, deviceKey, agentId: cell.agentId || '', accent: cell.agentAccent ?? null, theme: siteTheme,
         idleMs: idleReturnMs(), layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
         onClose: () => logEvent('page.close', '關閉智能客服，回到展示'),
       });

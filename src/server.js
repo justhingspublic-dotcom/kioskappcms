@@ -1,16 +1,26 @@
 // ENV_FILE（2026-09-10）：本機要同時跑第二個站台（例：sunrise 用 .env.sunrise）時指定別的設定檔；沒設＝.env
 require('dotenv').config({ path: process.env.ENV_FILE || undefined });
+// 保母模式（2026-09-15）：直接執行這支時先當保母（src/supervisor.js），由它再開一個子程序跑真正的後台，
+// 子程序卡住沒回應就強制重拉。子程序用 KIOSK_CHILD=1 認出自己；.env 設 KIOSK_SUPERVISOR=0 可關掉（本機開發）。
+if (process.env.KIOSK_CHILD !== '1' && process.env.KIOSK_SUPERVISOR !== '0') {
+  require('./supervisor').run(__filename);
+  return; // CommonJS 模組頂層 return＝到此為止，下面的後台程式碼只在子程序執行
+}
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const util = require('util');
 const express = require('express');
+require('./async-errors'); // async 路由丟錯要能回 500，不能讓請求掛著不回（2026-09-15）；務必在註冊路由之前
 const multer = require('multer');
 const sharp = require('sharp');
 const swaggerUiDist = require('swagger-ui-dist');
 const db = require('./db');
 const log = require('./log');
+const health = require('./health');
 const audit = require('./audit');
 const events = require('./events');
+const screenModels = require('./screen-models');
 
 const PORT = Number(process.env.PORT || 3000);
 // 子路徑（2026-09-08）：正式站掛在 /joye（https://justdisplay.justhings.com.tw/joye），
@@ -27,17 +37,17 @@ const SITE_LOGO_SHAPE = process.env.SITE_LOGO_SHAPE === 'square' ? 'square' : 'w
 // PARK_API_URL（2026-09-10 user 指示：揚昇不要預填卓也的 API）：這個站台的園區測站 API，後台切到「園區測站」／
 // 點擊動作「園區資訊」時預填、播放頁園區資訊頁留白時使用；沒設＝不預填、園區資訊頁只當導覽圖。joye 的 .env 設卓也那支。
 const PARK_API = (process.env.PARK_API_URL || '').trim();
-// SITE_THEME（2026-09-10）：站台主題色檔 public/themes/<名稱>.css，接在 style.css 之後只換 brand 家族
-// （sunrise＝綠 #2E6F40）。沒設＝style.css 預設的藍（joye）。名稱只准小寫英數與 -，檔案不存在就當沒設並警告。
+// 站台主題色（2026-09-14）：存共用設定 settings.themeColor，後台 nav「主題色」可改（限管理員），後台深淺色與展示機 App
+// 都跟它走（品牌一致、又能自己改）。沒設＝JusThings 公司橘 #E07800（新場域預設）。變數推導在 public/theme-color.js
+// （瀏覽器預覽與這裡出頁面共用同一支）。舊制 .env SITE_THEME 只剩一個用途：第一次啟動時把現有站台的顏色種進 DB
+// （sunrise→綠 #2E6F40、其他→joye 藍 #0051A8），畫面不變；之後不再讀它。
+const themeColor = require('../public/theme-color.js');
 const SITE_THEME = (process.env.SITE_THEME || '').trim();
+const LEGACY_THEME_COLOR = SITE_THEME === 'sunrise' ? '#2E6F40' : '#0051A8';
+let siteThemeColor = themeColor.DEFAULT; // 記憶體快取：啟動時從共用設定讀，PUT 改色時更新
 // 播放頁預設機器名（2026-09-10）：網址沒帶 ?device= 時用這個名字登錄。所有沒有 App 的螢幕開同一個網址＝同一台機器、
 // 同一畫面（user 2026-09-10：網頁版不需要每面螢幕不同網址）；要讓某面螢幕不同，第一次開時帶 ?device=名字即可。
 const PLAY_DEFAULT_DEVICE = (process.env.PLAY_DEFAULT_DEVICE || '').trim().slice(0, 64);
-if (SITE_THEME && !(/^[a-z0-9-]+$/.test(SITE_THEME) && fs.existsSync(path.join(__dirname, '..', 'public', 'themes', SITE_THEME + '.css')))) {
-  log.warn('sys', `SITE_THEME=${SITE_THEME} 找不到 public/themes/${SITE_THEME}.css，改用預設主題`);
-}
-const SITE_THEME_LINK = SITE_THEME && fs.existsSync(path.join(__dirname, '..', 'public', 'themes', SITE_THEME + '.css'))
-  ? `<link rel="stylesheet" href="themes/${SITE_THEME}.css">` : '';
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // 上傳檔資料夾（2026-09-08）：可用 .env 的 UPLOAD_DIR 指到別處。開發機把它指到正式站的 uploads 網路共用，
 // 因為開發機與正式站共用同一個資料庫、設定裡的 /files/ 路徑兩邊都看得到，圖片檔卻各存一份——
@@ -56,9 +66,14 @@ app.use('/api', (_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
+// 健康狀態（2026-09-15）：不需登入、放在「DB 沒連上回 503」之前——保母程序（src/supervisor.js）每 15 秒打這支，
+// 只問「程序還會回應嗎」，DB 斷線是另一回事（內容裡看得到）。不含任何機密。
+app.get('/api/health', (_req, res) => res.json(health.snapshot()));
 // DB 還沒連上（啟動中或公司 DB 斷線）：API 一律回 503＋中文訊息，網頁照常載入。
 app.use('/api', (_req, res, next) => {
   if (!db.isReady()) return res.status(503).json({ error: '正在連接資料庫。請稍候再試一次。' });
+  // DB 心跳已連續失敗（src/health.js 每 15 秒一次）：直接回 503，別讓每個請求各自等 75 秒的取連線逾時
+  if (health.snapshot().db.failures >= 2) return res.status(503).json({ error: '資料庫暫時無法連線。請稍候再試一次。' });
   next();
 });
 
@@ -68,15 +83,26 @@ app.use('/api', (_req, res, next) => {
 app.use((req, res, next) => {
   req.id = crypto.randomBytes(4).toString('hex');
   res.set('X-Request-Id', req.id);
-  if (!req.path.startsWith('/api')) return next();
+  // 只記 /api 與兩支網頁（/admin/、/play/：2026-09-15 事故時頁面載入完全沒進 log，查不到是誰在什麼時候觸發）；
+  // 保母每 15 秒打 /api/health，不記
+  const isPage = req.path === '/admin/' || req.path === '/play/';
+  if ((!req.path.startsWith('/api') && !isPage) || req.path === '/api/health') return next();
   const t0 = Date.now();
   const reqPath = req.path; // 進場時先記：從掛在 app.use('/api/xxx/:id') 的中介層直接回應時，結束當下的 req.path 只剩相對路徑
+  let finished = false;
   res.on('finish', () => {
+    finished = true;
     const st = res.statusCode;
     if (reqPath.endsWith('/wait') && st < 400) return;
     // 401（沒登入就開頁面）與 404（機器還沒有設定）都是正常流程，不算警告
     const level = st >= 500 ? 'error' : st >= 400 && st !== 401 && st !== 404 ? 'warn' : 'info';
     log[level]('http', `${req.method} ${reqPath} ${st} ${Date.now() - t0}ms`, { ...actorOf(req, reqPath), rid: req.id });
+  });
+  // 對方先斷線（IIS 代理 120 秒逾時、瀏覽器關掉）：也要記一行，否則這種請求在 log 裡完全消失——
+  // 2026-09-15 揚昇事故裡三次登入都等到 IIS 放棄，app log 卻一行都沒有。/wait 長輪詢被機器主動斷線是正常的，不記。
+  res.on('close', () => {
+    if (finished || reqPath.endsWith('/wait')) return;
+    log.warn('http', `${req.method} ${reqPath} 未回應對方就斷線 ${Date.now() - t0}ms`, { ...actorOf(req, reqPath), rid: req.id });
   });
   next();
 });
@@ -149,14 +175,17 @@ app.use(['/api/config/:deviceId', '/api/devices/:deviceId'], async (req, res, ne
 });
 
 // ---- 密碼雜湊（scrypt + 隨機 salt，格式 "salt:hash"）----
-function hashPassword(pw) {
+// 2026-09-15 改用非同步 scrypt（跑在 libuv 執行緒池）：scryptSync 在正式站每次登入會把主執行緒卡住 0.5 秒
+// （事故當天量到 528ms），期間所有請求與 DB 握手一起停住。儲存格式不變，舊密碼照常可用。
+const scryptAsync = util.promisify(crypto.scrypt);
+async function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');
-  return salt + ':' + crypto.scryptSync(pw, salt, 32).toString('hex');
+  return salt + ':' + (await scryptAsync(pw, salt, 32)).toString('hex');
 }
-function verifyPassword(pw, stored) {
+async function verifyPassword(pw, stored) {
   const [salt, hash] = String(stored).split(':');
   if (!salt || !hash) return false;
-  const calc = crypto.scryptSync(pw, salt, 32);
+  const calc = await scryptAsync(pw, salt, 32);
   const want = Buffer.from(hash, 'hex');
   return calc.length === want.length && crypto.timingSafeEqual(calc, want);
 }
@@ -231,10 +260,11 @@ async function seedAdmin() {
   const username = SEED_ADMIN_USERNAME;
   const password = process.env.ADMIN_PASSWORD;
   if (!password) throw new Error('.env 缺 ADMIN_PASSWORD，無法建立初始管理員');
+  const passwordHash = await hashPassword(password);
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), crypto.randomUUID().replace(/-/g, ''))
     .input('u', db.sql.NVarChar(64), username)
-    .input('h', db.sql.NVarChar(256), hashPassword(password))
+    .input('h', db.sql.NVarChar(256), passwordHash)
     .input('n', db.sql.NVarChar(128), '系統管理員')
     .query(`INSERT INTO dbo.KioskUser (UserId, Username, PasswordHash, DisplayName, IsAdmin)
             VALUES (@id, @u, @h, @n, 1)`);
@@ -248,7 +278,7 @@ app.post('/api/login', async (req, res) => {
     .input('u', db.sql.NVarChar(64), String(username || ''))
     .query('SELECT UserId, Username, PasswordHash, DisplayName, IsAdmin FROM dbo.KioskUser WHERE Username = @u');
   const row = r.recordset[0];
-  if (!row || !verifyPassword(String(password || ''), row.PasswordHash)) {
+  if (!row || !(await verifyPassword(String(password || ''), row.PasswordHash))) {
     const tried = String(username || '').slice(0, 64);
     log.warn('auth', '登入失敗', { user: tried, ip: req.ip, rid: req.id });
     audit.record(req, { actor: { type: 'anonymous', id: null, name: tried }, action: 'login.fail', targetType: 'user', targetName: tried, summary: `用帳號「${tried}」登入失敗` });
@@ -272,9 +302,10 @@ app.post('/api/logout', requireUser, async (req, res) => {
 });
 
 // ---- 重啟後台（限管理員；2026-09-08）----
-// 正式站由 run.cmd 迴圈拉起 Node，程序一結束 5 秒內就重拉。部署蓋完檔案後呼叫這支即可，不必登入伺服器砍程序。
+// 程序一結束，保母程序（src/supervisor.js）2 秒內重拉；沒開保母時由 run.cmd 迴圈 5 秒內重拉。
+// 部署蓋完檔案後呼叫這支即可，不必登入伺服器砍程序。
 app.post('/api/restart', requireAdmin, async (req, res) => {
-  log.info('sys', '收到重啟要求，0.5 秒後結束程序，由 run.cmd 重拉', { user: req.user.username });
+  log.info('sys', '收到重啟要求，0.5 秒後結束程序，由保母程序重拉', { user: req.user.username });
   await audit.record(req, { action: 'sys.restart', targetType: 'server', summary: '重啟後台' }); // 等寫完再結束程序
   res.json({ ok: true });
   setTimeout(() => process.exit(0), 500);
@@ -320,7 +351,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     await db.getPool().request()
       .input('id', db.sql.NVarChar(64), id)
       .input('u', db.sql.NVarChar(64), String(username))
-      .input('h', db.sql.NVarChar(256), hashPassword(String(password)))
+      .input('h', db.sql.NVarChar(256), await hashPassword(String(password)))
       .input('n', db.sql.NVarChar(128), displayName || null)
       .input('a', db.sql.Bit, isAdmin ? 1 : 0)
       .query(`INSERT INTO dbo.KioskUser (UserId, Username, PasswordHash, DisplayName, IsAdmin)
@@ -428,7 +459,15 @@ function summarizeForList(configJson) {
     const idx = Number.isInteger(cfg.activePage) && cfg.activePage >= 0 && cfg.activePage < pages.length ? cfg.activePage : 0;
     const pg = pages[idx];
     return {
-      Screen: cfg.screen && cfg.screen.w > 0 && cfg.screen.h > 0 ? { w: cfg.screen.w, h: cfg.screen.h } : null,
+      // inch＝App 自報的實體吋數（v1.45 起；EDID／裝置樹／實測 dpi）；機器報不出來時用機型對照表補（v1.48 起帶 model，src/screen-models.js）。
+      // 網頁播放頁與舊版 App 兩者皆無，前端只顯示解析度
+      Screen: cfg.screen && cfg.screen.w > 0 && cfg.screen.h > 0
+        ? {
+          w: cfg.screen.w, h: cfg.screen.h,
+          inch: typeof cfg.screen.inch === 'number' && cfg.screen.inch > 0 ? cfg.screen.inch : screenModels.inchForModel(cfg.screen.model),
+          model: typeof cfg.screen.model === 'string' && cfg.screen.model ? cfg.screen.model : null,
+        }
+        : null,
       PageCount: pages.length,
       ActivePage: pg ? { name: pg.name || '', blocks: pg.blocks || [] } : null,
     };
@@ -477,7 +516,8 @@ async function readVersion(deviceId) {
 
 app.get('/api/config/:deviceId/version', async (req, res) => {
   if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
-  res.json({ version: await readVersion(req.params.deviceId) });
+  // themeColor（2026-09-14）：站台主題色跟著版本回，機器每輪對帳都會看到、不用動設定版本
+  res.json({ version: await readVersion(req.params.deviceId), themeColor: siteThemeColor });
 });
 
 // ---- 長輪詢：kiosk 掛在這支等新版本，網頁一發布立刻回應（最多掛 25 秒）----
@@ -490,7 +530,14 @@ function notifyWaiters(deviceId, version) {
   waiters.delete(deviceId);
   for (const w of set) {
     clearTimeout(w.timer);
-    try { w.res.json({ version }); } catch { /* client gone */ }
+    try { w.res.json({ version, themeColor: siteThemeColor }); } catch { /* client gone */ }
+  }
+}
+/** 主題色改了：把掛在 /wait 的機器全部叫醒（版本照舊回），它們下一輪 /version 就拿到新顏色。 */
+function wakeAllWaiters() {
+  for (const [deviceId, set] of Array.from(waiters)) {
+    waiters.delete(deviceId);
+    for (const w of set) { clearTimeout(w.timer); try { w.res.json({ version: w.since, themeColor: siteThemeColor }); } catch { /* gone */ } }
   }
 }
 
@@ -499,14 +546,14 @@ app.get('/api/config/:deviceId/wait', async (req, res) => {
   const deviceId = req.params.deviceId;
   const since = Number(req.query.version || 0);
   const current = await readVersion(deviceId);
-  if (current !== since) return res.json({ version: current });
+  if (current !== since) return res.json({ version: current, themeColor: siteThemeColor });
 
-  const entry = { res };
+  const entry = { res, since };
   const set = waiters.get(deviceId) || new Set();
   set.add(entry);
   waiters.set(deviceId, set);
   const drop = () => { set.delete(entry); if (!set.size) waiters.delete(deviceId); };
-  entry.timer = setTimeout(() => { drop(); try { res.json({ version: current }); } catch { /* gone */ } }, WAIT_HOLD_MS);
+  entry.timer = setTimeout(() => { drop(); try { res.json({ version: current, themeColor: siteThemeColor }); } catch { /* gone */ } }, WAIT_HOLD_MS);
   req.on('close', () => { clearTimeout(entry.timer); drop(); });
 });
 
@@ -522,14 +569,14 @@ app.get('/api/config/:deviceId', async (req, res) => {
     .query('SELECT Version, ConfigJson, UpdatedAt FROM dbo.KioskConfig WHERE DeviceId = @id');
   const row = r.recordset[0];
   if (!row) return res.status(404).json({ error: '這台機器還沒有任何設定。' });
-  res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson) });
+  res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson), themeColor: siteThemeColor });
 });
 
 // ---- 操作紀錄：PUT config 的中文摘要（2026-09-10）----
 // 網頁端的批量動作（加到其他機器、套用設定、展示版面）在伺服器看來都只是 PUT config，
 // 所以網頁 body 多帶 reason（字串或 { type, layoutName, mode }）說明這次是什麼動作，這裡照 reason 寫成一句話。
 // 機器自報的 PUT 不記（每台每分鐘都有，會洗版）。
-const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置返回', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
+const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置返回', themeColor: '主題色', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
 // 閒置回展示頁秒數（2026-09-14）：只收 10～3600 的整數，-1＝開關關閉不自動返回（2026-09-14 晚），其他一律存 0＝機器／播放頁用預設 90 秒
 const normIdleSec = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && (n === -1 || (n >= 10 && n <= 3600)) ? n : 0; };
 function auditConfigPut(req, { incoming, prevParsed, config, deviceName, version }) {
@@ -644,6 +691,8 @@ async function readShared() {
   return row ? { settings: JSON.parse(row.SettingsJson), updatedAt: row.UpdatedAt } : { settings: null, updatedAt: null };
 }
 async function writeShared(settings) {
+  // 主題色一律明寫（2026-09-14）：沒有的補預設橘。這樣「沒有 themeColor」只會出現在升級前的舊資料，啟動時 seedThemeColor 才分得出來
+  if (!themeColor.normalize(settings.themeColor)) settings.themeColor = themeColor.DEFAULT;
   await db.getPool().request()
     .input('id', db.sql.NVarChar(64), SHARED_KEY)
     .input('json', db.sql.NVarChar(db.sql.MAX), JSON.stringify(settings))
@@ -667,7 +716,7 @@ async function migrateSharedToGlobal() {
     FROM dbo.KioskSharedSettings s LEFT JOIN dbo.KioskUser u ON u.UserId = s.UserId
     ORDER BY CASE WHEN u.Username = '${SEED_ADMIN_USERNAME}' THEN 0 WHEN u.IsAdmin = 1 THEN 1 ELSE 2 END, s.UpdatedAt`)).recordset;
   if (!rows.length) return;
-  const merged = { layouts: [] };
+  const merged = { layouts: [], themeColor: LEGACY_THEME_COLOR }; // 舊資料搬過來：主題色維持這個站台原本的藍／綠
   let nextId = 1;
   for (const row of rows) {
     let j; try { j = JSON.parse(row.SettingsJson || '{}'); } catch { continue; }
@@ -679,6 +728,18 @@ async function migrateSharedToGlobal() {
   }
   await writeShared(merged);
   log.info('db', `共用設定已合併為全站一份（來源 ${rows.length} 個帳號、${merged.layouts.length} 個版面）`);
+}
+
+/** 主題色升級（2026-09-14）：升級前的共用設定沒有 themeColor，第一次啟動照 .env SITE_THEME 種進原本的顏色
+ *  （sunrise 綠、其他藍），部署後畫面一點都不變；沒有共用設定列的新站台什麼都不種＝出頁面用預設橘。 */
+async function seedThemeColor() {
+  const { settings } = await readShared();
+  if (settings && !themeColor.normalize(settings.themeColor)) {
+    settings.themeColor = LEGACY_THEME_COLOR;
+    await writeShared(settings);
+    log.info('db', `主題色第一次寫進共用設定：${settings.themeColor}（${SITE_THEME || '預設藍'}）`);
+  }
+  siteThemeColor = themeColor.normalize(settings?.themeColor) || themeColor.DEFAULT;
 }
 
 /** 操作紀錄：共用設定 PUT 前後比對（版面新增／更名／修改／刪除、客服／休眠／PIN 範本修改），一件事一筆。 */
@@ -699,7 +760,7 @@ function auditSharedPut(req, current, next) {
   for (const [id, l] of curL) {
     if (!nxL.has(id)) audit.record(req, { action: 'shared.layout.delete', summary: `刪除共用版面${q(l.name)}`, targetType: 'layout', targetId: String(id), targetName: l.name || '' });
   }
-  const changed = ['chatApi', 'sleep', 'adminPin', 'idleReturnSec'].filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(nx[k]));
+  const changed = ['chatApi', 'sleep', 'adminPin', 'idleReturnSec', 'themeColor'].filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(nx[k]));
   if (changed.length) {
     audit.record(req, { action: 'shared.settings.update', targetType: 'shared', targetId: 'settings', summary: `修改共用機器設定：${changed.map((k) => CONFIG_FIELD_NAMES[k]).join('、')}`, detail: { changed } });
   }
@@ -719,6 +780,8 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
   if (req.user.isAdmin) {
     next = incoming;
     if ('idleReturnSec' in next) next.idleReturnSec = normIdleSec(next.idleReturnSec);
+    // 主題色（2026-09-14）：只收 #RRGGBB；不合法就當沒改、保留現值
+    next.themeColor = themeColor.normalize(next.themeColor) || current.themeColor;
     // 建立者由伺服器蓋章（新出現的版面 id，或舊資料沒記的）：用登入者的顯示名稱
     const known = new Map((current.layouts || []).map((l) => [l.id, l]));
     const me = await db.getPool().request().input('id', db.sql.NVarChar(64), req.user.userId)
@@ -736,6 +799,11 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
   }
   await writeShared(next);
   auditSharedPut(req, current, next);
+  if (next.themeColor !== siteThemeColor) {
+    siteThemeColor = next.themeColor;
+    wakeAllWaiters(); // 機器立刻拿到新主題色（不用等 25 秒長輪詢到期）
+    log.info('sys', `主題色改為 ${siteThemeColor}`);
+  }
   res.json({ ok: true });
 });
 
@@ -749,14 +817,16 @@ app.post('/api/justai/agents', requireUser, async (req, res) => {
   const root = String(baseUrl).trim().replace(/\/+$/, '');
   if (!/^https?:\/\//.test(root)) return res.status(400).json({ error: '伺服器位址格式不正確。請以 http:// 或 https:// 開頭。' });
   try {
+    // 15 秒逾時（2026-09-15）：JustAI 平台沒回應時不能讓請求掛著（2026-09-14 12:20 平台故障、使用者連按 13 次）
     const login = await fetch(root + '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!login.ok) return res.status(502).json({ error: '無法登入智能客服平台。請檢查帳號和密碼。' });
     const jt = (await login.json()).token;
-    const r = await fetch(root + '/api/agents', { headers: { Authorization: 'Bearer ' + jt } });
+    const r = await fetch(root + '/api/agents', { headers: { Authorization: 'Bearer ' + jt }, signal: AbortSignal.timeout(15_000) });
     if (!r.ok) return res.status(502).json({ error: '智能客服平台目前無法提供客服清單。請稍後再試一次。' });
     const arr = await r.json();
     res.json((Array.isArray(arr) ? arr : []).map((a) => ({
@@ -896,8 +966,42 @@ app.use('/files', express.static(UPLOAD_DIR, {
 //      舊網址 /{site}/ 轉到 /{site}/admin/（書籤不會壞；瀏覽器會把 #hash 帶過去）。----
 app.get('/', (req, res) => res.redirect(301, req.baseUrl + '/admin/'));
 app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301, req.baseUrl + '/admin/') : next()));
-// 後台首頁不是純靜態檔：代入站名與 logo（{{SITE_NAME}}／{{LOGIN_HEAD}}），每次讀檔（改 index.html 不用重啟）
-const ADMIN_INDEX = path.join(__dirname, '..', 'public', 'index.html');
+// 後台首頁不是純靜態檔：代入站名與 logo（{{SITE_NAME}}／{{LOGIN_HEAD}}）。
+// 後台的 js／css 帶檔案修改時間當版本參數（2026-09-14，播放頁同）：部署新版後瀏覽器不用清快取就拿到新檔
+// （user 2026-09-14 回報後台看不到新功能，就是舊 app.js 被快取）。只處理站內相對路徑的 <script src> 與 <link href>。
+//
+// 範本快取（2026-09-15 揚昇事故）：以前每個 /admin/ 請求在主執行緒做 10 次 statSync＋1 次 readFileSync（/play/ 4＋1 次），
+// 伺服器磁碟一忙，一次頁面請求就把整個程序卡住幾秒到幾分鐘（同時段連 DB 握手都被拖到逾時）。改成啟動時讀一次進記憶體，
+// 之後每 5 秒在背景用非同步 stat 看檔案有沒有變、有變才重讀——改 index.html 一樣不用重啟，請求路徑上不再碰磁碟。
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const ADMIN_ASSETS = ['app.js', 'tw-locations.js', 'theme-color.js', 'style.css', 'admin-kit/css/tokens.css', 'admin-kit/css/shell.css', 'admin-kit/css/components.css', 'admin-kit/js/kit.js', 'admin-kit/js/dropdown.js', 'admin-kit/js/dialogs.js'];
+const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css'];
+const templates = {
+  admin: { file: path.join(PUBLIC_DIR, 'index.html'), assets: ADMIN_ASSETS, html: '', stamp: '0', sig: '' },
+  play: { file: path.join(PUBLIC_DIR, 'play.html'), assets: PLAY_ASSETS, html: '', stamp: '0', sig: '' },
+};
+const assetStamp = (mtimes) => Math.floor(Math.max(0, ...mtimes) / 1000).toString(36);
+function loadTemplateSync(t) { // 只在啟動時呼叫
+  const mtimes = t.assets.map((f) => { try { return fs.statSync(path.join(PUBLIC_DIR, f)).mtimeMs; } catch { return 0; } });
+  let own = 0; try { own = fs.statSync(t.file).mtimeMs; } catch { /* 讀檔會丟錯 */ }
+  t.html = fs.readFileSync(t.file, 'utf8');
+  t.sig = [own, ...mtimes].join(',');
+  t.stamp = assetStamp(mtimes);
+}
+async function refreshTemplate(t) {
+  const statMs = (p) => fs.promises.stat(p).then((s) => s.mtimeMs, () => 0);
+  const [own, ...mtimes] = await Promise.all([statMs(t.file), ...t.assets.map((f) => statMs(path.join(PUBLIC_DIR, f)))]);
+  const sig = [own, ...mtimes].join(',');
+  if (sig === t.sig) return;
+  t.html = await fs.promises.readFile(t.file, 'utf8');
+  t.sig = sig;
+  t.stamp = assetStamp(mtimes);
+}
+for (const t of Object.values(templates)) loadTemplateSync(t);
+setInterval(() => {
+  for (const t of Object.values(templates)) refreshTemplate(t).catch((e) => log.warn('sys', `重讀網頁範本失敗（${path.basename(t.file)}）：${e.message}`));
+}, 5000).unref();
+
 function renderAdminIndex() {
   const head = SITE_LOGO
     ? `<div class="login-mark ${SITE_LOGO_SHAPE}"><img src="${escHtml(SITE_LOGO)}" alt="${escHtml(SITE_NAME)}"></div>
@@ -905,32 +1009,29 @@ function renderAdminIndex() {
     : `<div class="login-mark"><img src="img/favicon.svg" alt="${escHtml(SITE_NAME)}"></div>
         <h2 class="login-title">${escHtml(SITE_NAME)}</h2>
         <p class="login-sub">展示機管理系統</p>`;
-  return fs.readFileSync(ADMIN_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)).replace('{{LOGIN_HEAD}}', head)
-    .replace('{{SITE_THEME_LINK}}', SITE_THEME_LINK);
+  return templates.admin.html.replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME)).replace('{{LOGIN_HEAD}}', head)
+    .replace('{{SITE_THEME_STYLE}}', `<style id="siteTheme">${themeColor.css(siteThemeColor)}</style>`)
+    .replace(/((?:src|href)="(?!https?:)[a-z0-9_\/-]+\.(?:js|css))"/gi, '$1?v=' + templates.admin.stamp + '"');
 }
 app.get(['/admin/', '/admin/index.html'], (_req, res) => { res.set('Cache-Control', 'no-cache'); res.type('html').send(renderAdminIndex()); });
 // 純顯示播放頁（2026-09-10）：/{site}/play/?device=機器名&key=金鑰。Windows 機器用瀏覽器 kiosk 模式開這一頁，
 // 讀的是和 App 同一份 config／同一組機器 API；資源走 ../admin/（play.js、play.css 都在 public/ 底下）。
-const PLAY_INDEX = path.join(__dirname, '..', 'public', 'play.html');
 app.get('/play', (req, res, next) => (req.path === '/play' ? res.redirect(301, req.baseUrl + '/play/' + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '')) : next()));
-// 播放頁的 js／css 帶檔案修改時間當版本參數（2026-09-14）：部署新版後展示機瀏覽器不用清快取就拿到新檔
-const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css'];
-function playAssetStamp() {
-  let max = 0;
-  for (const f of PLAY_ASSETS) { try { max = Math.max(max, fs.statSync(path.join(__dirname, '..', 'public', f)).mtimeMs); } catch { /* ignore */ } }
-  return Math.floor(max / 1000).toString(36);
-}
 app.get('/play/', (_req, res) => {
   res.set('Cache-Control', 'no-cache');
-  const v = playAssetStamp();
-  res.type('html').send(fs.readFileSync(PLAY_INDEX, 'utf8').replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME))
+  res.type('html').send(templates.play.html.replace(/\{\{SITE_NAME\}\}/g, escHtml(SITE_NAME))
     .replace('{{PLAY_DEFAULT_DEVICE}}', escHtml(PLAY_DEFAULT_DEVICE)).replace('{{PARK_API}}', escHtml(PARK_API))
-    .replace(/(\.\.\/admin\/(?:play|assist)\.(?:js|css))"/g, '$1?v=' + v + '"'));
+    .replace(/(\.\.\/admin\/(?:play|assist)\.(?:js|css))"/g, '$1?v=' + templates.play.stamp + '"'));
 });
-app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
+// 靜態檔可快取 1 小時（2026-09-15）：js／css 網址都帶 ?v=修改時間，部署新版一樣立刻拿到新檔；伺服器卡住時瀏覽器至少
+// 還有上次的樣式可用，不會出現白底無樣式的登入頁。之前被 root 的 no-store 蓋掉，等於每次都重抓。
+app.use('/admin', express.static(PUBLIC_DIR, { maxAge: '1h' }));
 
 // AI 智能客服代理（2026-09-10，網頁播放器用）：路由在 src/assist.js，只收機器金鑰
 require('./assist')(app, { db, log, isDevice });
+
+// API 找不到路由：回 JSON，不要 Express 預設的 HTML 頁（網頁 api() 讀 .error 才有東西可顯示；2026-09-15）
+app.use('/api', (req, res) => res.status(404).json({ error: '找不到這個項目。', requestId: req.id }));
 
 app.use((err, req, res, _next) => {
   // body-parser 的 JSON 壞掉等「要求本身有問題」的錯（帶 statusCode 4xx）：回 400，記 warn 就好
@@ -941,6 +1042,7 @@ app.use((err, req, res, _next) => {
   // 原始錯誤（含 stack、哪支 API、誰、送了什麼）只留在伺服器 log；畫面上一律給中性說法，
   // detail 帶 requestId 供回報時對照（DevTools 看得到）。
   log.error('http', err, { method: req.method, path: req.originalUrl, ...actorOf(req), body: log.redactBody(req.body), rid: req.id });
+  if (res.headersSent) return; // 已經回了一半才出錯（例如串流中）：只能記 log，別再往壞掉的回應寫東西
   res.status(500).json({ error: '伺服器暫時無法處理這項要求。請稍後再試一次。', detail: String(err.message || err), requestId: req.id });
 });
 
@@ -1027,7 +1129,12 @@ if (BASE_PATH) {
   const sendLogin = (res, error = '') => res.status(200).type('html').send(rootLogin.replace('{{ERROR}}', error));
   const secure = (req) => (req.get('X-Forwarded-Proto') || req.protocol) === 'https' ? '; Secure' : '';
   // 入口頁與登入頁都不准快取（IIS ARR 會快取沒帶 Cache-Control 的 GET，登入後會一直看到快取的登入頁）
-  root.use(['/', '/portal-login', '/portal-logout'], (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  // 2026-09-15 修正：Express 的 use('/') 是「所有路徑」，原本這行把 no-store 套到 /joye/admin/*.css、/joye/files/* 每個靜態檔，
+  // 瀏覽器每次開後台都重抓 500KB、伺服器卡住時連舊的樣式都沒得用（登入頁變白底無樣式）。改成只認這三個路徑。
+  root.use((req, res, next) => {
+    if (req.path === '/' || req.path === '/portal-login' || req.path === '/portal-logout') res.set('Cache-Control', 'no-store');
+    next();
+  });
   // 登入失敗＝轉回首頁帶 ?e=1 顯示錯誤，網址不會停在 /portal-login（重新整理也不會跳「重新提交表單」）
   root.get('/', (req, res) => (portalOk(req) ? res.type('html').send(rootIndex) : sendLogin(res, req.query.e ? '帳號或密碼不正確。' : '')));
   // 登入：新版登入頁用 fetch 送 JSON（回 200 {ok} 或 401 {error}，頁面自己做動畫與 toast）；
@@ -1051,7 +1158,22 @@ if (BASE_PATH) {
 }
 
 // 先開站（DB 斷線時網頁仍載得進、看得到明確錯誤），DB 在背景重試連線，連上自動恢復。
-root.listen(PORT, () => log.info('sys', `KioskAdmin API 啟動：http://localhost:${PORT}${BASE_PATH}/admin/`, { logDir: log.LOG_DIR, level: log.level }));
+const server = root.listen(PORT, () => {
+  log.info('sys', `KioskAdmin API 啟動：http://localhost:${PORT}${BASE_PATH}/admin/`, { logDir: log.LOG_DIR, level: log.level, pid: process.pid });
+  health.raisePriority(); // 排程工作啟動的程序預設「低於正常」，伺服器忙時會被晾著（2026-09-15 揚昇事故）
+  health.start(); // 事件迴圈延遲／CPU／記憶體／DB 心跳
+});
+// IIS ARR 會重複使用到後端的連線；Node 預設閒置 5 秒就把連線關掉，ARR 剛好在那一刻送請求進來就變 502.3（win32 12030），
+// 事故當天 IIS log 裡零星的 502 都是這個。後端的閒置逾時要比代理長（2026-09-15）。headersTimeout 必須大於 keepAliveTimeout。
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+// 子程序模式：保母不在了就跟著結束，不留孤兒佔著 port
+if (process.env.KIOSK_CHILD === '1') {
+  const guardPid = process.ppid;
+  setInterval(() => {
+    try { process.kill(guardPid, 0); } catch { log.warn('sys', `保母程序 pid=${guardPid} 已不在，子程序跟著結束`); log.flush(() => process.exit(0)); setTimeout(() => process.exit(0), 1000).unref(); }
+  }, 5000).unref();
+}
 
 (async function initDbWithRetry() {
   for (;;) {
@@ -1059,6 +1181,7 @@ root.listen(PORT, () => log.info('sys', `KioskAdmin API 啟動：http://localhos
       await db.init();
       await seedAdmin();
       await migrateSharedToGlobal();
+      await seedThemeColor();
       await loadSessions();
       log.info('db', '資料庫連線成功');
       await audit.prune();

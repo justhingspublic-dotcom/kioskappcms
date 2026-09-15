@@ -1,0 +1,31 @@
+/* 深淺切換過場（2026-09-14 改 View Transitions）：點頂欄模式鈕，確認 data-color-mode 有切、沒有錯誤、有走 startViewTransition。 */
+const puppeteer = require('puppeteer-core');
+const BASE = process.argv[2] || 'http://localhost:3177';
+(async () => {
+  const browser = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: 'new', defaultViewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  await page.goto(BASE + '/admin/', { waitUntil: 'networkidle2', timeout: 20000 });
+  await page.type('#username', process.env.USER_ || 'joyeadmin');
+  await page.type('#password', process.env.PASS_ || 'joye#2026');
+  await page.click('.btn-login');
+  await page.waitForFunction(() => document.getElementById('whoami').textContent.trim() !== '—', { timeout: 10000 });
+  await page.evaluate(() => { window.__vt = 0; const o = document.startViewTransition.bind(document); document.startViewTransition = (fn) => { window.__vt++; return o(fn); }; });
+  const before = await page.evaluate(() => document.documentElement.getAttribute('data-color-mode'));
+  const t0 = Date.now();
+  await page.click('.header-mode-btn');
+  await new Promise((r) => setTimeout(r, 700));
+  const after = await page.evaluate(() => document.documentElement.getAttribute('data-color-mode'));
+  const vt = await page.evaluate(() => window.__vt);
+  const animClass = await page.evaluate(() => document.documentElement.classList.contains('b-mode-anim'));
+  console.log(JSON.stringify({ before, after, usedViewTransition: vt, fallbackClassLeft: animClass, ms: Date.now() - t0, errors }, null, 1));
+  await page.click('.header-mode-btn'); await new Promise((r) => setTimeout(r, 700));
+  await page.click('.header-mode-btn'); await new Promise((r) => setTimeout(r, 700));
+  const direct = await page.evaluate(async () => { window.__vt = 0; window.setColorMode('dark'); await new Promise((r) => setTimeout(r, 600)); return { vt: window.__vt, mode: document.documentElement.getAttribute('data-color-mode'), hasVT: typeof document.startViewTransition, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, src: (window.softApply || '').toString().slice(0, 400) }; });
+  console.log(JSON.stringify(direct, null, 1));
+  console.log('cycled back to', await page.evaluate(() => localStorage.getItem('adminColorMode')), 'errors', errors.length);
+  await browser.close();
+})().catch((e) => { console.error('ERROR', e); process.exit(2); });

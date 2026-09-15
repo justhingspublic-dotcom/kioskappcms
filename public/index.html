@@ -27,7 +27,7 @@
   <link rel="stylesheet" href="admin-kit/css/shell.css">
   <link rel="stylesheet" href="admin-kit/css/components.css">
   <link rel="stylesheet" href="style.css">
-  {{SITE_THEME_LINK}}<!-- 站台主題色（.env SITE_THEME → themes/<名稱>.css；沒設＝style.css 的藍） -->
+  {{SITE_THEME_STYLE}}<!-- 站台主題色（共用設定 themeColor → theme-color.js 推出的整組變數；後台 nav「主題色」可改，展示機 App 同色） -->
 </head>
 <body>
   <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -78,6 +78,10 @@
           <span class="mode-ic mode-ic-sun"><i data-lucide="sun"></i></span>
           <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
           <span class="mode-ic mode-ic-auto"><i data-lucide="sun-moon"></i></span>
+        </button>
+        <!-- 主題色（2026-09-14）：管理員限定，後台與展示機 App 共用同一個顏色；hidden 由 app.js refreshMe 依權限決定 -->
+        <button type="button" class="header-icon-btn" id="themeBtn" title="主題色" aria-label="主題色" hidden>
+          <i data-lucide="palette"></i>
         </button>
         <!-- 使用說明（tiri 同位置：深淺色鈕右側、細分隔線隔開、帳號選單左側）＝開 #guideModal -->
         <span class="header-sep" aria-hidden="true"></span>
@@ -221,7 +225,7 @@
         <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
         <div class="b-tbl-scroll">
           <table class="b-tbl" id="deviceTable">
-            <thead><tr><th class="device-thumb-col"></th><th>名稱</th><th>編號</th><th>最後更新</th><th>狀態</th><th></th></tr></thead>
+            <thead><tr><th class="device-thumb-col"></th><th>名稱</th><th>編號</th><th>尺寸</th><th>解析度</th><th>最後更新</th><th>狀態</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -410,6 +414,39 @@
          不能讓 kit 的全域 handler 直接關掉 -->
     <!-- 使用說明 modal（tiri base.html #guide-modal 同款：shell 層級、任何頁都能開；左章節導覽 scroll-spy＋右內容捲動）。
          截圖由 tools/uitest/shoot-manual.js 產到 img/manual/。data-modal-vue＝自管開闔（kit 不接管，同 wsModal） -->
+    <!-- 主題色 modal（2026-09-14）：選色只在下方樣本列預覽（user：要按儲存才能變），儲存才寫進共用設定並套到整站；
+         樣式對齊帳號 modal（無分隔線、標題旁 ? 說明、底部單一文字鈕） -->
+    <div class="b-modal-overlay" id="themeModal" data-modal-vue data-modal-anim="vue">
+      <div class="b-modal is-theme" role="dialog" aria-modal="true" aria-labelledby="th-title">
+        <style id="themePreview"></style>
+        <div class="b-modal-head">
+          <div class="theme-title-wrap">
+            <h3 class="b-modal-title" id="th-title">主題色</h3>
+            <div class="b-pop page-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>
+              <div class="b-pop-panel page-help-panel">
+                <p class="b-pop-panel-title">主題色</p>
+                <p>後台與展示機 App 都用這個顏色。選好按「儲存」才會生效，展示機會在幾秒內跟著換。</p>
+                <p>顏色在白底上對比不足時，文字會自動改用較深的同色階；按鈕與圖示維持原色。</p>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="b-modal-close" id="th-close" aria-label="關閉"><i data-lucide="x" aria-hidden="true"></i></button>
+        </div>
+        <div class="b-modal-body">
+          <div class="theme-swatches" id="themeSwatches"></div>
+          <div class="theme-sample" aria-hidden="true">
+            <button type="button" class="b-btn b-btn-primary" tabindex="-1">儲存並發布</button>
+            <button type="button" class="b-btn b-btn-text" tabindex="-1">文字按鈕</button>
+            <span class="b-badge brand">徽章</span>
+            <span class="theme-hex" id="themeHex"></span>
+          </div>
+        </div>
+        <div class="b-modal-foot">
+          <button type="button" class="b-btn b-btn-text" id="th-save" disabled>儲存</button>
+        </div>
+      </div>
+    </div>
     <div class="b-modal-overlay" id="guideModal" data-modal-vue data-modal-anim="vue">
       <div class="b-modal is-guide" role="dialog" aria-modal="true" aria-labelledby="gd-title">
         <div class="b-modal-head">
@@ -648,6 +685,7 @@
   <script src="admin-kit/js/dropdown.js"></script>
   <script src="admin-kit/js/dialogs.js"></script>
   <script src="tw-locations.js"></script>
+  <script src="theme-color.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

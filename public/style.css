@@ -7,7 +7,7 @@
    ========================================================================== */
 
 :root {
-  --accent: #0051A8;   /* 卓也小屋主題藍（2026-09-08 指定；橘 #E07800 是本公司 CI，只留在 logo 與根入口）；brand 家族由 kit color-mix 衍生 */
+  --accent: #0051A8;   /* 只是保底：真正的主題色由伺服器內嵌的 <style id="siteTheme">（共用設定 themeColor → theme-color.js）蓋掉；brand 家族由 kit color-mix 衍生 */
   --on-accent: #ffffff;
   /* 主題色「文字」用（文字鈕、儲存並發布）：淺色＝主題色本身；深色另給提亮降彩版（見深色 brand 家族） */
   --accent-text: var(--accent);
@@ -90,6 +90,25 @@ html:root[data-color-mode="dark"] {
 [data-color-mode="dark"] .sidebar .menu-item.active :where(i, .lucide, svg) { color: var(--b-on-primary); }
 [data-color-mode="dark"] .b-badge.brand { background: var(--brand); border-color: transparent; color: var(--b-on-primary); }
 [data-color-mode="dark"] .seg-row .seg.active { background: var(--brand); color: var(--b-on-primary); }
+
+/* ══════════════════ 主題色 modal（2026-09-14，nav 調色盤鈕） ══════════════════ */
+.b-modal.is-theme { width: min(560px, calc(100vw - 32px)); }
+#themeModal .b-modal-head { border-bottom: 0; padding-bottom: 4px; } /* 同 #addUserModal：無分隔線 */
+#themeModal .b-modal-foot { border-top: 0; padding-top: 0; }
+.theme-title-wrap { display: flex; align-items: center; gap: 6px; }
+/* 主題色票列：不換行、10 格（9 色＋調色盤）均分寬度，正方形隨 modal 寬度縮放（user 2026-09-14） */
+.theme-swatches .swatches { flex-wrap: nowrap; gap: 8px; }
+.theme-swatches .swatch { flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 1 / 1; }
+.theme-sample {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding: 14px 16px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--neutral-secondary-soft);
+}
+.theme-sample .theme-hex { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; color: var(--text-body-subtle); }
+/* 開闔動畫＝全站 modal 統一規格（同 #wsModal／#guideModal）；app.js 的 close() 等 overlay 的 animationend 才拿掉 is-visible */
+#themeModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
+#themeModal.is-visible .b-modal { animation: ws-modal-in .15s ease-out; }
+#themeModal.is-visible.is-closing { animation: ws-overlay-out .12s ease-in both; }
+#themeModal.is-visible.is-closing .b-modal { animation: none; }
 
 /* ══════════════════ 登入頁（對齊 tiri login.css） ══════════════════ */
 
@@ -517,8 +536,10 @@ html:root[data-color-mode="dark"] {
 .ins-ctrl .b-textarea { width: 100%; min-height: 44px; }
 .ins-ctrl label.row { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
 /* 檢查器內控件縮到桌面密度：色票 24px、seg 較窄 */
-.inspector .swatch { width: 24px; height: 24px; border-radius: var(--radius-sm); }
-.inspector .swatch.auto { width: auto; padding: 0 8px; font-size: 11px; }
+/* 檢視器色票列（user 2026-09-14）：不換行、均分寬度（客服主題色列＝自動＋JustAI＋8 色＋調色盤共 11 格）；格子正方形、隨欄寬縮放 */
+.inspector .swatches { flex-wrap: nowrap; gap: 4px; }
+.inspector .swatch { flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 1 / 1; border-radius: var(--radius-sm); }
+.inspector .swatch.auto { flex: 0 0 auto; width: auto; aspect-ratio: auto; padding: 0 6px; font-size: 11px; white-space: nowrap; } /* 文字 chip 自然寬度，其餘色格均分 */
 .inspector .seg-row .seg { padding: 5px 12px; font-size: 13px; }
 
 /* segment（純色/圖片/天氣背景 等）：造型＝kit .b-seg（容器＋無框子項、active 實色）。
@@ -552,14 +573,32 @@ html:root[data-color-mode="dark"] {
 .swatch {
   width: 34px; height: 34px; border-radius: var(--radius-md); cursor: pointer;
   border: 2px solid var(--border-default-medium); padding: 0;
+  position: relative;
+  transition: transform .18s ease;           /* 放大／縮回都有過場（user 2026-09-14） */
 }
-.swatch.active { border-color: var(--fg-brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+/* 選取＝打勾＋放大，不換外框色；未選取 hover 微放大（user 2026-09-14） */
+.swatch:not(.active):hover { transform: scale(1.08); }
+.swatch.active { transform: scale(1.15); z-index: 1; }
+.swatch.leaving { transform: scale(1.15); }              /* 剛被取消選取的格：先放大出現，下一幀縮回（app.js swatchAnim） */
+.swatch.active::after {
+  content: 'check'; font-family: 'Material Icons'; font-size: 20px; line-height: 1; font-weight: 400;
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #fff; text-shadow: 0 0 3px rgba(0, 0, 0, .35); pointer-events: none;
+}
+.swatch.light.active::after { color: #1a1a1a; text-shadow: none; } /* 淺色色票用深色勾（app.js 依亮度加 .light） */
+.swatch.auto.active::after { content: none; }                        /* 文字 chip：不打勾，加粗就好 */
+.swatch.auto.active { font-weight: 600; color: var(--text-heading); }
+.swatch.custom.active .material-icons, .swatch.justai.active svg { visibility: hidden; } /* 選取時圖示讓位給勾 */
+.inspector .swatch.active::after { font-size: 14px; }
 /* 調色盤鈕（自訂顏色）：彩虹底＋palette 圖示；真正的 <input type=color> 藏在旁邊只負責叫出系統選色器 */
 .swatch.custom {
   display: inline-flex; align-items: center; justify-content: center; color: #fff;
   background: conic-gradient(from 90deg, #f44336, #ffeb3b, #4caf50, #00bcd4, #3f51b5, #e91e63, #f44336);
 }
 .swatch.custom .material-icons { font-size: 18px; text-shadow: 0 0 3px rgba(0, 0, 0, .55); }
+/* 客服主題色「JustAI」色票：CI 橘底＋白 J 標，形狀與旁邊色票相同 */
+.swatch.justai { display: inline-flex; align-items: center; justify-content: center; background: #DB892E; }
+.swatch.justai svg { width: 70%; height: 70%; }
 .inspector .swatch.custom .material-icons { font-size: 15px; }
 .swatch-picker { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; border: 0; padding: 0; }
 .swatch.auto {
