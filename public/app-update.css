@@ -1,0 +1,33 @@
+/* Uses the admin kit's shared light/dark and site-brand tokens. */
+.header-right .header-app-download { width: auto; flex: none; gap: .4rem; padding-inline: .65rem; white-space: nowrap; }
+.header-app-download .app-download-symbol { width: 1em; height: 1em; flex: none; }
+.header-app-download span { font-size: .9rem; }
+#appDownloadModal { backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Same enter/leave keyframes as themeModal, guideModal and wsModal. */
+#appDownloadModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
+#appDownloadModal.is-visible .b-modal { animation: ws-modal-in .15s ease-out; }
+#appDownloadModal.is-visible.is-closing { animation: ws-overlay-out .12s ease-in both; }
+#appDownloadModal.is-visible.is-closing .b-modal { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  #appDownloadModal.is-visible, #appDownloadModal.is-visible .b-modal { animation: none; transition: none; }
+}
+#appDownloadModal [hidden] { display: none !important; }
+.b-modal.is-app-download { width: min(34rem, 100%); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; }
+.is-app-download .b-modal-head, .is-app-download .b-modal-foot { flex-shrink: 0; }
+#appDownloadModal .b-modal-head { border-bottom: 0; padding-bottom: 4px; }
+#appDownloadModal .b-modal-foot { border-top: 0; padding-top: 0; }
+.is-app-download .b-modal-body { overflow-y: auto; min-height: 0; font-size: .9375rem; }
+#appDownloadStatus { margin: .5rem 0; color: var(--text-body-subtle); }
+#appDownloadStatus.is-error { color: var(--fg-danger); }
+.app-release-summary { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+.app-release-icon { display: grid; place-items: center; flex: none; width: 4rem; height: 4rem; border-radius: var(--radius-md); background: var(--brand-softer); color: var(--fg-brand); }
+.app-release-version { margin: 0; font-size: 2rem; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.app-release-meta { margin: .35rem 0 0; color: var(--text-body-subtle); font-size: .875rem; }
+.app-release-heading { margin: 0 0 .75rem; font-size: 1rem; font-weight: 500; }
+.app-release-notes { padding-inline-start: 1.25rem; margin: 0; overflow-wrap: anywhere; }
+.app-release-notes li + li { margin-top: .6rem; }
+.app-release-hint { color: var(--text-body-subtle); background: var(--neutral-tertiary-soft); padding: .875rem 1rem; border-radius: var(--radius-md); font-size: .875rem; margin: 1.5rem 0 0; }
+@media (max-width: 42rem) {
+  .header-app-download span { display: none; }
+  .header-right .header-app-download { width: 2.5rem; padding: 0; }
+}

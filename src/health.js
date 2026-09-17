@@ -1,11 +1,11 @@
 /* 程序自我健康監測（2026-09-15 揚昇事故）。
  * 事故：揚昇的 Node 程序在上班時間整段凍結（連純記憶體的路由都要等好幾秒到兩分鐘），DB 連線因而「15 秒逾時」、
  * 靜態檔吐不出來、頁面轉不出來；記憶體只有 48 MB，不是漏記憶體。同時段卓也讀圖片也慢到 14 秒＝整台機器（兩百多個
- * IIS 站台）記憶體／磁碟有壓力；閒置一整晚的程序 working set 被換出，早上一用就整段等磁碟。另一個可能的差異：排程工作
- * 啟動的程序預設是「低於正常」優先權（兩個排程 XML 都是 7），伺服器忙時會被晾著；卓也那份可能是用正常優先權啟動的
- * （未實證，看 wmic process get Priority）。兩個因素都在這裡處理、並留下下次能分辨的數據。
+ * IIS 站台）記憶體／磁碟有壓力；閒置一整晚的程序 working set 被換出，早上一用就整段等磁碟。
+ * 已實證（2026-09-15 部署 log＋本機排程實測）：排程工作（Priority 7）啟動的程序 CPU＝低於正常、I/O＝低、記憶體優先權＝低，
+ * 子程序全部繼承——記憶體最先被收走、讀回來又排在所有網站後面。卓也那份是用 DCOM 啟動的，三項都正常，所以沒事。
  * 這支做四件事：
- *   1. raisePriority()：啟動時把自己的優先權拉回「正常」，不必動排程。
+ *   1. raisePriority()＋src/win-priority.js：啟動時把 CPU／I/O／記憶體優先權拉回「正常」並鎖住 256MB 常駐記憶體，不必動排程。
  *   2. 每 15 秒量事件迴圈延遲（p50／p99／最大）、CPU、記憶體、分頁錯誤數（pf；高＝被換出／磁碟忙），
  *      卡頓立刻記 warn，平時每 5 分鐘記一行摘要。
  *   3. 每 15 秒對 DB 打 SELECT 1 當心跳：連線池永遠有一條熱的（不用每次重新握手），斷線也能立刻看出來；
@@ -16,6 +16,7 @@ const os = require('os');
 const { monitorEventLoopDelay } = require('perf_hooks');
 const db = require('./db');
 const log = require('./log');
+const winPriority = require('./win-priority');
 
 const SAMPLE_MS = 15_000;
 const REPORT_MS = 5 * 60_000;
@@ -26,6 +27,7 @@ const DB_FAIL_EXIT = 20; // 5 分鐘
 const state = {
   startedAt: Date.now(),
   priority: null,
+  winPriority: null, // src/win-priority.js 的結果（Windows）
   loop: { p50: 0, p99: 0, max: 0 },
   cpuPct: 0,
   pageFaults: 0, // 這 15 秒內的分頁錯誤數（Windows：libuv 用 PageFaultCount）
@@ -136,6 +138,10 @@ function start() {
   lastSampleAt = Date.now();
   lastReportAt = Date.now();
   setInterval(() => { sample().catch((e) => log.warn('health', `健康取樣失敗：${e.message}`)); }, SAMPLE_MS).unref();
+  winPriority.normalize(process.pid, { minWorkingSetMB: 256 }).then((r) => {
+    state.winPriority = r;
+    if (r) (winPriority.isNormal(r) ? log.info : log.warn)('health', `後台程序優先權：${winPriority.describe(r)}`);
+  });
 }
 
 /** GET /api/health 的內容（不含任何機密）。 */
@@ -145,6 +151,10 @@ function snapshot() {
     pid: process.pid,
     uptimeSec: Math.round((Date.now() - state.startedAt) / 1000),
     priority: state.priority === null ? null : priorityName(state.priority),
+    // CPU／I/O／記憶體優先權與常駐記憶體下限（Windows；io 2＝正常、mem 5＝正常）
+    winPriority: state.winPriority && (state.winPriority.error
+      ? { error: state.winPriority.error }
+      : { cpu: state.winPriority.cpu[1], io: state.winPriority.io[1], mem: state.winPriority.mem[1], wsMinMB: state.winPriority.wsMinMB, wsHard: state.winPriority.wsHard }),
     loop: state.loop,
     cpuPct: state.cpuPct,
     pageFaults: state.pageFaults,

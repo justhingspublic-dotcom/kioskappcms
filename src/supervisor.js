@@ -2,8 +2,9 @@
  * 以前正式站只有 run.cmd 的迴圈：Node「死掉」才重拉；程序活著但整個卡住（事件迴圈凍結、被晾著沒 CPU）沒人管，
  * 使用者看到頁面轉不出來，要人登進伺服器砍程序。現在 `node src/server.js` 先變成這支保母：
  *   - 用同一支檔案再開一個子程序當真正的後台（環境變數 KIOSK_CHILD=1），stdout／stderr 沿用（server.log 照舊）。
- *   - 子程序優先權拉到「正常」（排程工作預設低於正常，伺服器忙時會被晾著；見 src/health.js）。
- *   - 每 15 秒打 GET /api/health（10 秒逾時），連續 8 次沒回應（約 3 分鐘）就強制結束子程序並重拉。
+ *   - 保母與子程序的 CPU／I/O／記憶體優先權都拉回「正常」並鎖住常駐記憶體（排程工作預設三項都低，子程序會繼承；
+ *     見 src/win-priority.js。子程序在 src/health.js 做自己，保母在這裡做自己）。
+ *   - 每 15 秒打 GET /api/health（10 秒逾時），連續 4 次沒回應（約 1 分鐘）就強制結束子程序並重拉。
  *   - 子程序自己結束（POST /api/restart、崩潰、DB 心跳失敗太久）也立刻重拉；10 秒內就掛的話等 5 秒再拉，避免狂轉。
  *   - 保母本身如果被砍，run.cmd 的迴圈會重拉保母。子程序每 5 秒確認保母還在，不在就跟著結束（不留孤兒佔 port）。
  * 本機開發不想多一層：.env 設 KIOSK_SUPERVISOR=0 就直接跑後台。
@@ -13,11 +14,12 @@ const http = require('http');
 const os = require('os');
 const log = require('./log');
 const { raisePriority } = require('./health');
+const winPriority = require('./win-priority');
 
 const CHECK_MS = 15_000;
 const TIMEOUT_MS = 10_000;
 const GRACE_MS = 45_000; // 剛啟動先不檢查（啟動＋背景連 DB）
-const FAIL_LIMIT = 8;
+const FAIL_LIMIT = 4; // 2026-09-15 由 8 改 4：/api/health 是純記憶體路由，連 4 次 10 秒不回一定是卡住，別讓使用者等 3 分鐘
 const RESPAWN_MS = 2_000;
 const CRASH_BACKOFF_MS = 5_000;
 const CRASH_WINDOW_MS = 10_000;
@@ -84,6 +86,9 @@ function run(serverFile) {
   };
 
   log.info('guard', `保母程序啟動 pid=${process.pid}，每 ${CHECK_MS / 1000} 秒檢查 ${url}`);
+  winPriority.normalize(process.pid, { minWorkingSetMB: 48 }).then((r) => {
+    if (r) (winPriority.isNormal(r) ? log.info : log.warn)('guard', `保母程序優先權：${winPriority.describe(r)}`);
+  });
   spawnChild();
   setInterval(check, CHECK_MS);
 }

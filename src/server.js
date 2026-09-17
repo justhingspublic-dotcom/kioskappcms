@@ -304,11 +304,20 @@ app.post('/api/logout', requireUser, async (req, res) => {
 // ---- 重啟後台（限管理員；2026-09-08）----
 // 程序一結束，保母程序（src/supervisor.js）2 秒內重拉；沒開保母時由 run.cmd 迴圈 5 秒內重拉。
 // 部署蓋完檔案後呼叫這支即可，不必登入伺服器砍程序。
+// body { supervisor: true }（2026-09-15）：保母自己的程式碼改了（supervisor.js／win-priority.js）時，一般重啟只換後台、
+// 記憶體裡還是舊保母；這時先結束保母再結束自己，由 run.cmd 迴圈 5 秒內用新程式碼重拉保母。
 app.post('/api/restart', requireAdmin, async (req, res) => {
-  log.info('sys', '收到重啟要求，0.5 秒後結束程序，由保母程序重拉', { user: req.user.username });
-  await audit.record(req, { action: 'sys.restart', targetType: 'server', summary: '重啟後台' }); // 等寫完再結束程序
-  res.json({ ok: true });
-  setTimeout(() => process.exit(0), 500);
+  const withSupervisor = !!(req.body && req.body.supervisor) && process.env.KIOSK_CHILD === '1';
+  log.info('sys', withSupervisor ? '收到重啟要求（連保母一起），0.5 秒後結束保母與後台，由 run.cmd 重拉' : '收到重啟要求，0.5 秒後結束程序，由保母程序重拉', { user: req.user.username });
+  await audit.record(req, { action: 'sys.restart', targetType: 'server', summary: withSupervisor ? '重啟後台與保母' : '重啟後台' }); // 等寫完再結束程序
+  res.json({ ok: true, supervisor: withSupervisor });
+  setTimeout(() => {
+    if (withSupervisor) {
+      try { process.kill(process.ppid); } catch (e) { log.warn('sys', `無法結束保母程序 pid=${process.ppid}：${e.message}`); }
+    }
+    log.flush(() => process.exit(0));
+    setTimeout(() => process.exit(0), 1000).unref();
+  }, 500);
 });
 
 // 每次都從 DB 讀：名稱／權限被別的管理員改了，重整就看到（token 只當登入憑證）
@@ -974,7 +983,7 @@ app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301,
 // 伺服器磁碟一忙，一次頁面請求就把整個程序卡住幾秒到幾分鐘（同時段連 DB 握手都被拖到逾時）。改成啟動時讀一次進記憶體，
 // 之後每 5 秒在背景用非同步 stat 看檔案有沒有變、有變才重讀——改 index.html 一樣不用重啟，請求路徑上不再碰磁碟。
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const ADMIN_ASSETS = ['app.js', 'tw-locations.js', 'theme-color.js', 'style.css', 'admin-kit/css/tokens.css', 'admin-kit/css/shell.css', 'admin-kit/css/components.css', 'admin-kit/js/kit.js', 'admin-kit/js/dropdown.js', 'admin-kit/js/dialogs.js'];
+const ADMIN_ASSETS = ['app.js', 'app-update.js', 'app-update.css', 'tw-locations.js', 'theme-color.js', 'style.css', 'admin-kit/css/tokens.css', 'admin-kit/css/shell.css', 'admin-kit/css/components.css', 'admin-kit/js/kit.js', 'admin-kit/js/dropdown.js', 'admin-kit/js/dialogs.js'];
 const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css'];
 const templates = {
   admin: { file: path.join(PUBLIC_DIR, 'index.html'), assets: ADMIN_ASSETS, html: '', stamp: '0', sig: '' },
@@ -1099,6 +1108,9 @@ checkApiDocs();
 // 掛載：有 BASE_PATH 就整個後台掛在子路徑底下（/joye/api/…、/joye/files/…、/joye/admin/ 網頁），
 // 沒結尾斜線的 /joye 轉到 /joye/（再由 app 轉到 /joye/admin/）；根 / ＝各後台的統一入口清單。
 const root = express();
+// Common release endpoints live outside /joye and /sunrise and do not need a tenant login.
+// Only public version notes and signed APKs are exposed; publishing remains a server-side task.
+root.use(require('./app-releases').createReleaseRouter());
 if (BASE_PATH) {
   // Express 的 get('/joye') 連 '/joye/' 也會進來，只對「沒結尾斜線」的那個轉址，否則會無限轉址
   root.get(BASE_PATH, (req, res, next) => (req.path === BASE_PATH ? res.redirect(301, BASE_PATH + '/') : next()));

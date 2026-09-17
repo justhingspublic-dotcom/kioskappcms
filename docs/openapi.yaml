@@ -560,8 +560,14 @@ paths:
                   pid: { type: integer }
                   uptimeSec: { type: integer }
                   priority: { type: string, nullable: true }
+                  winPriority:
+                    type: object
+                    nullable: true
+                    description: Windows 才有。調整後的 CPU 優先權類別、I/O 優先權（2＝正常）、記憶體優先權（5＝正常）、常駐記憶體下限與是否已鎖定；調整失敗時只有 error
+                    properties: { cpu: { type: string }, io: { type: integer }, mem: { type: integer }, wsMinMB: { type: integer }, wsHard: { type: boolean }, error: { type: string } }
                   loop: { type: object, properties: { p50: { type: integer }, p99: { type: integer }, max: { type: integer } } }
                   cpuPct: { type: integer }
+                  pageFaults: { type: integer, description: 最近 15 秒的分頁錯誤數 }
                   mem: { type: object, properties: { rssMB: { type: integer }, heapMB: { type: integer } } }
                   db: { type: object, properties: { ok: { type: boolean, nullable: true }, ms: { type: integer, nullable: true }, failures: { type: integer }, lastOkAt: { type: string, nullable: true } } }
 
@@ -956,9 +962,18 @@ paths:
       tags: [登入]
       summary: 重啟後台（限管理員）
       description: |
-        回 200 後 0.5 秒結束 Node 程序；正式站由 run.cmd 迴圈在 5 秒內重拉（本機直接跑 node 的話就只是關掉）。
-        部署蓋完檔案後呼叫這支即可，工具：`node tools/restart-prod.js`。
+        回 200 後 0.5 秒結束後台子程序，保母程序 2 秒內重拉（本機直接跑 node 的話就只是關掉）。
+        body `{ "supervisor": true }`＝連保母一起結束，由 run.cmd 迴圈 5 秒內重拉保母；部署改了 src/supervisor.js 或 src/win-priority.js 時要用。
+        部署蓋完檔案後呼叫這支即可，工具：`node tools/restart-prod.js [網址] [--supervisor]`。
       security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supervisor: { type: boolean, description: true＝連保母程序一起重啟 }
       responses:
         "200":
           description: 已排定重啟

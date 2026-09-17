@@ -27,6 +27,7 @@
   <link rel="stylesheet" href="admin-kit/css/shell.css">
   <link rel="stylesheet" href="admin-kit/css/components.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="app-update.css">
   {{SITE_THEME_STYLE}}<!-- 站台主題色（共用設定 themeColor → theme-color.js 推出的整組變數；後台 nav「主題色」可改，展示機 App 同色） -->
 </head>
 <body>
@@ -94,6 +95,12 @@
         <a class="header-icon-btn header-play-link" id="playLink" href="#" target="_blank" rel="noopener" title="開啟展示頁" aria-label="開啟展示頁" hidden>
           <i data-lucide="monitor-play"></i>
         </a>
+        <span class="header-sep" aria-hidden="true"></span>
+        <button type="button" class="header-icon-btn header-app-download" id="appDownloadBtn" title="下載 App" aria-label="下載 App" aria-haspopup="dialog">
+          <!-- Material Symbols Outlined: mobile_arrow_down (Google, Apache-2.0). -->
+          <svg class="app-download-symbol" viewBox="0 -960 960 960" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M280-40q-33 0-56.5-23.5T200-120v-720q0-33 23.5-56.5T280-920h400q33 0 56.5 23.5T760-840v124q18 7 29 22t11 34v80q0 19-11 34t-29 22v404q0 33-23.5 56.5T680-40H280Zm0-80h400v-720H280v720Zm0 0v-720 720Zm200-200 160-160-56-56-64 62v-166h-80v166l-64-62-56 56 160 160Z"/></svg>
+          <span>下載 App</span>
+        </button>
         <div class="header-user-wrap">
           <button type="button" class="header-user-btn" aria-expanded="false" aria-haspopup="menu">
             <span class="header-user-avatar" aria-hidden="true"><i data-lucide="user-round"></i></span>
@@ -416,6 +423,34 @@
          截圖由 tools/uitest/shoot-manual.js 產到 img/manual/。data-modal-vue＝自管開闔（kit 不接管，同 wsModal） -->
     <!-- 主題色 modal（2026-09-14）：選色只在下方樣本列預覽（user：要按儲存才能變），儲存才寫進共用設定並套到整站；
          樣式對齊帳號 modal（無分隔線、標題旁 ? 說明、底部單一文字鈕） -->
+    <div class="b-modal-overlay" id="appDownloadModal" data-modal-vue data-modal-anim="vue" aria-hidden="true">
+      <div class="b-modal is-app-download" role="dialog" aria-modal="true" aria-labelledby="appDownloadTitle" aria-describedby="appDownloadDescription">
+        <div class="b-modal-head">
+          <div>
+            <h2 class="b-modal-title" id="appDownloadTitle">下載 JustDisplay</h2>
+            <p class="b-modal-sub" id="appDownloadDescription">所有場域共用的 Android 展示機 App。</p>
+          </div>
+          <button type="button" class="b-modal-close" id="appDownloadClose" aria-label="關閉下載視窗"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="m18.3 5.71-1.41-1.42L12 9.17 7.11 4.29 5.7 5.71 10.59 10.6 5.7 15.49l1.41 1.42L12 12.02l4.89 4.89 1.41-1.42-4.89-4.89z"/></svg></button>
+        </div>
+        <div class="b-modal-body">
+          <p id="appDownloadStatus" role="status" aria-live="polite">正在取得最新版本…</p>
+          <div id="appDownloadDetails" hidden>
+            <div class="app-release-summary">
+              <span class="app-release-icon" aria-hidden="true"><svg viewBox="0 -960 960 960" width="32" height="32" fill="currentColor"><path d="M280-40q-33 0-56.5-23.5T200-120v-720q0-33 23.5-56.5T280-920h400q33 0 56.5 23.5T760-840v124q18 7 29 22t11 34v80q0 19-11 34t-29 22v404q0 33-23.5 56.5T680-40H280Zm0-80h400v-720H280v720Zm0 0v-720 720Zm200-200 160-160-56-56-64 62v-166h-80v166l-64-62-56 56 160 160Z"/></svg></span>
+              <div><p class="app-release-version" id="appReleaseVersion"></p><p class="app-release-meta" id="appReleaseMeta"></p></div>
+            </div>
+            <h3 class="app-release-heading">更新內容</h3>
+            <ul id="appReleaseNotes" class="app-release-notes"></ul>
+            <p class="app-release-hint">已安裝 App 的裝置，也可以從「設定 → 軟體更新」直接下載更新，原有場域與展示設定會保留。</p>
+          </div>
+        </div>
+        <div class="b-modal-foot">
+          <button type="button" class="b-btn" id="appDownloadRetry" hidden>重新載入</button>
+          <a class="b-btn b-btn-primary" id="appDownloadFile" download hidden>下載 APK</a>
+        </div>
+      </div>
+    </div>
+
     <div class="b-modal-overlay" id="themeModal" data-modal-vue data-modal-anim="vue">
       <div class="b-modal is-theme" role="dialog" aria-modal="true" aria-labelledby="th-title">
         <style id="themePreview"></style>
@@ -687,5 +722,6 @@
   <script src="tw-locations.js"></script>
   <script src="theme-color.js"></script>
   <script src="app.js"></script>
+  <script src="app-update.js"></script>
 </body>
 </html>

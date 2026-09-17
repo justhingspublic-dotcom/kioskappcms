@@ -1180,9 +1180,9 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .conn-flyout { min-width: 236px; padding: 10px 14px 8px; }
 .conn-flyout .cms-flyout-title { padding: 0 0 4px; font-size: 13px; color: var(--text-heading); }
 @media (max-width: 1024px) {   /* 抽屜模式永遠是全寬側欄：不用 mini */
+  .sidebar-conn { margin-bottom: 12px; } /* 抽屜藏了底下的伸縮鈕，卡片自己留底邊（2026-09-15） */
   .sidebar.collapsed .sidebar-conn { opacity: 1; visibility: visible; pointer-events: auto; }
   .sidebar.collapsed .sidebar-conn-mini { opacity: 0; visibility: hidden; }
-}
 }
 
 /* ── 帳號管理 ? 說明：管理員／一般帳號權限對照表（2026-09-07 user 指示）──

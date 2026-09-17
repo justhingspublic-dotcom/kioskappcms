@@ -45,15 +45,16 @@
 
 ## 常駐與自我修復（2026-09-15）
 - `node src/server.js` 先變成**保母程序**（`src/supervisor.js`），再開一個子程序跑真正的後台。保母每 15 秒打 `GET {BASE_PATH}/api/health`，
-  連續 8 次沒回應（約 3 分鐘）就強制結束子程序並重拉；子程序自己結束（`POST /api/restart`、崩潰、DB 心跳連續失敗 5 分鐘）也 2 秒內重拉。
+  連續 4 次沒回應（約 1 分鐘）就強制結束子程序並重拉；子程序自己結束（`POST /api/restart`、崩潰、DB 心跳連續失敗 5 分鐘）也 2 秒內重拉。
   外層 `run.cmd` 迴圈仍在：保母被砍才會用到。子程序每 5 秒確認保母還在，不在就跟著結束，不會留孤兒佔 port。
-- 後台啟動時把自己的**程序優先權拉回「正常」**（`src/health.js`）：工作排程器啟動的程序預設是「低於正常」，同一台伺服器
-  IIS 站台一多、上班時間 CPU 一忙，低優先權的程序就整段被晾著（頁面轉不出來、DB 連線「15 秒逾時」、靜態檔吐不出來，記憶體卻很小），
-  2026-09-15 揚昇就是這樣。不必改排程。
-- `GET /api/health`（不需登入）：pid、uptime、優先權、事件迴圈延遲 p50／p99／max、CPU、記憶體、DB 心跳；出問題先看這支和 `logs/app-*.log`
+- 後台與保母啟動時把**CPU／I/O／記憶體優先權都拉回「正常」並鎖住常駐記憶體**（`src/win-priority.js`，後台 256MB、保母 48MB）。
+  實測：工作排程器用預設 Priority 7 啟動的程序 CPU＝低於正常、I/O＝低、記憶體優先權＝低，子程序全部繼承。伺服器一缺記憶體，
+  這種程序的記憶體最先被收走，要讀回來時又排在所有網站後面，於是整段停住（頁面轉不出來、DB 連線「15 秒逾時」、記憶體卻很小），
+  2026-09-15 揚昇就是這樣。不必改排程；log 會記一行「後台程序優先權：CPU 低於正常→正常、I/O 低→正常、記憶體 低→正常、常駐記憶體下限 256MB 已鎖定」。
+- `GET /api/health`（不需登入）：pid、uptime、優先權（winPriority：io 2＝正常、mem 5＝正常、wsHard＝常駐記憶體已鎖）、事件迴圈延遲 p50／p99／max、CPU、分頁錯誤、記憶體、DB 心跳；出問題先看這支和 `logs/app-*.log`
   裡 `health`（每 5 分鐘一行摘要，卡頓立刻 warn）與 `guard`（保母）兩類的行。
 - 診斷：`node tools\db-ping.js`（在站台資料夾內）從這台機器開一條全新的 DB 連線，分辨「機器連不到 DB」還是「只有正在跑的程序有問題」。
-- 重啟：`POST /api/restart`（`node tools/restart-prod.js`）；程序卡死到 API 都不回時，在伺服器砍掉該 port 的 node（`netstat -ano | findstr :3001` 找 PID → `taskkill /F /PID`），保母或 run.cmd 會重拉。
+- 重啟：`POST /api/restart`（`node tools/restart-prod.js`）；改了 `src/supervisor.js` 或 `src/win-priority.js` 要連保母一起重啟：`node tools/restart-prod.js <網址> --supervisor`（伺服器上若是舊後台會提示再跑一次）；程序卡死到 API 都不回時，在伺服器砍掉該 port 的 node（`netstat -ano | findstr :3001` 找 PID → `taskkill /F /PID`），保母或 run.cmd 會重拉。
 
 ## 注意
 - 防火牆只需開 80/443，3000 不用對外。
