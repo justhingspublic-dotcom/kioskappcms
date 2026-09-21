@@ -13,7 +13,7 @@
 
 /* 頂欄 */
 .as-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px; min-height: calc(64px * var(--as-scale)); background: #fff; border-bottom: 1px solid #e6e8eb; }
-.as-root.kiosk .as-top { zoom: 1.35; } /* KIOSK：整條頂欄放大（同 App KioskTopBarScale）*/
+.as-root.kiosk .as-top { zoom: 1.6; } /* KIOSK：整條頂欄放大（同 App KioskPresentation.TopBarScale）*/
 .as-icon-btn { width: calc(52px * var(--as-scale)); height: calc(52px * var(--as-scale)); border: 0; background: transparent; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #1b1c1e; flex: none; position: relative; }
 .as-icon-btn:active { background: rgba(0,0,0,.08); }
 .as-icon-btn:disabled { opacity: .35; }
@@ -97,7 +97,8 @@
 .as-err { color: #ba1a1a; font-size: .85em; padding: 0 16px 6px; }
 .as-pill { max-width: calc(900px * var(--as-scale)); margin: 0 auto; background: #eef0f3; border-radius: 28px; padding: 10px 12px; }
 .as-mic-row { display: flex; justify-content: center; }
-.as-circle { border: 0; border-radius: 50%; background: var(--as-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .12s ease, background .15s ease; flex: none; }
+/* .as-root .as-circle：權重要壓過上面的 .as-root button { color: inherit }，麥克風與「送出」文字才會是白的（user 2026-09-21） */
+.as-circle, .as-root .as-circle { border: 0; border-radius: 50%; background: var(--as-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .12s ease, background .15s ease; flex: none; }
 .as-circle:active { transform: scale(.93); }
 .as-circle:disabled { opacity: .4; cursor: default; }
 .as-circle.mic { width: calc(68px * var(--as-scale)); height: calc(68px * var(--as-scale)); }

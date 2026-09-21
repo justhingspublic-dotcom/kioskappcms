@@ -273,7 +273,11 @@
       s.left = '0'; s.top = '0'; s.width = '100%'; s.height = '100%'; s.right = 'auto'; s.bottom = 'auto';
       r.setProperty('--stage-left', '0px'); r.setProperty('--stage-w', '100%'); r.setProperty('--stage-h', '100%');
     }
+    const stageWidth = stage.clientWidth || window.innerWidth;
     r.setProperty('--k', kScale().toFixed(4));
+    // Same width scale and extra 1.6 top-bar scale as the web Assistant Kiosk presentation.
+    const kioskWidthScale = Math.min(1080 / 820, Math.max(1, stageWidth / 820));
+    r.setProperty('--park-tb', (kioskWidthScale * 1.6).toFixed(4));
   }
   function screenSize() { return { w: stage.clientWidth || window.innerWidth, h: stage.clientHeight || window.innerHeight }; }
   async function reportScreenIfChanged() {
@@ -888,6 +892,7 @@
       window.KioskAssist.open({
         base: BASE, deviceId, deviceKey, agentId: cell.agentId || '', accent: cell.agentAccent ?? null, theme: siteTheme,
         idleMs: idleReturnMs(), layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
+        speak: cell.agentSpeak !== false, speakRate: cell.agentSpeakRate, // 這一格的「語音朗讀」與「語速」
         onClose: () => logEvent('page.close', '關閉智能客服，回到展示'),
       });
       logEvent('page.open', `開啟智能客服${cell.agentName ? '：' + cell.agentName : ''}`);
@@ -929,11 +934,15 @@
   function openOverlay(kind, title) {
     overlayKind = kind;
     $('ovTitle').textContent = title;
-    $('ovMeta').hidden = true; $('ovMeta').textContent = ''; $('ovHome').hidden = false;
+    const overlay = $('overlay');
+    overlay.classList.toggle('park-page', kind === 'park');
+    overlay.style.setProperty('--park-primary', siteTheme || '#E07800');
+    $('ovMeta').className = 'topbar-meta';
+    $('ovMeta').hidden = true; $('ovMeta').replaceChildren(); $('ovHome').hidden = false;
     $('ovBody').innerHTML = '';
     clearTimeout(overlayCloseTimer); overlayCloseTimer = 0;
-    $('overlay').hidden = false;
-    KioskNav.enter($('overlay'));
+    overlay.hidden = false;
+    KioskNav.enter(overlay);
     armIdle();
     logEvent('page.open', kind === 'web' ? `開啟網頁：${title}` : '開啟園區資訊');
   }
@@ -978,9 +987,12 @@
     openOverlay('park', '園區資訊');
     const body = $('ovBody');
     const map = el('div', 'park-map');
-    const img = document.createElement('img'); img.src = PARK_PRESET.map; img.alt = `${PARK_PRESET.name}園區導覽圖`;
+    const img = document.createElement('img');
+    img.src = PARK_PRESET.map; img.alt = `${PARK_PRESET.name}園區導覽圖`; img.width = 1600; img.height = 2253;
     map.append(img);
     const panel = el('div', 'park-panel');
+    panel.setAttribute('aria-live', 'polite');
+    panel.setAttribute('aria-atomic', 'true');
     // 2026-09-10 user 指示：儀表板在上、地圖在下；地圖先填滿（寬滿、依比例），面板拿剩下的高度、字級縮到放得下
     body.append(panel, map);
     $('ovHome').hidden = true; $('ovMeta').hidden = false; // 園區資訊頁：首頁鈕換成右上角的更新時間
@@ -1004,8 +1016,10 @@
     parkState.fitLayout = fitLayout;
     fitLayout();
     PARK_PRESET.nodes.forEach((n) => {
-      const m = el('div', 'park-marker');
+      const m = el('button', 'park-marker');
+      m.type = 'button';
       m.dataset.id = n.id;
+      m.setAttribute('aria-label', `查看 ${n.id} ${n.name} 的環境資訊`);
       m.innerHTML = `<div class="halo"></div><div class="dot">${esc(n.id)}</div>`;
       m.addEventListener('click', () => { parkState.selectedId = n.id; refreshPark(); });
       map.append(m);
@@ -1036,6 +1050,7 @@
       m.style.setProperty('--ring', ring);
       m.querySelector('.halo').style.background = ring;
       m.classList.toggle('selected', m.dataset.id === selectedId);
+      m.setAttribute('aria-pressed', m.dataset.id === selectedId ? 'true' : 'false');
     });
     const node = PARK_PRESET.nodes.find((n) => n.id === selectedId);
     const r = node ? readings.get(node.id) : null;
@@ -1045,21 +1060,31 @@
     else if (snap.error) hint = '測站資料暫時無法取得。';
     else if (!r) hint = '這一站目前沒有回傳資料。';
     else if (!r.online) hint = '這一站目前離線。';
-    const chip = r ? `<span class="park-chip" style="color:${r.online ? '#2E7D32' : '#9E9E9E'};border-color:${r.online ? 'rgba(46,125,50,.4)' : 'rgba(158,158,158,.4)'};background:${r.online ? 'rgba(46,125,50,.12)' : 'rgba(158,158,158,.12)'}"><span class="dot"></span>${r.online ? '在線' : '離線'}</span>` : '';
-    let html = `<div class="park-panel-head"><div class="park-panel-title">${node ? `${esc(node.id)} ${esc(node.name)}` : '園區測站'}</div>${chip}</div>`;
-    if (hint) html += `<div class="park-hint">${esc(hint)}</div>`;
-    else {
-      const m = (k, d, suf) => (k in r.values ? r.values[k].toFixed(d) + suf : '–');
-      html += `<div class="park-metrics">` +
-        `<div class="park-metric"><div class="v">${m('temperature', 1, '°')}</div><div class="k">溫度</div></div>` +
-        `<div class="park-metric"><div class="v">${m('humidity', 0, '%')}</div><div class="k">濕度</div></div>` +
-        `<div class="park-metric"><div class="v">${m('pm25', 0, '')}</div><div class="k">PM2.5</div></div>` +
-        `<div class="park-metric"><div class="v">${m('daily_rainfall', 1, ' mm')}</div><div class="k">今日雨量</div></div></div>`;
+    $('ovTitle').textContent = node ? `${node.id}  ${node.name}` : '園區資訊';
+    const meta = $('ovMeta');
+    meta.className = 'topbar-meta park-topbar-meta';
+    meta.replaceChildren();
+    if (r) {
+      const status = el('span', `park-status-chip ${r.online ? 'online' : 'offline'}`);
+      status.append(el('span', 'dot'), document.createTextNode(r.online ? '在線' : '離線'));
+      meta.append(status);
       const t = String(r.receivedAt || ''); const i = t.indexOf('T');
       const clock = i >= 0 && t.length >= i + 6 ? t.slice(i + 1, i + 6) : t;
-      $('ovMeta').textContent = clock ? `更新時間 ${clock}` : '';
+      if (clock) meta.append(el('span', 'park-updated', `更新時間 ${clock}`));
     }
-    if (hint) $('ovMeta').textContent = '';
+    meta.hidden = !meta.childElementCount;
+
+    let html = '';
+    if (hint) html += `<div class="park-hint">${esc(hint)}</div>`;
+    else {
+      const metrics = window.ParkMetrics.build(r.values);
+      html += `<div class="park-metrics">${metrics.map((metric) =>
+        `<div class="park-metric" style="--metric:${metric.color}">` +
+          `<div class="park-metric-head"><span class="material-icons" aria-hidden="true">${metric.icon}</span>` +
+          `<span class="park-metric-label">${esc(metric.label)}</span><span class="park-metric-value">${esc(metric.value)}</span></div>` +
+          `<div class="park-metric-status">${esc(metric.status)}</div></div>`,
+      ).join('')}</div>`;
+    }
     panel.innerHTML = html;
     if (parkState.fitLayout) parkState.fitLayout();
     if (parkState.place) parkState.place();

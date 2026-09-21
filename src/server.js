@@ -984,7 +984,7 @@ app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301,
 // 之後每 5 秒在背景用非同步 stat 看檔案有沒有變、有變才重讀——改 index.html 一樣不用重啟，請求路徑上不再碰磁碟。
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const ADMIN_ASSETS = ['app.js', 'app-update.js', 'app-update.css', 'tw-locations.js', 'theme-color.js', 'style.css', 'admin-kit/css/tokens.css', 'admin-kit/css/shell.css', 'admin-kit/css/components.css', 'admin-kit/js/kit.js', 'admin-kit/js/dropdown.js', 'admin-kit/js/dialogs.js'];
-const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css'];
+const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css', 'park-metrics.js'];
 const templates = {
   admin: { file: path.join(PUBLIC_DIR, 'index.html'), assets: ADMIN_ASSETS, html: '', stamp: '0', sig: '' },
   play: { file: path.join(PUBLIC_DIR, 'play.html'), assets: PLAY_ASSETS, html: '', stamp: '0', sig: '' },

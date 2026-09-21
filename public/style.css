@@ -794,6 +794,10 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 }
 @supports not (corner-shape: squircle) { input[type=checkbox].b-switch { --radius-full: 9999px; } } /* Safari fallback：真膠囊維持（::after 繼承） */
 .switch-row { display: flex; gap: 10px; align-items: center; cursor: pointer; font-size: 13.5px; color: var(--text-body); }
+/* 客服卡的朗讀列（2026-09-21）：開關在左、語速滑塊靠右，同一列才不會把設定頁撐到要捲 */
+.speak-rate { display: flex; align-items: center; gap: 8px; white-space: nowrap; font-size: 13.5px; color: var(--text-secondary, var(--text-body)); cursor: pointer; }
+.speak-rate input[type="range"] { width: 116px; accent-color: var(--accent); }
+.speak-rate b { font-weight: 600; min-width: 3.4em; text-align: right; color: var(--text-body); }
 /* 休眠卡＝固定 7 列清單（高度不跳動；點「編輯」跳單日 modal） */
 .settings-fields .sleep-list { gap: 6px; } /* 行距 8→6（要蓋過 .settings-fields .field 的 8）：筆電視窗不捲（2026-09-14） */
 .sleep-list.is-off { opacity: .55; }

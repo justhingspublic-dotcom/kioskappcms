@@ -6,6 +6,8 @@
    - 開場＝頭像＋問候語＋建議問題 chips；使用者泡泡靠右、AI 靠左無框；串流游標；typing 三點；回到底部鈕。
    - AI 回覆解析成文字／圖片／YouTube／連結卡片（同 App MessageBlocks）；圖片全螢幕、影片內嵌播放、連結內嵌瀏覽。
    - 語音輸入：Web Speech API（zh-TW，連續聆聽、5 秒沒聲音自動停）；附件依客服旗標。
+   - 語音朗讀（2026-09-21）：回覆用瀏覽器內建中文語音一句一句唸出來，頂欄喇叭可關。預設值來自後台「智能客服 API → 語音朗讀」（opts.speak），
+     訪客自己關掉的選擇記在 localStorage；後台改了預設值就以後台為準（記住當時的預設值，不一樣就重來）。
    - 沒人碰自動關閉並清空對話（秒數由 opts.idleMs 帶入＝後台「閒置回展示頁」，預設 90 秒；0＝後台關閉自動返回，不計時；同 App IdleReturn）。固定淺色。
    ========================================================================== */
 window.KioskAssist = (() => {
@@ -46,18 +48,20 @@ window.KioskAssist = (() => {
       onClose: opts.onClose || (() => {}),
       agent: null, agentError: null, messages: [], pending: [], threadId: null, streaming: false, abort: null,
       nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: opts.idleMs === 0 ? 0 : (Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS), atBottom: true,
-      voice: null, layer: null,
+      voice: null, layer: null, speakId: -1, spoken: 0, speakRate: Number(opts.speakRate) > 0 ? Number(opts.speakRate) : 1,
       openedAt: Date.now(), history: null, historyLoading: false, historyError: null, openingThread: null,
     };
     root = h('div', 'as-root' + (opts.layout === 'Mobile' ? '' : ' kiosk'));
     fitStage();
     window.addEventListener('resize', fitStage);
+    speakOn = resolveSpeak(opts.speak !== false); // 後台預設值 vs 訪客自己關過的選擇
     root.style.setProperty('--as-fs', S.layout === 'Kiosk' ? '1.45' : '1');
     applyAccent();
     root.innerHTML = `
       <header class="as-top">
         <button type="button" class="as-icon-btn" data-act="back" aria-label="返回展示"><span class="material-icons">arrow_back</span></button>
         <div class="as-top-title"><span class="as-name">智能客服</span></div>
+        <button type="button" class="as-icon-btn" data-act="speak" aria-label="關閉朗讀" hidden><span class="material-icons">volume_up</span></button>
         <button type="button" class="as-icon-btn" data-act="font" aria-label="字體大小"><span class="material-icons">format_size</span></button>
         <button type="button" class="as-icon-btn" data-act="history" aria-label="歷史對話"><span class="material-icons">history</span></button>
         <button type="button" class="as-icon-btn" data-act="new" aria-label="新對話" disabled><span class="material-icons">add</span></button>
@@ -139,6 +143,10 @@ window.KioskAssist = (() => {
     // 頂欄只放名字：logo 已在開場大圖與每則回覆旁（2026-09-14 user）
     root.querySelector('.as-name').textContent = S.agent?.name || '智能客服';
     root.querySelector('[data-act="new"]').disabled = !S.messages.length;
+    const sp = root.querySelector('[data-act="speak"]');
+    sp.hidden = !speakReady(); // 機器沒有中文語音就不顯示這顆
+    sp.querySelector('.material-icons').textContent = speakOn ? 'volume_up' : 'volume_off';
+    sp.setAttribute('aria-label', speakOn ? '關閉朗讀' : '開啟朗讀');
     root.querySelector('[data-act="history"]').disabled = !(S.configured && !S.agentError);
   }
   function renderBody() {
@@ -382,6 +390,7 @@ window.KioskAssist = (() => {
     if (!btn) return;
     const act = btn.dataset.act;
     if (act === 'back') close();
+    else if (act === 'speak') toggleSpeak();
     else if (act === 'new') reset();
     else if (act === 'history') openHistory();
     else if (act === 'history-close') closeHistory();
@@ -406,6 +415,7 @@ window.KioskAssist = (() => {
   // ---------- 對話 ----------
   function reset() {
     stopStream(true);
+    stopSpeak();
     S.threadId = null; S.messages = []; S.pending = []; S.streaming = false; S.draft = '';
     renderTop(); renderBody(); renderInput();
   }
@@ -417,6 +427,7 @@ window.KioskAssist = (() => {
     if (S.pending.some((p) => p.uploading)) return;
     const attachments = ready.map((p) => ({ name: p.name, previewUrl: p.uploaded.fileUrl || p.previewUrl, isImage: p.isImage }));
     const attachmentIds = ready.map((p) => p.uploaded.attachmentId);
+    stopVoice(); // 送出＝講完了，麥克風留著會一直聽，也會壓住朗讀
     S.pending = []; S.draft = ''; S.inputError = '';
     root.querySelector('.as-field')?.blur(); // 送出＝打字結束，收鍵盤（同 App）
     const first = !S.messages.length;
@@ -437,6 +448,7 @@ window.KioskAssist = (() => {
         revealed = Math.min(target.length, revealed + step);
         reply.text = target.slice(0, revealed);
         updateMessage(reply);
+        speakFollow(reply);
       }
     }, REVEAL_MS);
     const ctrl = new AbortController(); S.abort = ctrl;
@@ -464,7 +476,7 @@ window.KioskAssist = (() => {
       if (S.abort !== ctrl) return;
       clearInterval(S.reveal); S.reveal = 0;
       reply.text = target; reply.streaming = false;
-      if (!reply.text) { S.messages = S.messages.filter((m) => m !== reply); renderBody(); } else updateMessage(reply);
+      if (!reply.text) { S.messages = S.messages.filter((m) => m !== reply); renderBody(); } else { updateMessage(reply); speakFollow(reply, true); }
     } catch (e) {
       if (S.abort !== ctrl) return; // 被停止或關閉
       clearInterval(S.reveal); S.reveal = 0;
@@ -479,6 +491,7 @@ window.KioskAssist = (() => {
   /** 停止：中斷串流，但已收到的字全部顯示。 */
   function stopStream(silent) {
     if (!S) return;
+    stopSpeak();
     const ctrl = S.abort; S.abort = null;
     if (S.reveal) { clearInterval(S.reveal); S.reveal = 0; }
     if (ctrl) ctrl.abort();
@@ -573,6 +586,7 @@ window.KioskAssist = (() => {
   // ---------- 語音（Web Speech API，zh-TW；連續聆聽、5 秒沒聲音自動停）----------
   function toggleVoice() { if (S.voice?.listening) stopVoice(); else startVoice(); }
   function startVoice() {
+    stopSpeak(); // 要講話了就別再唸，免得機器聽到自己的聲音
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const rec = new SR(); rec.lang = 'zh-TW'; rec.continuous = true; rec.interimResults = true;
@@ -602,6 +616,111 @@ window.KioskAssist = (() => {
     try { v.rec.onend = null; v.rec.stop(); } catch { /* ignore */ }
     S.voice = null; S.focusField = true;
     if (root) renderInput();
+  }
+
+
+  // ---------- 朗讀（2026-09-21）：用瀏覽器內建語音唸 AI 回覆，頂欄喇叭切換，預設開 ----------
+  const SPEAK_KEY = 'kioskAssistSpeak';        // 訪客自己關過的選擇
+  const SPEAK_BASE_KEY = 'kioskAssistSpeakBase'; // 當時的後台預設值，用來判斷後台有沒有改過
+  const CLAUSE_ENDS = '，、,';
+  const MIN_CLAUSE = 10; // 比這短的逗號片段不值得單獨唸，會變得很碎
+  const SENTENCE_ENDS = '。！？；：!?;\n';
+  const synth = window.speechSynthesis;
+  const speakSupported = !!synth && typeof window.SpeechSynthesisUtterance === 'function';
+  let zhVoice = null;
+  let speakOn = true;
+
+  /** 開客服時決定要不要唸：訪客沒動過就照後台預設；後台預設一改，訪客之前的選擇就作廢。 */
+  function resolveSpeak(defaultOn) {
+    const baseNow = defaultOn ? '1' : '0';
+    let saved = null, base = null;
+    try { saved = localStorage.getItem(SPEAK_KEY); base = localStorage.getItem(SPEAK_BASE_KEY); } catch { return defaultOn; }
+    if (saved === null || base !== baseNow) {
+      try { localStorage.setItem(SPEAK_BASE_KEY, baseNow); localStorage.removeItem(SPEAK_KEY); } catch { /* ignore */ }
+      return defaultOn;
+    }
+    return saved !== '0';
+  }
+
+  /** 挑一個中文嗓音；找不到就整顆喇叭不顯示（唸不出中文的機器不如不要出現）。
+   *  打分數挑最自然的（user 2026-09-21：Windows 唸起來怪）：Edge 的「Online (Natural)」神經語音 > Chrome 的「Google 國語（臺灣）」
+   *  > Windows 內建 SAPI（Hanhan／Yating／Zhiwei，機械感重）；同分先取台灣國語，再港澳繁體，再其他中文。 */
+  function voiceScore(v) {
+    const lang = String(v.lang || '');
+    let s = /^zh[-_]TW/i.test(lang) ? 30 : /^zh[-_](HK|Hant)/i.test(lang) ? 20 : /^zh/i.test(lang) ? 10 : -1;
+    if (s < 0) return s;
+    const name = String(v.name || '');
+    // user 2026-09-21 定案：Chrome 佔多數，一律優先 Chrome 的「Google 國語（臺灣）」（雲端合成、最流利，需連網）；
+    // Edge 沒有 Google 語音才會落到它的 Online (Natural)；兩者都沒有再退回 Windows 內建 SAPI（Yating 相對順）
+    if (/google/i.test(name)) s += 6;
+    else if (/natural|online/i.test(name) || v.localService === false) s += 5;
+    else if (/yating/i.test(name)) s += 1;
+    return s;
+  }
+  function pickVoice() {
+    if (!speakSupported) return;
+    const list = synth.getVoices() || [];
+    let best = null, bestScore = -1;
+    for (const v of list) { const sc = voiceScore(v); if (sc > bestScore) { best = v; bestScore = sc; } }
+    zhVoice = best;
+  }
+  const speakReady = () => speakSupported && !!zhVoice;
+  if (speakSupported) {
+    pickVoice(); // Chrome 第一次可能還沒載好語音，載好會補一次 voiceschanged
+    synth.addEventListener?.('voiceschanged', () => { pickVoice(); if (root) renderTop(); });
+  }
+
+  /** 唸出來的字：拿掉 HTML、Markdown 圖片與網址、條列符號、emoji；連結只留文字。 */
+  function speakable(raw) {
+    return String(raw || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/!\[[^\]\n]*\]\([^)\s]*\)/g, ' ')
+      .replace(/\[([^\]\n]+)\]\([^)\s]*\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/^[ \t]*[-*•]\s+/gm, '')
+      .replace(/[*_`#>~|]+/g, '')
+      .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[←-⇿☀-➿⬀-⯿️]/g, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  }
+  /** 可以斷句的位置：優先整句；沒有整句就找夠長的逗號片段，開口才不用等一整句打完。 */
+  function lastSentenceEnd(text) {
+    for (let i = text.length - 1; i >= 0; i--) if (SENTENCE_ENDS.includes(text[i])) return i + 1;
+    for (let i = text.length - 1; i >= 0; i--) if (CLAUSE_ENDS.includes(text[i]) && i + 1 >= MIN_CLAUSE) return i + 1;
+    return 0;
+  }
+  /** 打字機每揭露一段就呼叫一次：唸掉新到的完整句子（finished＝把最後沒有標點的尾巴也唸掉）。 */
+  function speakFollow(msg, finished) {
+    if (!S || !msg || msg.fromUser || msg.isError) return;
+    if (S.speakId !== msg.id) {
+      // 新的問題直接打斷上一則，不要排隊等它唸完
+      if (S.speakId !== -1 && speakSupported) { try { synth.cancel(); } catch { /* ignore */ } }
+      S.speakId = msg.id; S.spoken = 0;
+    }
+    const text = msg.text || '';
+    // 關著或唸不出來時照樣推進游標：中途打開喇叭是從接下來的句子開始，不會倒回去補唸。
+    if (!speakOn || !speakReady()) { S.spoken = text.length; return; }
+    const rest = text.slice(Math.min(S.spoken, text.length));
+    const cut = finished ? rest.length : lastSentenceEnd(rest);
+    if (cut <= 0) return;
+    S.spoken += cut;
+    const say = speakable(rest.slice(0, cut));
+    if (!say) return;
+    const u = new SpeechSynthesisUtterance(say);
+    u.voice = zhVoice; u.lang = zhVoice.lang || 'zh-TW';
+    u.rate = S.speakRate || 1; // 後台「語速」
+    try { synth.speak(u); } catch { /* ignore */ }
+  }
+  /** 閉嘴，且這則回覆剩下的不再唸（返回、新對話、開麥克風、按停止）。 */
+  function stopSpeak() {
+    if (speakSupported) { try { synth.cancel(); } catch { /* ignore */ } }
+    if (S) S.spoken = Number.MAX_SAFE_INTEGER;
+  }
+  function toggleSpeak() {
+    speakOn = !speakOn;
+    try { localStorage.setItem(SPEAK_KEY, speakOn ? '1' : '0'); } catch { /* ignore */ }
+    if (!speakOn) stopSpeak();
+    renderTop();
   }
 
   return { open, close: () => close(false), isOpen: () => !!root };

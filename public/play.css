@@ -149,22 +149,35 @@ body {
    內頁只做位移、不再用 clip-path 同步裁切（位移在 GPU、clip-path 在主執行緒，會不同步、看起來像從中間展開）。 */
 .nav-clip { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 30; pointer-events: none; contain: paint; }
 .nav-clip > * { pointer-events: auto; }
-.overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
-.topbar { zoom: var(--k, 1); flex: none; height: 64px; display: flex; align-items: center; gap: 4px; padding: 0 8px; background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
-.topbar-btn { width: 56px; height: 56px; border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.topbar-btn .material-icons { font-size: 30px; }
+.overlay { --tb: 1; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
+.overlay.park-page { --tb: var(--park-tb, 1.6); --park-surface: #fafafa; background: var(--park-surface); }
+.topbar { zoom: var(--k, 1); flex: none; height: calc(64px * var(--tb)); display: flex; align-items: center; gap: calc(4px * var(--tb)); padding: 0 calc(8px * var(--tb)); background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); box-sizing: border-box; }
+.park-page .topbar { background: var(--park-surface); box-shadow: none; }
+.topbar-btn { width: calc(56px * var(--tb)); height: calc(56px * var(--tb)); border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+.topbar-btn .material-icons { font-size: calc(30px * var(--tb)); }
 .topbar-btn:active { background: rgba(0,0,0,.08); }
-.topbar-title { flex: 1; min-width: 0; font-size: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
-.topbar-meta { flex: none; font-size: 18px; color: #5e646b; white-space: nowrap; padding: 0 16px; }
+.topbar-btn:focus-visible { outline: calc(2px * var(--tb)) solid currentColor; outline-offset: calc(2px * var(--tb)); }
+.park-page #ovBack { width: calc(44px * var(--tb)); height: calc(44px * var(--tb)); color: var(--park-primary); background: color-mix(in srgb, var(--park-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--park-primary) 28%, transparent); }
+.park-page #ovBack .material-icons { font-size: calc(24px * var(--tb)); }
+.topbar-title { flex: 1; min-width: 0; font-size: calc(22px * var(--tb)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 calc(8px * var(--tb)); }
+.park-page .topbar-title { font-size: calc(30px * var(--tb)); line-height: 1.2; font-weight: 700; padding-inline-start: calc(12px * var(--tb)); }
+.topbar-meta { flex: none; font-size: calc(18px * var(--tb)); color: #5e646b; white-space: nowrap; padding: 0 calc(16px * var(--tb)); }
+.park-topbar-meta { align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: calc(3px * var(--tb)); padding-inline-end: calc(12px * var(--tb)); font-size: calc(14px * var(--tb)); line-height: 1.2; }
+.park-status-chip { display: inline-flex; align-items: center; gap: calc(5px * var(--tb)); padding: calc(4px * var(--tb)) calc(9px * var(--tb)); border: 1px solid currentColor; border-radius: 999px; font-weight: 500; }
+.park-status-chip .dot { width: calc(6px * var(--tb)); height: calc(6px * var(--tb)); border-radius: 50%; background: currentColor; }
+.park-status-chip.online { color: #2E7D32; background: rgba(46,125,50,.12); border-color: rgba(46,125,50,.4); }
+.park-status-chip.offline { color: #9E9E9E; background: rgba(158,158,158,.12); border-color: rgba(158,158,158,.4); }
+.park-updated { color: #5e646b; }
 .overlay-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; container-type: inline-size; }
 .overlay-body iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* 園區資訊頁：地圖先填滿（寬滿、依比例，高度由 play.js fitLayout 設），上面的讀數面板拿剩下的高度，字級用 --ps 縮放 */
-.park-map { position: relative; flex: none; width: 100%; background: #f4f5f7; }
+.park-map { position: relative; flex: none; width: 100%; background: var(--park-surface, #fafafa); }
 .park-map img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .park-marker {
-  position: absolute; width: calc(64px * var(--k, 1)); height: calc(64px * var(--k, 1)); margin: calc(-32px * var(--k, 1)) 0 0 calc(-32px * var(--k, 1)); display: flex; align-items: center; justify-content: center; cursor: pointer;
+  position: absolute; width: calc(64px * var(--k, 1)); height: calc(64px * var(--k, 1)); margin: calc(-32px * var(--k, 1)) 0 0 calc(-32px * var(--k, 1)); padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
+.park-marker:focus-visible { outline: calc(3px * var(--k, 1)) solid var(--ring); outline-offset: calc(3px * var(--k, 1)); border-radius: 50%; }
 .park-marker .halo { position: absolute; inset: 0; border-radius: 50%; opacity: 0; }
 .park-marker.selected .halo { animation: parkHalo 1.4s linear infinite; }
 @keyframes parkHalo { from { transform: scale(1); opacity: .5; } to { transform: scale(1.6); opacity: 0; } }
@@ -173,16 +186,16 @@ body {
   display: flex; align-items: center; justify-content: center; font-size: calc(18px * var(--k, 1)); font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.25); box-sizing: border-box;
 }
 .park-marker.selected .dot { background: var(--ring); color: #fff; }
-.park-panel { --ps: 1; flex: none; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: calc(20px * var(--ps)) calc(32px * var(--ps)); background: #eceef1; box-sizing: border-box; box-shadow: 0 1px 0 rgba(0,0,0,.08); position: relative; z-index: 1; }
-.park-panel-head { display: flex; align-items: center; gap: calc(16px * var(--ps)); }
-.park-panel-title { font-size: calc(40px * var(--ps)); font-weight: 700; flex: 1; min-width: 0; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.park-chip { display: inline-flex; align-items: center; gap: calc(10px * var(--ps)); padding: calc(8px * var(--ps)) calc(18px * var(--ps)); border-radius: 999px; font-size: calc(22px * var(--ps)); font-weight: 500; border: 1px solid; white-space: nowrap; }
-.park-chip .dot { width: calc(12px * var(--ps)); height: calc(12px * var(--ps)); border-radius: 50%; background: currentColor; }
-.park-hint { margin-top: calc(16px * var(--ps)); font-size: calc(26px * var(--ps)); color: #5e646b; }
-.park-metrics { display: flex; margin-top: calc(18px * var(--ps)); }
-.park-metric { flex: 1; text-align: center; min-width: 0; }
-.park-metric .v { font-size: calc(64px * var(--ps)); font-weight: 700; line-height: 1.1; white-space: nowrap; letter-spacing: -.01em; }
-.park-metric .k { margin-top: calc(6px * var(--ps)); font-size: calc(24px * var(--ps)); color: #5e646b; }
+.park-panel { --ps: 1; flex: none; overflow: hidden; display: flex; flex-direction: column; padding: calc(12px * var(--ps)) calc(14px * var(--ps)); background: var(--park-surface, #fafafa); box-sizing: border-box; position: relative; z-index: 1; }
+.park-hint { margin: auto 0; font-size: calc(26px * var(--ps)); line-height: 1.3; color: #5e646b; }
+.park-metrics { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: calc(10px * var(--ps)); }
+.park-metric { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; padding: calc(8px * var(--ps)) calc(16px * var(--ps)); border-radius: calc(18px * var(--ps)); color: var(--metric); background: color-mix(in srgb, var(--metric) 10%, var(--park-surface, #fafafa)); box-sizing: border-box; }
+.park-metric-head { width: 100%; min-width: 0; display: flex; align-items: center; }
+.park-metric-head .material-icons { flex: none; font-size: calc(24px * var(--ps)); }
+.park-metric-label, .park-metric-value { font-size: calc(24px * var(--ps)); line-height: calc(29px * var(--ps)); font-weight: 700; white-space: nowrap; }
+.park-metric-label { margin-inline-start: calc(7px * var(--ps)); }
+.park-metric-value { margin-inline-start: auto; padding-inline-start: calc(8px * var(--ps)); color: rgba(29,31,34,.68); font-variant-numeric: tabular-nums; }
+.park-metric-status { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; font-size: calc(46px * var(--ps)); line-height: calc(51px * var(--ps)); font-weight: 700; white-space: nowrap; text-align: center; }
 
 /* ---------- 休眠、離線、toast ---------- */
 .sleep { position: fixed; inset: 0; background: #000; z-index: 60; }

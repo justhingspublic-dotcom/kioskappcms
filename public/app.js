@@ -34,7 +34,7 @@ const DEFAULT_CELL = () => ({
   t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8, bgBlur: 0,
   content: 'None', mqSpeed: 100, txtSize: 100, glow: false, edgeFade: false, video: '', web: '', text: '',
   wAuto: true, wCounty: '', wDistrict: '', wDynBg: false,
-  tap: 'None', tapUrl: '', parkFx: 'Sweep', parkLayout: 'Auto', agentId: '', agentName: '', assistantLayout: 'Kiosk',
+  tap: 'None', tapUrl: '', parkFx: 'Sweep', parkLayout: 'Auto', agentId: '', agentName: '', assistantLayout: 'Kiosk', agentSpeak: true, agentSpeakRate: 1,
 });
 // App ParkCtaStyle：「點我查看」按鈕的看板動態（None = 靜態）
 const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
@@ -1901,6 +1901,16 @@ function renderPanel() {
         touch(); renderPanel();
       }, '自動', [JUSTAI_CHIP]));
       accentRow.querySelector('.ins-label').title = '此格開啟的聊天頁主色（頭像、按鈕、游標）；「自動」跟隨站台主題色，「JustAI」用客服後台設定的顏色';
+      // 語音朗讀（2026-09-21）：開關只決定進這一格的客服時朗讀「預設」是開還是關，訪客在客服頂欄隨時能切換；
+      // 語速不跟開關掛勾（user 2026-09-21）：預設關的話訪客自己打開也是用這個語速，所以一律顯示
+      const speakRow = subRow('進入時預設朗讀', switchRow('', cell.agentSpeak !== false, (v) => {
+        cell.agentSpeak = v; touch(); renderPanel();
+      }));
+      speakRow.querySelector('.ins-label').title = '進這一格的客服時，朗讀預設是開還是關；訪客隨時可以用客服畫面上方的喇叭鈕切換';
+      const rateRow = subRow('語速', speakRateControl(Number(cell.agentSpeakRate) > 0 ? Number(cell.agentSpeakRate) : 1, (v) => {
+        cell.agentSpeakRate = v; touch();
+      }));
+      rateRow.querySelector('.ins-label').title = '唸回覆的速度；不論預設開或關，訪客打開朗讀時都用這個速度';
     }
   }
 
@@ -2491,6 +2501,25 @@ function chatApiCard(ctx) {
     test.className = 'b-btn b-btn-text';
     foot.appendChild(test);
   });
+}
+
+/** 語速滑塊（2026-09-21）：0.5～2 倍、0.25 一格，1＝語音引擎原本的語速。 */
+function speakRateControl(cur, onChange) {
+  const label = (v) => (v === 1 ? '正常' : v + '×');
+  const wrap = document.createElement('label');
+  wrap.className = 'speak-rate';
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = '0.5'; input.max = '2'; input.step = '0.25'; input.value = String(cur);
+  input.setAttribute('aria-label', '語速');
+  const out = document.createElement('b');
+  out.textContent = label(cur);
+  input.addEventListener('input', () => {
+    const v = Number(input.value);
+    out.textContent = label(v);
+    onChange(v);
+  });
+  wrap.append(input, out);
+  return wrap;
 }
 
 /* 管理 PIN 卡（2026-09-07）：一排式小卡，2026-09-14 起與「閒置回展示頁」並排放在客服 API 與休眠卡之下（共用設定與單機設定都有）。
