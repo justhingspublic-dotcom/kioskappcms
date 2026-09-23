@@ -884,7 +884,7 @@
       if (!url) { toast('這一格還沒有設定要開啟的網址。'); return; }
       openWeb(url);
     } else if (cell.tap === 'OpenParkInfo') {
-      openPark((cell.wStUrl || '').trim() || DEFAULT_PARK_API);
+      openPark((cell.wStUrl || '').trim() || DEFAULT_PARK_API, (cell.parkHere || '').trim(), cell.parkInfoLayout !== 'Mobile');
     } else if (cell.tap === 'OpenAssistant') {
       // AI 智能客服（assist.js）：後台代理 /api/assist/…，用這台機器 config 裡的客服帳號；沒設帳號或沒選客服會顯示提示
       if (!window.KioskAssist) { toast('智能客服模組尚未載入。'); return; }
@@ -893,6 +893,7 @@
         base: BASE, deviceId, deviceKey, agentId: cell.agentId || '', accent: cell.agentAccent ?? null, theme: siteTheme,
         idleMs: idleReturnMs(), layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
         speak: cell.agentSpeak !== false, speakRate: cell.agentSpeakRate, // 這一格的「語音朗讀」與「語速」
+        upload: cell.agentUpload !== false, // 這一格的「允許上傳圖片」（2026-09-23）
         onClose: () => logEvent('page.close', '關閉智能客服，回到展示'),
       });
       logEvent('page.open', `開啟智能客服${cell.agentName ? '：' + cell.agentName : ''}`);
@@ -951,6 +952,7 @@
     clearTimeout(overlayIdle);
     const kind = overlayKind; overlayKind = '';
     if (parkTimer) { clearInterval(parkTimer); parkTimer = 0; }
+    if (parkState && parkState.ro) { parkState.ro.disconnect(); parkState.ro = null; }
     const ov = $('overlay');
     const hide = () => { ov.hidden = true; $('ovBody').innerHTML = ''; };
     if (silent) { KioskNav.restore(ov); hide(); }
@@ -983,8 +985,12 @@
   // 園區資訊頁（App ParkInfoScreen 同形）：地圖＋測站標記＋讀數面板，30 秒重抓
   let parkTimer = 0;
   let parkState = null;
-  function openPark(apiUrl) {
+  function openPark(apiUrl, hereId, kiosk = true) {
     openOverlay('park', '園區資訊');
+    // 版面（2026-09-23 user）：手機操作模式不放大頂欄（--park-tb 在 applyStageVars 依舞台寬算，這裡覆蓋成 1）
+    if (kiosk) $('overlay').style.removeProperty('--park-tb'); else $('overlay').style.setProperty('--park-tb', '1');
+    // 目前位置（2026-09-22）：後台指定這台機器站在哪個測站點；地圖上那一站多一個「目前位置」標籤，數值也預設先看那一站
+    const here = PARK_PRESET.nodes.some((n) => n.id === hereId) ? hereId : '';
     const body = $('ovBody');
     const map = el('div', 'park-map');
     const img = document.createElement('img');
@@ -996,7 +1002,7 @@
     // 2026-09-10 user 指示：儀表板在上、地圖在下；地圖先填滿（寬滿、依比例），面板拿剩下的高度、字級縮到放得下
     body.append(panel, map);
     $('ovHome').hidden = true; $('ovMeta').hidden = false; // 園區資訊頁：首頁鈕換成右上角的更新時間
-    parkState = { apiUrl, selectedId: PARK_PRESET.nodes[0]?.id || '', map, panel };
+    parkState = { apiUrl, here, selectedId: here || PARK_PRESET.nodes[0]?.id || '', map, panel };
     const PANEL_MIN = 130; // 面板最少留這麼高（字級 0.45 時放得下標題＋數字）
     const fitLayout = () => {
       const W = body.clientWidth, H = body.clientHeight;
@@ -1019,8 +1025,11 @@
       const m = el('button', 'park-marker');
       m.type = 'button';
       m.dataset.id = n.id;
-      m.setAttribute('aria-label', `查看 ${n.id} ${n.name} 的環境資訊`);
-      m.innerHTML = `<div class="halo"></div><div class="dot">${esc(n.id)}</div>`;
+      const isHere = n.id === here;
+      if (isHere) m.classList.add('here');
+      m.setAttribute('aria-label', `${isHere ? '目前位置，' : ''}查看 ${n.id} ${n.name} 的環境資訊`);
+      m.innerHTML = (isHere ? '<div class="park-here"><span class="material-icons" aria-hidden="true">my_location</span>目前位置</div>' : '')
+        + `<div class="halo"></div><div class="dot">${esc(n.id)}</div>`;
       m.addEventListener('click', () => { parkState.selectedId = n.id; refreshPark(); });
       map.append(m);
     });
@@ -1029,14 +1038,38 @@
       let dw, dh;
       if (W / H > PARK_PRESET.aspect) { dh = H; dw = H * PARK_PRESET.aspect; } else { dw = W; dh = W / PARK_PRESET.aspect; }
       const left = (W - dw) / 2, top = (H - dh) / 2;
+      const k = parseFloat(getComputedStyle(map).getPropertyValue('--k')) || 1;
       map.querySelectorAll('.park-marker').forEach((m) => {
         const n = PARK_PRESET.nodes.find((x) => x.id === m.dataset.id);
-        m.style.left = `${left + dw * n.x / 100}px`; m.style.top = `${top + dh * n.y / 100}px`;
+        const cx = left + dw * n.x / 100;
+        m.style.left = `${cx}px`; m.style.top = `${top + dh * n.y / 100}px`;
+        // 「目前位置」標籤：不管圓點落在地圖哪裡都要完整看得到（不是只修某一站）——
+        //   左右：標籤推到離畫面邊至少 24px，三角形留在標籤上、繼續指著圓點；
+        //   上下：圓點上方放不下就翻到圓點下方（三角形跟著改成朝上）。
+        const tag = m.querySelector('.park-here');
+        if (!tag) return;
+        const cy = top + dh * n.y / 100;
+        const edge = 24 * k, gap = 8 * k, tri = 7 * k, half = 32 * k; // gap＝箭頭尖端與圓點之間留的空隙；half＝圓點標記的一半
+        tag.style.setProperty('--shift', '0px');
+        const cw = tag.offsetWidth, ch = tag.offsetHeight;
+        const lo = edge + cw / 2, hi = W - edge - cw / 2;
+        const shift = Math.round(clamp(cx, Math.min(lo, hi), Math.max(lo, hi)) - cx);
+        tag.style.setProperty('--shift', `${shift}px`);
+        tag.style.setProperty('--tri', `${clamp(cw / 2 - shift, 18 * k, cw - 18 * k)}px`);
+        const roomAbove = cy - half - gap - ch >= edge;
+        const roomBelow = cy + half + gap + ch + tri <= H - edge;
+        tag.classList.toggle('below', !roomAbove && roomBelow);
       });
     };
     refreshPark();
     place();
     parkState.place = place;
+    // 面板先矮後高（讀數進來、字級重算）會讓地圖縮短，之前只在開頁時算一次，所有圓點與標籤就整批偏掉；
+    // 這裡盯著地圖尺寸，一變就重算（視窗 resize 另有處理）。
+    if (window.ResizeObserver) {
+      parkState.ro = new ResizeObserver(() => place());
+      parkState.ro.observe(map);
+    }
     parkTimer = setInterval(refreshPark, 30_000);
   }
   function refreshPark() {

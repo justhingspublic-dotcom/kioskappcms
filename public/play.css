@@ -178,7 +178,7 @@ body {
   position: absolute; width: calc(64px * var(--k, 1)); height: calc(64px * var(--k, 1)); margin: calc(-32px * var(--k, 1)) 0 0 calc(-32px * var(--k, 1)); padding: 0; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .park-marker:focus-visible { outline: calc(3px * var(--k, 1)) solid var(--ring); outline-offset: calc(3px * var(--k, 1)); border-radius: 50%; }
-.park-marker .halo { position: absolute; inset: 0; border-radius: 50%; opacity: 0; }
+.park-marker .halo { position: absolute; z-index: 0; inset: 0; border-radius: 50%; opacity: 0; }
 .park-marker.selected .halo { animation: parkHalo 1.4s linear infinite; }
 @keyframes parkHalo { from { transform: scale(1); opacity: .5; } to { transform: scale(1.6); opacity: 0; } }
 .park-marker .dot {
@@ -186,6 +186,25 @@ body {
   display: flex; align-items: center; justify-content: center; font-size: calc(18px * var(--k, 1)); font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.25); box-sizing: border-box;
 }
 .park-marker.selected .dot { background: var(--ring); color: #fff; }
+/* 目前位置（2026-09-22，user 指定紅色）：機器所在的那一站，圓點上方掛一個紅色標籤，圓點外圈也加一圈紅 */
+.park-page { --park-here-color: #D32F2F; }
+.park-marker.here { z-index: 2; } /* 目前位置那一站整個疊在其他站之上 */
+.park-marker.here .dot { box-shadow: 0 0 0 calc(4px * var(--k, 1)) var(--park-here-color), 0 calc(2px * var(--k, 1)) calc(6px * var(--k, 1)) rgba(0,0,0,.25); }
+.park-marker .park-here {
+  /* --shift：靠螢幕邊的點把標籤往內推的距離；--tri：三角形在標籤裡的位置（都由 play.js place() 算） */
+  position: absolute; z-index: 3; bottom: calc(100% + 8px * var(--k, 1)); left: 50%; transform: translateX(calc(-50% + var(--shift, 0px)));
+  display: inline-flex; align-items: center; gap: calc(5px * var(--k, 1));
+  padding: calc(6px * var(--k, 1)) calc(13px * var(--k, 1)); border-radius: 999px;
+  background: var(--park-here-color); color: #fff; font-size: calc(21px * var(--k, 1)); font-weight: 700;
+  line-height: 1; white-space: nowrap; box-shadow: 0 calc(2px * var(--k, 1)) calc(8px * var(--k, 1)) rgba(0,0,0,.3);
+}
+.park-marker .park-here .material-icons { font-size: calc(22px * var(--k, 1)); }
+.park-marker .park-here.below { bottom: auto; top: calc(100% + 8px * var(--k, 1)); } /* 上面放不下：翻到圓點下方 */
+.park-marker .park-here::after { /* 指向圓點的小三角 */
+  content: ''; position: absolute; top: 100%; left: var(--tri, 50%); transform: translateX(-50%);
+  border: calc(7px * var(--k, 1)) solid transparent; border-top-color: var(--park-here-color);
+}
+.park-marker .park-here.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--park-here-color); }
 .park-panel { --ps: 1; flex: none; overflow: hidden; display: flex; flex-direction: column; padding: calc(12px * var(--ps)) calc(14px * var(--ps)); background: var(--park-surface, #fafafa); box-sizing: border-box; position: relative; z-index: 1; }
 .park-hint { margin: auto 0; font-size: calc(26px * var(--ps)); line-height: 1.3; color: #5e646b; }
 .park-metrics { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: calc(10px * var(--ps)); }

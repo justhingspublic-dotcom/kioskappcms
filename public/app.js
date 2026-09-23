@@ -34,12 +34,14 @@ const DEFAULT_CELL = () => ({
   t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8, bgBlur: 0,
   content: 'None', mqSpeed: 100, txtSize: 100, glow: false, edgeFade: false, video: '', web: '', text: '',
   wAuto: true, wCounty: '', wDistrict: '', wDynBg: false,
-  tap: 'None', tapUrl: '', parkFx: 'Sweep', parkLayout: 'Auto', agentId: '', agentName: '', assistantLayout: 'Kiosk', agentSpeak: true, agentSpeakRate: 1,
+  tap: 'None', tapUrl: '', parkHere: '', parkFx: 'Sweep', parkLayout: 'Auto', parkInfoLayout: 'Kiosk', agentId: '', agentName: '', assistantLayout: 'Kiosk', agentSpeak: true, agentSpeakRate: 1, agentUpload: true,
 });
 // App ParkCtaStyle：「點我查看」按鈕的看板動態（None = 靜態）
 const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
 // App ParkLayout：園區資訊標題與按鈕的排法（Auto = 寬不到高兩倍就直排）
 const PARK_LAYOUT = [['Auto', '自動'], ['Horizontal', '橫排'], ['Vertical', '直排']];
+// 園區地圖上的測站點（App ParkPresets.Joye／play.js PARK_PRESET 同一份）：點擊動作「園區資訊」的「目前位置」從這裡挑
+const PARK_NODES = [['D1', '遊園入口'], ['D2', '廣場中庭'], ['D3', '不差的花園'], ['D4', '藍染長廊'], ['D5', '卓也書園子']];
 // 可點提示樣式（user 2026-09-10 定案：靜的多、動的只有一個）：角落徽章＝右上角小小「輕觸」記號；按鈕＝格內一顆按鈕（動態一頁只留一格）
 const TAP_HINT = [['None', '無'], ['Badge', '角落徽章'], ['Glow', '閃爍'], ['Button', '按鈕']];
 // 沒點擊動作＝無；有設就照設的；沒設＝園區資訊走按鈕（沿用舊版面），其他一律無（user：預設無、自己選）（play.js／App effectiveTapHint 同一套）
@@ -1858,6 +1860,12 @@ function renderPanel() {
           ? '點擊後開啟內建的園區地圖；測站 API 已預設帶入，留白時也會使用預設網址顯示各站在線狀態與即時數值。'
           : '點擊後開啟內建的園區地圖。這個站台沒有設定園區測站 API，地圖僅供導覽；要顯示測站數值，請把上方「內容」改成天氣並填測站 API。'));
       }
+      // 目前位置（2026-09-22）：這台機器站在哪個測站點；地圖上那一站會多一個「目前位置」標記
+      subRow('目前位置', selInput([['', '無'], ...PARK_NODES.map(([id, name]) => [id, `${id} ${name}`])], cell.parkHere || '', (v) => { cell.parkHere = v; touch(); }));
+      subRow('', hint('地圖上會在這一站標出「目前位置」，遊客點進來也預設先看這一站的數值；選「無」就不標。'));
+      // 版面（2026-09-23 user）：跟客服同一組選項，小螢幕用手機模式，頂欄與字不放大
+      subRow('園區資訊版面', selInput([['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']], cell.parkInfoLayout || 'Kiosk', (v) => { cell.parkInfoLayout = v; touch(); }));
+      subRow('', hint('預設 KIOSK展示模式（頂欄與文字放大，給大螢幕看）；小螢幕選手機操作模式，維持一般大小。'));
     }
     if (cell.tap === 'OpenAssistant') {
       // 從清單選擇客服（與 App 的 AgentPickerField 相同）：用機器設定裡的 JustAI 帳號拉清單
@@ -1911,6 +1919,11 @@ function renderPanel() {
         cell.agentSpeakRate = v; touch();
       }));
       rateRow.querySelector('.ins-label').title = '唸回覆的速度；不論預設開或關，訪客打開朗讀時都用這個速度';
+      // 上傳（2026-09-23 user）：客服輸入列的上傳鈕要不要出現，後台自己決定，不再只看客服後台的設定
+      const uploadRow = subRow('允許上傳圖片', switchRow('', cell.agentUpload !== false, (v) => {
+        cell.agentUpload = v; touch();
+      }));
+      uploadRow.querySelector('.ins-label').title = '關閉後，客服輸入列不會出現上傳鈕，訪客只能打字或用說的；客服後台本身沒開放上傳時，這裡開了也不會出現';
     }
   }
 

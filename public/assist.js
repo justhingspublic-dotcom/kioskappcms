@@ -15,6 +15,7 @@ window.KioskAssist = (() => {
   const IDLE_MS = 90_000;
   const REVEAL_MS = 26;
   const SILENCE_MS = 5_000;
+  const SR_OK = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   const FONT_OPTIONS = [[0.85, '小'], [1, '標準'], [1.2, '大'], [1.45, '特大']];
 
   let root = null;
@@ -49,6 +50,8 @@ window.KioskAssist = (() => {
       agent: null, agentError: null, messages: [], pending: [], threadId: null, streaming: false, abort: null,
       nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: opts.idleMs === 0 ? 0 : (Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS), atBottom: true,
       voice: null, layer: null, speakId: -1, spoken: 0, speakRate: Number(opts.speakRate) > 0 ? Number(opts.speakRate) : 1,
+      upload: opts.upload !== false, // 後台「允許上傳圖片」（2026-09-23）：關掉就不出現上傳鈕
+      voiceBlock: SR_OK ? '' : 'unsupported', // 麥克風不能用的原因（2026-09-23，同 App）：''＝可以用
       openedAt: Date.now(), history: null, historyLoading: false, historyError: null, openingThread: null,
     };
     root = h('div', 'as-root' + (opts.layout === 'Mobile' ? '' : ' kiosk'));
@@ -79,6 +82,7 @@ window.KioskAssist = (() => {
     renderTop();
     renderBody();
     renderInput();
+    checkVoiceBlock(S); // 麥克風能不能用（權限要非同步查），不能用就先說明一次
     if (S.configured) loadAgent();
   }
 
@@ -351,8 +355,8 @@ window.KioskAssist = (() => {
     const ok = S.configured && !S.agentError;
     f.hidden = !ok;
     if (!ok) return;
-    const canAttach = !!(S.agent?.enableImageUpload || S.agent?.enableFileUpload);
-    const voiceOk = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    const canAttach = S.upload !== false && !!(S.agent?.enableImageUpload || S.agent?.enableFileUpload);
+    const vBlock = S.voiceBlock || ''; // 不能用時鈕還是要在（2026-09-23 user）：淡橘底＋劃掉的麥克風，點了說明原因
     const listening = !!S.voice?.listening;
     const pendingHtml = S.pending.length ? `<div class="as-pending">${S.pending.map((p) => `<div class="as-pchip" data-pid="${p.localId}">${p.isImage ? `<img src="${esc(p.previewUrl)}" alt="">` : '<span class="material-icons">insert_drive_file</span>'}${p.uploading ? '<div class="busy"><i></i></div>' : ''}${p.failed ? '<div class="failed">失敗</div>' : ''}<button type="button" class="rm" data-act="rm" aria-label="移除"><span class="material-icons">close</span></button></div>`).join('')}</div>` : '';
     const uploading = S.pending.some((p) => p.uploading);
@@ -361,7 +365,7 @@ window.KioskAssist = (() => {
     const canSend = (value.trim() || ready) && !uploading;
     f.innerHTML = `${pendingHtml}${S.inputError ? `<div class="as-err">${esc(S.inputError)}</div>` : ''}
       <div class="as-pill">
-        ${voiceOk ? `<div class="as-mic-row"><button type="button" class="as-circle mic${listening ? ' listening' : ''}" data-act="mic" aria-label="${listening ? '停止聆聽' : '開始說話'}"><span class="material-icons">mic</span></button></div>` : ''}
+        <div class="as-mic-row"><button type="button" class="as-circle mic${listening ? ' listening' : ''}${vBlock ? ' blocked' : ''}" data-act="mic" aria-label="${vBlock ? '麥克風無法使用' : (listening ? '停止聆聽' : '開始說話')}"><span class="material-icons">${vBlock ? 'mic_off' : 'mic'}</span></button></div>
         <div class="as-text-row">
           ${canAttach ? `<button type="button" class="as-attach" data-act="attach" aria-label="附加檔案"><span class="material-icons">${S.agent.enableImageUpload ? 'add_photo_alternate' : 'insert_drive_file'}</span></button>` : ''}
           ${listening ? `<div class="as-transcript">${esc([value, S.voice.partial].filter(Boolean).join(' ')) || '聆聽中，請說話…'}</div>`
@@ -397,7 +401,9 @@ window.KioskAssist = (() => {
     else if (act === 'history-pick') openThread(btn.dataset.tid);
     else if (act === 'jump') scrollToBottom(true);
     else if (act === 'font') toggleFontMenu(btn);
-    else if (act === 'mic') toggleVoice();
+    else if (act === 'mic') { if (S.voiceBlock) showVoiceHelp(); else toggleVoice(); }
+    else if (act === 'vh-close') closeVoiceHelp();
+    else if (act === 'vh-go') fixVoice();
     else if (act === 'attach') root.querySelector('.as-file')?.click();
     else if (act === 'send') send(root.querySelector('.as-field')?.value || '');
     else if (act === 'stop') stopStream(false);
@@ -605,7 +611,12 @@ window.KioskAssist = (() => {
       renderInput();
     };
     rec.onend = () => { if (S?.voice === v && v.want && Date.now() - v.lastSpeech < SILENCE_MS) { try { rec.start(); } catch { stopVoice(); } } else if (S?.voice === v) stopVoice(); };
-    rec.onerror = (ev) => { if (ev.error === 'no-speech' || ev.error === 'aborted') return; stopVoice(); if (ev.error === 'not-allowed') { S.inputError = '沒有麥克風權限，改用打字吧。'; renderInput(); } };
+    rec.onerror = (ev) => {
+      if (ev.error === 'no-speech' || ev.error === 'aborted') return;
+      stopVoice();
+      // 權限被擋：改成停用樣式＋說明視窗（2026-09-23，同 App）
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { S.voiceBlock = 'denied'; renderInput(); showVoiceHelp(); }
+    };
     try { rec.start(); } catch { S.voice = null; return; }
     armSilence();
     renderInput();
@@ -616,6 +627,62 @@ window.KioskAssist = (() => {
     try { v.rec.onend = null; v.rec.stop(); } catch { /* ignore */ }
     S.voice = null; S.focusField = true;
     if (root) renderInput();
+  }
+
+  // ---------- 麥克風不能用時的說明（2026-09-23 user，同 App）----------
+  // 以前不能用就整顆鈕不畫，現場只看到「麥克風不見了」。現在鈕一律顯示成停用樣式，點下去說明原因並帶去處理。
+  const VOICE_HELP = {
+    unsupported: '這個瀏覽器不支援語音輸入，無法用說的提問。改用 Chrome 或 Edge 開啟這個頁面就可以使用。',
+    denied: '這個頁面還沒有取得麥克風權限，無法用說的提問。按「繼續」允許使用麥克風。',
+  };
+
+  /** 開客服時判斷麥克風能不能用；瀏覽器不支援是同步就知道，權限狀態要非同步查。 */
+  async function checkVoiceBlock(owner) {
+    let blocked = SR_OK ? '' : 'unsupported';
+    if (SR_OK) {
+      try {
+        const st = await navigator.permissions?.query({ name: 'microphone' });
+        if (st?.state === 'denied') blocked = 'denied';
+      } catch { /* 查不到（Safari 等）就當可以用，真按下去失敗會在 onerror 標記 */ }
+    }
+    if (S !== owner || !root) return; // 這期間關掉或重開就別動
+    S.voiceBlock = blocked;
+    renderInput();
+    if (blocked && S.configured) showVoiceHelp();
+  }
+
+  function showVoiceHelp() {
+    if (!root || root.querySelector('.as-dialog')) return;
+    const why = S.voiceBlock === 'unsupported' ? 'unsupported' : 'denied';
+    // 不支援的瀏覽器沒有可以去的地方，就只給「關閉」
+    const go = why === 'denied' ? '<button type="button" class="as-dlg-btn go" data-act="vh-go">繼續</button>' : '';
+    const el = h('div', 'as-dialog', `
+      <div class="as-dialog-scrim" data-act="vh-close"></div>
+      <div class="as-dialog-card" role="alertdialog" aria-modal="true">
+        <span class="material-icons as-dialog-icon">mic_off</span>
+        <div class="as-dialog-title">語音輸入無法使用</div>
+        <div class="as-dialog-text">${esc(VOICE_HELP[why])}</div>
+        <div class="as-dialog-actions"><button type="button" class="as-dlg-btn" data-act="vh-close">關閉</button>${go}</div>
+      </div>`);
+    root.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('open'));
+  }
+
+  function closeVoiceHelp() { root?.querySelector('.as-dialog')?.remove(); }
+
+  /** 「繼續」＝跳瀏覽器的麥克風授權；已經被永久封鎖時跳不出來，就改成教他從網址列的鎖頭打開。 */
+  async function fixVoice() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      S.voiceBlock = '';
+      closeVoiceHelp();
+      renderInput();
+    } catch {
+      const text = root?.querySelector('.as-dialog-text');
+      if (text) text.textContent = '瀏覽器已經封鎖這個網站的麥克風。請點網址列左邊的鎖頭圖示 → 網站設定 → 麥克風 → 允許，再重新整理頁面。';
+      root?.querySelector('.as-dlg-btn.go')?.remove();
+    }
   }
 
 

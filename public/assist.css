@@ -105,6 +105,20 @@
 .as-circle.mic .material-icons { font-size: calc(32px * var(--as-scale)); }
 .as-circle.mic.listening { background: #ba1a1a; animation: asPulse 1.1s ease-in-out infinite alternate; }
 @keyframes asPulse { from { box-shadow: 0 0 0 0 rgba(186,26,26,.45); } to { box-shadow: 0 0 0 14px rgba(186,26,26,0); } }
+/* 麥克風不能用（2026-09-23 user）：鈕照樣顯示，淡橘底＋深橘的劃掉麥克風；點下去跳說明 */
+.as-circle.mic.blocked, .as-root .as-circle.mic.blocked { background: #FFDBBB; color: #A85400; }
+/* 說明視窗（同 App 的 AlertDialog）：置中卡片＋暗幕，只有麥克風不能用時才出現 */
+.as-dialog { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.as-dialog-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.32); opacity: 0; transition: opacity .2s ease; }
+.as-dialog.open .as-dialog-scrim { opacity: 1; }
+.as-dialog-card { position: relative; width: min(92%, calc(460px * var(--as-scale))); background: #fff; border-radius: 28px; padding: calc(24px * var(--as-scale)); box-shadow: 0 8px 28px rgba(0,0,0,.18); text-align: center; transform: scale(.92); opacity: 0; transition: transform .2s ease, opacity .2s ease; }
+.as-dialog.open .as-dialog-card { transform: none; opacity: 1; }
+.as-dialog-icon { color: #A85400; font-size: calc(28px * var(--as-scale)); }
+.as-dialog-title { font-weight: 700; font-size: 1.2em; margin: 8px 0 12px; }
+.as-dialog-text { color: #43474c; line-height: 1.5; text-align: left; }
+.as-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.as-dlg-btn { border: 0; background: transparent; color: var(--as-accent); font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 999px; cursor: pointer; }
+.as-dlg-btn:hover { background: rgba(0,0,0,.05); }
 /* 送出鈕＝文字膠囊（user 2026-09-10：不要箭頭） */
 .as-circle.send { height: calc(46px * var(--as-scale)); padding: 0 calc(22px * var(--as-scale)); border-radius: 999px; font: inherit; font-size: calc(18px * var(--as-scale)); font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
 .as-text-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
