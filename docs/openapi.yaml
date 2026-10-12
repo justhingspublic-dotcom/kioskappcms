@@ -348,7 +348,7 @@ components:
         name: { type: string }
         blocks:
           type: array
-          description: 直向排列的大區塊
+          description: 直向排列的區塊（後台 2026-10-12 起只寫一個區塊，格子都在它的 node 裡巢狀分割；舊資料的多個區塊仍照權重直向堆疊）
           items: { $ref: '#/components/schemas/Block' }
 
     Block:
@@ -359,7 +359,7 @@ components:
         node: { $ref: '#/components/schemas/Node' }
 
     Node:
-      description: "`t` 為 `cell`（內容格）或 `split`（再切一次）"
+      description: "`t` 為 `cell`（內容格）或 `split`（再切一次，子節點可以再是 split，一路巢狀）"
       oneOf:
         - $ref: '#/components/schemas/Cell'
         - $ref: '#/components/schemas/Split'
@@ -374,10 +374,10 @@ components:
       required: [t]
       properties:
         t: { type: string, enum: [split] }
-        dir: { type: string, enum: [Horizontal, Vertical], description: Horizontal=上下、Vertical=左右 }
+        dir: { type: string, enum: [Horizontal, Vertical], description: Horizontal=上下（a 在上）、Vertical=左右（a 在左） }
         ratio: { type: number, minimum: 0.1, maximum: 0.9, example: 0.6 }
-        a: { $ref: '#/components/schemas/Cell' }
-        b: { $ref: '#/components/schemas/Cell' }
+        a: { $ref: '#/components/schemas/Node' }
+        b: { $ref: '#/components/schemas/Node' }
 
     Cell:
       type: object
@@ -413,6 +413,7 @@ components:
         agentName: { type: string }
         agentAccent: { type: integer, format: int64, description: AI 客服主色 ARGB 十進位；省略＝自動 }
         assistantLayout: { type: string, enum: [Kiosk, Mobile], description: KIOSK展示模式／手機操作模式 }
+        agentInputPos: { type: string, enum: [Bottom, Top], default: Top, description: AI 客服輸入區位置：上方（預設；輸入框在頂欄、新問題釘在上面）／下方（原本） }
 
     SharedSettingsResponse:
       type: object

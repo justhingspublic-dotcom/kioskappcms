@@ -340,10 +340,10 @@ html:root[data-color-mode="dark"] {
 
 /* ── 底框（2026-09-14 user 指示）：固定 9:16 的框，機器畫布照真實比例置中放在裡面，
       直式手機（9:20）兩側留框、橫式機器上下留框，版面永遠整齊。
-      高度＝欄高減下方操作鈕列（兩種模式都是 2 列鈕 32+8+32+10gap；shared 少扣會多 40px、body 會捲，user 2026-09-09）。
+      高度＝欄高減下方操作鈕列（兩種模式都是 1 列鈕 32+10gap；2026-10-12 拿掉「新增大區塊」那一列，畫布多 40px）。
       container-type:size → 畫布可用 cqw/cqh 對框做 contain 縮放，且框不會被內容撐大。 */
 .canvas-frame {
-  height: calc(100% - 82px); width: 100%;
+  height: calc(100% - 42px); width: 100%;
   background: var(--neutral-secondary-medium); border: 1px solid var(--border-default);
   border-radius: 20px; /* 同心：畫布 12px ＋ 內距 8px */ padding: 8px;
   container-type: size; display: grid; place-items: center; overflow: hidden;
@@ -356,7 +356,9 @@ html:root[data-color-mode="dark"] {
 }
 /* 框內畫布＝contain：寬取「框寬」與「框高×機器比例」的小者，高由 aspect-ratio（buildCanvas 寫入 --sr 與 inline aspect-ratio）推得 */
 .canvas-frame > .canvas { width: min(100cqw, calc(100cqh * var(--sr, 0.5625))); height: auto; }
-.canvas .block { display: flex; min-height: 0; position: relative; }
+/* 格子照比例絕對定位（buildCanvas placeBox）；cv-root＝畫布內容區（扣掉 4px 內距） */
+.canvas .cv-root { flex: 1; min-height: 0; position: relative; }
+.canvas .cv-root > .cell { position: absolute; flex: none; box-sizing: border-box; }
 .canvas .cell {
   flex: 1; min-height: 0; min-width: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
   display: flex; align-items: center; justify-content: center; position: relative;
@@ -385,27 +387,44 @@ html:root[data-color-mode="dark"] {
 }
 .cell.drag-ghost > div { pointer-events: none; }
 
-/* 拖曳把手（App 預覽同款：大區塊粗桿、分割細桿） */
-.canvas .h-divider {
-  height: 12px; flex: none; cursor: row-resize; position: relative; touch-action: none;
+/* 分隔線（2026-10-12 每一格都能再切）：每個分割一條，壓在兩格之間的縫上（12px 拖曳區，位置由 placeDivider 照比例放） */
+.canvas .cv-divider {
+  position: absolute; z-index: 3; touch-action: none;
   display: flex; align-items: center; justify-content: center;
 }
-.canvas .v-divider {
-  width: 12px; flex: none; cursor: col-resize; position: relative; touch-action: none;
-  display: flex; align-items: center; justify-content: center;
-}
-.canvas .h-divider::after, .canvas .v-divider::after {
+.canvas .cv-divider.is-v { cursor: col-resize; }
+.canvas .cv-divider.is-h { cursor: row-resize; }
+.canvas .cv-divider::after {
   content: ""; background: rgba(174,182,186,.55); border-radius: 3px;
   transition: background .15s, transform .15s;
 }
-.canvas .h-divider.major::after { width: 48px; height: 3px; }
-.canvas .v-divider.major::after { width: 3px; height: 48px; }
-.canvas .h-divider:not(.major)::after { width: 28px; height: 2px; }
-.canvas .v-divider:not(.major)::after { width: 2px; height: 28px; }
-.canvas .h-divider:hover::after, .canvas .h-divider.dragging::after,
-.canvas .v-divider:hover::after, .canvas .v-divider.dragging::after {
+.canvas .cv-divider.is-v::after { width: 2px; height: min(28px, 50%); }
+.canvas .cv-divider.is-h::after { width: min(28px, 50%); height: 2px; }
+.canvas .cv-divider:hover::after, .canvas .cv-divider.dragging::after {
   background: color-mix(in srgb, var(--accent) 55%, #fff); transform: scale(1.25);
 }
+/* 拖分隔線時指標旁的比例小標籤（吸附到 1/2、1/3…時換主題色） */
+.cv-drag-tip {
+  position: fixed; z-index: 1500; pointer-events: none; /* modal 1300、toast 2000 */
+  padding: 3px 8px; border-radius: 6px; background: rgba(29,35,39,.88); color: #fff;
+  font-size: 12px; font-weight: 600; line-height: 1.4; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.cv-drag-tip.is-snap { background: var(--accent); color: var(--on-accent, #fff); }
+/* 新格子預覽（右側十字滑上去時出現；畫布上的＋ 2026-10-12 user 說拿掉） */
+.canvas .cv-ghost {
+  position: absolute; z-index: 4; pointer-events: none; box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--accent) 55%, #fff); border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: #fff; font-size: 13px; font-weight: 600; text-shadow: 0 1px 3px rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.canvas .cv-ghost[hidden] { display: none; }
+.canvas .cv-ghost.is-even { background: color-mix(in srgb, var(--accent) 22%, transparent); } /* 平均分配預覽：一排好幾個框並排，底色淡一點 */
+.canvas .cv-ghost.is-even { align-items: flex-start; padding-top: 8px; }
+.canvas .cv-ghost.is-even span { padding: 2px 8px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; line-height: 1.4; text-shadow: none; white-space: nowrap; }
+.canvas.is-resizing .cv-ghost.is-even { display: none; }
+.canvas.is-resizing .cv-ghost { display: none; } /* 拖分隔線時收起預覽 */
+
 
 /* 畫布內容真實預覽（模擬機器畫面；字級由 fitPreview 依格子尺寸套用） */
 .pv-text { position: relative; z-index: 1; text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; text-shadow: none; }
@@ -509,10 +528,34 @@ html:root[data-color-mode="dark"] {
 /* 區段主控件列：不帶 label、佔滿整行。版面操作依用途分組，窄欄整組換行。 */
 .ins-full { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 0 2px; }
 .ins-full :is(.b-select, .b-dd, .thumbs, .swatches, .hint) { flex: 1 1 100%; }
-.ins-actions { gap: 8px 16px; padding-bottom: 4px; }
-.ins-action-group { display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; }
-.ins-actions .b-btn { flex: none; }
-.ins-action-delete { margin-left: auto; font-weight: 400; }
+/* 版面區段（2026-10-12）：左＝十字（上／左／這一格／右／下），右＝說明、格數、平均分配＋刪除這格。窄欄整組換行。
+   右欄跟十字一樣高（user：兩邊不同高很怪）：說明貼齊「上方」的上緣、按鈕貼齊「下方」的下緣 */
+.split-tools { flex-wrap: wrap; align-items: stretch; gap: 10px 16px; padding-bottom: 4px; }
+.split-cross { display: grid; grid-template-columns: repeat(3, 58px); grid-auto-rows: 44px; gap: 6px; flex: none; }
+.split-dir {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  padding: 0; border: 1px solid transparent; border-radius: var(--radius-md);
+  background: var(--neutral-secondary-medium); color: var(--text-body);
+  font: inherit; font-size: 12px; line-height: 1.3; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.split-dir :where(i, svg) { width: 16px; height: 16px; }
+.split-dir:not(:disabled):hover { background: var(--brand-softer); border-color: var(--border-brand-subtle); color: var(--fg-brand-strong); }
+.split-dir:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--brand-medium); }
+.split-dir:disabled { opacity: .4; cursor: default; }
+.split-self {
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--accent); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent-text, var(--fg-brand)); font-size: 12px; font-weight: 600;
+}
+.split-side { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; }
+.ins-full .split-side .hint { flex: none; margin: 0; font-size: calc(12px + var(--b-fs-boost, 0px)); line-height: 1.55; color: var(--text-body-subtle); }
+.ins-full .split-side .split-count { color: var(--text-body); }
+.split-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.split-acts .b-btn { flex: none; }
+.split-acts .b-btn-text-danger { font-weight: 400; }
+
 .ins-row {
   display: grid; grid-template-columns: 92px minmax(0, 1fr);
   gap: 6px 12px; align-items: start; padding: 4px 0;
@@ -966,9 +1009,9 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .b-modal.is-ws {
   /* 寬度貼合內容、右側不留大片空白（2026-09-03 指示）：
      寬度＝底框寬＋24 欄間距＋右欄上限 560＋body padding 40。短視窗以 min-width 保底。 */
-  /* 底框寬（.canvas-col 用同一值）：框高＝90vh−326（head＋頁籤列＋footer＋padding＋操作鈕列 82；2026-09-14 實測），
+  /* 底框寬（.canvas-col 用同一值）：框高＝90vh−286（head＋頁籤列＋footer＋padding＋操作鈕列 42；2026-09-14 實測、2026-10-12 少一列鈕），
      框內（扣 8px 內距＋1px 邊框）剛好 9:16 → 9:16 機器貼滿框、其他比例照真實比例置中留框。 */
-  --ws-frame-h: calc(90vh - 326px);
+  --ws-frame-h: calc(90vh - 286px);
   --ws-canvas-w: calc((var(--ws-frame-h) - 18px) * 9 / 16 + 18px);
   width: calc(var(--ws-canvas-w) + 626px);
   min-width: 880px; max-width: calc(100vw - 48px);
@@ -976,7 +1019,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   display: flex; flex-direction: column;
   overflow: hidden;   /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
 }
-#wsModal.is-shared-mode .b-modal.is-ws { --ws-frame-h: calc(90vh - 262px); } /* 共用版面編輯器沒有頁籤列（48＋16 margin）→ 框高多 64 */
+#wsModal.is-shared-mode .b-modal.is-ws { --ws-frame-h: calc(90vh - 222px); } /* 共用版面編輯器沒有頁籤列（48＋16 margin）→ 框高多 64 */
 .b-modal.is-ws .b-modal-head { flex: none; border-bottom: 0; } /* 內容不捲動 → 頂部分隔線拿掉 */
 .b-modal.is-ws .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* modal 內一律不畫捲軸（2026-09-03 指示）：body、右側面板、設定頁、對話框清單全包；

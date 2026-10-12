@@ -18,6 +18,8 @@ body {
 .page.in { opacity: 1; }
 .page.out { opacity: 0; pointer-events: none; }
 .block { display: flex; min-height: 0; position: relative; }
+/* 分割（可以一層層巢狀，2026-10-12）：兩個子節點照 inline flex 比例分 */
+.split { display: flex; min-width: 0; min-height: 0; position: relative; }
 .cell {
   flex: 1; min-height: 0; min-width: 0; overflow: hidden; position: relative;
   display: flex; align-items: center; justify-content: center;

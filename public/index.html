@@ -385,12 +385,11 @@
 
             <div id="editor" class="editor hidden">
               <div class="editor-body">
-                <!-- 左欄＝畫布＋其下的區塊操作鈕（寬度對齊畫布，2026-09-03 指示） -->
+                <!-- 左欄＝畫布＋其下的操作鈕（寬度對齊畫布，2026-09-03 指示；2026-10-12 拿掉「新增大區塊」，改用右側面板的十字切） -->
                 <div class="canvas-col">
                   <!-- 底框固定 9:16，裡面的畫布照機器真實比例置中（2026-09-14 user 指示：之前畫布被下方按鈕列撐寬、比例失真） -->
                   <div class="canvas-frame"><div id="canvas" class="canvas"></div></div>
                   <div class="canvas-actions">
-                    <button id="addBlockBtn" class="b-btn b-btn-sm">新增大區塊</button>
                     <div class="canvas-actions-row">
                       <button id="copyLayoutBtn" class="b-btn b-btn-sm">加到其他機器</button>
                       <button id="dupPageBtn" class="b-btn b-btn-sm">本機複製頁面</button>
@@ -558,10 +557,9 @@
                 <div class="gd-row"><b>展示頁面</b><span>上方頁籤列是這台機器的頁面（最多 8 頁），可新增、更名、刪除。</span></div>
                 <div class="gd-row"><b>複製頁面</b><span>畫布下方的<span class="gd-ui">本機複製頁面</span>把目前這一頁複製一份接在最後面，適合做版本微調。</span></div>
                 <div class="gd-row"><b>在機器上展示此頁</b><span>複製鈕右邊的圖示鈕：按下去機器就切到這一頁並進入展示模式，不必走到機器前面。機器正在展示的那一頁，圖示會標示出來。</span></div>
-                <div class="gd-row"><b>大塊</b><span>一頁由最多 3 個大塊直向堆疊，底部<span class="gd-ui">新增大塊</span>增加。</span></div>
-                <div class="gd-row"><b>分割</b><span>每個大塊可分割一次（上下或左右），子格不能再分割，一頁最多 6 格。</span></div>
-                <div class="gd-row"><b>調整比例</b><span>拖曳大塊之間或分割格之間的分隔線，角落會即時顯示實際像素。</span></div>
-                <div class="gd-row"><b>交換位置</b><span>按住格子拖到另一格放開，兩格的設定互換，格位大小不變。整個大塊要換順序，用右側面板的<span class="gd-ui">區塊上移</span>／<span class="gd-ui">區塊下移</span>。</span></div>
+                <div class="gd-row"><b>分割</b><span>點選一格，再按右側面板「版面」的上方／左邊／右邊／下方，新格子就加在那一邊（滑上去會先在畫布上預覽）；同一排的格子原本一樣大時會自動平均（大小不一時只切選的那一格，要拉平可按「平均分配」）。每一格都能再切，一頁最多 12 格，太小的格子不能再切。</span></div>
+                <div class="gd-row"><b>調整比例</b><span>拖曳格子之間的分隔線，靠近 1/2、1/3、1/4 會自動對齊，角落會即時顯示實際像素。右側面板的<span class="gd-ui">平均分配</span>把同一排調回一樣大，<span class="gd-ui">刪除這格</span>把位置交給旁邊的格子。</span></div>
+                <div class="gd-row"><b>交換位置</b><span>按住格子拖到另一格放開，兩格的設定互換，格位大小不變。</span></div>
                 <div class="gd-row"><b>儲存並發布</b><span>只影響這一台，機器幾秒內更新。<span class="gd-ui">重新載入</span>會放棄未儲存的修改，拉回伺服器目前版本。</span></div>
               </div>
               <figure class="gd-shot"><img src="img/manual/workspace.png" alt="機器工作區" loading="lazy"><figcaption class="gd-shot-cap">工作區：頁籤列、畫布與右側面板，「儲存並發布」在右下。</figcaption></figure>

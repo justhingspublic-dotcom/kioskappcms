@@ -31,6 +31,7 @@
 .as-body { flex: 1; min-height: 0; position: relative; }
 .as-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .as-scroll::-webkit-scrollbar { display: none; }
+.as-scroll { container-type: inline-size; } /* 多張圖卡片列要知道對話區多寬（cqw），才能延伸到兩邊 */
 .as-empty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 32px; text-align: center; }
 .as-empty .as-avatar { width: calc(72px * var(--as-scale)); height: calc(72px * var(--as-scale)); }
 .as-root.kiosk .as-empty .as-avatar { width: calc(160px * var(--as-scale)); height: calc(160px * var(--as-scale)); }
@@ -64,6 +65,29 @@
 .as-typing i:nth-child(2) { animation-delay: .12s; } .as-typing i:nth-child(3) { animation-delay: .24s; }
 @keyframes asDot { 0%, 40%, 100% { transform: translateY(0); } 20% { transform: translateY(-5px); } }
 .as-img { display: block; max-width: min(calc(480px * var(--as-scale)), 100%); border-radius: 16px; border: 1px solid #dfe3e8; cursor: pointer; background: #eef0f3; min-height: 60px; }
+/* 連續多張圖（2026-10-12 user）：每張一張圓角卡片、橫向一列左右滑，卡片寬 78% 讓下一張露出一角；沒有外框、箭頭、張數。
+   整列延伸到對話區兩邊（左邊越過頭像欄），延伸的寬度改當內距：第一張還是對齊文字，滑動時卡片滑到邊緣才消失，不會在文字那條線被切掉 */
+.as-strip { --as-bleed-r: calc(24px * var(--as-scale) + max(0px, (100cqw - 840px * var(--as-scale)) / 2)); --as-bleed-l: calc(var(--as-bleed-r) + 44px * var(--as-scale) + 12px);
+  margin: 0 calc(-1 * var(--as-bleed-r)) 0 calc(-1 * var(--as-bleed-l)); padding: 0 var(--as-bleed-r) 0 var(--as-bleed-l); scroll-padding: 0 var(--as-bleed-r) 0 var(--as-bleed-l);
+  display: flex; gap: calc(10px * var(--as-scale)); overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+.as-strip::-webkit-scrollbar { display: none; }
+.as-card { flex: 0 0 min(78%, calc(400px * var(--as-scale))); aspect-ratio: 4 / 3; border-radius: 16px; border: 1px solid #dfe3e8; background: #eef0f3; overflow: hidden; scroll-snap-align: start; cursor: pointer; display: flex; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none; }
+.as-card img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; }
+.as-card.dead { color: #5c6168; font-size: .95em; cursor: default; }
+/* 全螢幕看多張圖：一次一張左右滑，下方白色小圓點；圖不放大超過原尺寸，點圖以外的暗處關閉 */
+.as-slider { position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; }
+.as-slides { position: absolute; inset: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+.as-slides::-webkit-scrollbar { display: none; }
+.as-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: center; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; }
+.as-slide img { display: block; -webkit-user-drag: none; }
+.as-dots { display: flex; justify-content: center; gap: calc(8px * var(--as-scale)); }
+.as-dots i { width: calc(8px * var(--as-scale)); height: calc(8px * var(--as-scale)); border-radius: 50%; background: rgba(255,255,255,.35); transition: background .15s; }
+.as-dots i.on { background: #fff; }
+.as-slider.full { position: absolute; inset: 0; }
+.as-slider.full .as-slide { padding: 24px; }
+.as-slider.full .as-slide img { width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+.as-slider.full .as-slide.dead { color: #fff; }
+.as-slider.full .as-dots { position: absolute; left: 0; right: 0; bottom: 32px; }
 .as-video { position: relative; width: min(480px, 100%); aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; border: 1px solid #dfe3e8; background: #000; cursor: pointer; }
 .as-video img { width: 100%; height: 100%; object-fit: cover; opacity: .75; }
 .as-video .as-play { position: absolute; left: 50%; top: 50%; width: 72px; height: 72px; margin: -36px 0 0 -36px; border-radius: 50%; background: var(--as-accent); color: #fff; display: flex; align-items: center; justify-content: center; }
@@ -79,7 +103,8 @@
 .as-att img { width: 160px; height: 160px; object-fit: cover; border-radius: 16px; border: 1px solid #dfe3e8; }
 .as-att .doc { display: inline-flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--as-accent) 15%, #fff); max-width: calc(320px * var(--as-scale)); }
 .as-att .doc .material-icons { color: var(--as-accent); }
-.as-jump { position: absolute; right: 16px; bottom: 16px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid #dfe3e8; background: #fff; color: #1b1c1e; box-shadow: 0 4px 12px rgba(0,0,0,.14); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.as-jump { position: absolute; left: calc(50% - 22px * var(--as-scale)); bottom: calc(16px * var(--as-scale)); width: calc(44px * var(--as-scale)); height: calc(44px * var(--as-scale)); border-radius: 50%; border: 1px solid #dfe3e8; background: #fff; color: #1b1c1e; display: flex; align-items: center; justify-content: center; cursor: pointer; } /* 不要陰影（2026-10-12 user），只留細灰框 */
+.as-jump .material-icons { font-size: calc(24px * var(--as-scale)); } /* 底部正中間（2026-10-12 user：像 ChatGPT），大小跟著舞台比例 */
 
 /* 輸入區 */
 .as-input { flex: none; padding: 8px 10px 12px; background: #fff; }
@@ -101,6 +126,7 @@
 .as-circle, .as-root .as-circle { border: 0; border-radius: 50%; background: var(--as-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .12s ease, background .15s ease; flex: none; }
 .as-circle:active { transform: scale(.93); }
 .as-circle:disabled { opacity: .4; cursor: default; }
+.as-root .as-circle.send:disabled { opacity: 1; background: rgba(27,28,30,.10); color: rgba(27,28,30,.38); } /* 送出不能按＝半透明灰，不是淡掉的主題色（2026-10-12 user） */
 .as-circle.mic { width: calc(68px * var(--as-scale)); height: calc(68px * var(--as-scale)); }
 .as-circle.mic .material-icons { font-size: calc(32px * var(--as-scale)); }
 .as-circle.mic.listening { background: #ba1a1a; animation: asPulse 1.1s ease-in-out infinite alternate; }
@@ -124,10 +150,41 @@
 .as-text-row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
 .as-attach { width: calc(48px * var(--as-scale)); height: calc(48px * var(--as-scale)); border: 0; background: transparent; color: #5c6168; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
 .as-attach .material-icons { font-size: calc(28px * var(--as-scale)); }
+/* 一鍵清空（2026-10-12 user）：一個淡淡的 ✕、沒有底；點擊範圍跟「送出」同高，出現時輸入列不會變高；有字才出現 */
+.as-root .as-clear { width: calc(44px * var(--as-scale)); height: calc(46px * var(--as-scale)); padding: 0; border: 0; border-radius: 999px; background: transparent; color: #9aa0a6; display: inline-flex; align-items: center; justify-content: center; flex: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .12s ease; }
+.as-root .as-clear .material-icons { font-size: calc(26px * var(--as-scale)); }
+.as-root .as-clear:active { background: rgba(0,0,0,.06); }
+.as-root .as-clear[hidden] { display: none; }
 .as-field { flex: 1; min-width: 0; border: 0; background: transparent; resize: none; font: inherit; line-height: 1.4; padding: 8px; max-height: 5.8em; outline: none; color: #1b1c1e; overflow-y: auto; scrollbar-width: none; } /* 不顯示捲軸（同 App；Windows 上 zoom 後高度差小數點也不會冒出捲軸）*/
 .as-field::-webkit-scrollbar { display: none; }
 .as-field::placeholder { color: #5c6168; }
 .as-transcript { flex: 1; min-width: 0; padding: 8px; color: #5c6168; line-height: 1.4; }
+
+/* 輸入區在上方（2026-10-12 user 選的「D 延伸頂欄」）：頂欄＋輸入框合成一塊淡主題色頂區、下緣圓角；
+   輸入框＝跟下方同一個圓角框、白底、上下顛倒（輸入列在上、大麥克風在下）。
+   對話照一般順序（舊的在上），送出後新問題捲到最上面、回答往下長（同 ChatGPT「問題釘在上面」）；「回到最新」跟下方版型同一顆底部鈕。
+   KIOSK 的放大照舊（頂欄 zoom 1.6、輸入列 zoom 2），大小跟下方版型的輸入列一樣。
+   頂區浮在內容上面（2026-10-12 user）：捲動區延伸到頂區底下，內容捲到它後面、被下緣圓角切過去，不會被切成一條直線、角落也不會露白；
+   淡淡往下的陰影讓它看起來浮著。清單／空白開場的上緣讓出頂區高度 --as-headh（assist.js watchHead 量） */
+/* 白框跟頂區下緣同心（2026-10-12 user）：頂區下緣圓角＝白框圓角 28px＋內距 8px×比例，左、右、下內距一樣；
+   白框在 .as-input 裡（KIOSK zoom 2），頂區沒有 zoom，所以頂區的圓角要再乘 --as-iz（＝.as-input 的 zoom）才是同一個單位 */
+.as-root.pos-top { --as-iz: 1; }
+.as-root.pos-top.kiosk { --as-iz: 2; } /* 跟 .as-root.kiosk .as-input { zoom: 2 } 一致 */
+.as-root.pos-top .as-head { position: absolute; top: 0; left: 0; right: 0; z-index: 3; background: color-mix(in srgb, var(--as-accent) 9%, #fff); box-shadow: 0 4px 16px rgba(0,0,0,.05); --as-hr: calc((28px + 8px * var(--as-scale)) * var(--as-iz)); border-radius: 0 0 var(--as-hr) var(--as-hr); }
+.as-root.pos-top .as-top { background: transparent; border-bottom: 0; }
+.as-root.pos-top .as-input { background: transparent; padding: 2px calc(8px * var(--as-scale)) calc(8px * var(--as-scale)); }
+.as-root.pos-top .as-pill { background: #fff; } /* 跟下方同一個圓角框，只是白底、上下顛倒：輸入列在上、大麥克風在下（user：大麥克風要留著） */
+.as-root.pos-top .as-text-row { margin-top: 0; }
+.as-root.pos-top .as-mic-row { margin-top: 16px; }
+.as-root.pos-top .as-pending { max-width: calc(900px * var(--as-scale)); margin: 0 auto; padding: 10px 4px 0; }
+.as-root.pos-top .as-err { max-width: calc(900px * var(--as-scale)); margin: 0 auto; padding: 8px 16px 0; }
+.as-root.pos-top .as-list { padding-top: calc(var(--as-headh, 0px) + 24px * var(--as-scale)); } /* 問題停的位置＝頂區下緣再 24px */
+.as-root.pos-top .as-empty, .as-root.pos-top .as-notice { padding-top: calc(var(--as-headh, 0px) + 32px); } /* 開場在頂區下面的空間置中 */
+/* 一問一答一組；最後一組至少一個畫面高（捲動框高－清單上下內距：頂區高＋24px、24px），回答再短，它的問題也捲得到頂區正下方、下面留白。
+   cqh 要捲動框當 size 容器（它是 inset:0 的絕對定位，大小不看內容）；頂區變高變矮時上內距與最小高度一起變，捲動位置不會被夾掉 */
+.as-root.pos-top .as-scroll { container-type: size; }
+.as-ex { display: flex; flex-direction: column; gap: calc(24px * var(--as-scale)); }
+.as-root.pos-top .as-ex:last-child { min-height: calc(100cqh - var(--as-headh, 0px) - 48px * var(--as-scale)); }
 
 /* 歷史對話：右側滑入面板＋暗幕；每筆是淺灰圓角卡片（2026-09-14，同 App HistoryPanel） */
 .as-history { position: absolute; inset: 0; z-index: 38; overflow: hidden; } /* 裁切：面板滑入時不露到舞台外（橫式螢幕上的直式舞台）*/

@@ -323,20 +323,23 @@
       const frac = second ? 1 - ratio : ratio;
       return node.dir === 'Horizontal' ? { w: px.w, h: Math.round(px.h * frac) } : { w: Math.round(px.w * frac), h: px.h };
     };
+    // 格子可以一直切下去（2026-10-12 排版更自由）：分割一層一層往下畫，跟 App LayoutRenderer 一樣
+    // （'Vertical'＝左右並排、'Horizontal'＝上下疊；a 在左／上，ratio＝a 佔的比例，夾在 0.1–0.9）
+    const nodeEl = (node, flex, px) => {
+      if (!node || node.t !== 'split') return cellEl(node || {}, flex, px);
+      const ratio = clamp(Number(node.ratio) || 0.5, 0.1, 0.9);
+      const s = el('div', 'split');
+      s.style.flex = String(flex);
+      s.style.flexDirection = node.dir === 'Vertical' ? 'row' : 'column';
+      s.append(nodeEl(node.a, ratio, splitChildPx(px, node, false)), nodeEl(node.b, 1 - ratio, splitChildPx(px, node, true)));
+      return s;
+    };
     if (!blocks.length) next.append(placeholder('尚未新增任何區塊'));
     blocks.forEach((block) => {
       const blockPx = { w: SW, h: Math.round((SH * (block.w || 1)) / totalW) };
       const b = el('div', 'block');
       b.style.flex = String((block.w || 1) / totalW);
-      const node = block.node || { t: 'cell' };
-      if (node.t === 'split') {
-        const ratio = clamp(Number(node.ratio) || 0.5, 0.1, 0.9);
-        b.style.flexDirection = node.dir === 'Vertical' ? 'row' : 'column';
-        b.append(cellEl(node.a || {}, ratio, splitChildPx(blockPx, node, false)));
-        b.append(cellEl(node.b || {}, 1 - ratio, splitChildPx(blockPx, node, true)));
-      } else {
-        b.append(cellEl(node, 1, blockPx));
-      }
+      b.append(nodeEl(block.node || { t: 'cell' }, 1, blockPx));
       next.append(b);
     });
     const old = stage.querySelector('.page');
@@ -894,6 +897,7 @@
         idleMs: idleReturnMs(), layout: cell.assistantLayout || 'Kiosk', configured: !!(chat.email && chat.password && cell.agentId),
         speak: cell.agentSpeak !== false, speakRate: cell.agentSpeakRate, // 這一格的「語音朗讀」與「語速」
         upload: cell.agentUpload !== false, // 這一格的「允許上傳圖片」（2026-09-23）
+        inputPos: cell.agentInputPos === 'Bottom' ? 'Bottom' : 'Top', // 這一格的「輸入區位置」（2026-10-12）：預設上方＝輸入框在頂欄、新問題釘在上面；沒設定過的格子也是上方
         onClose: () => logEvent('page.close', '關閉智能客服，回到展示'),
       });
       logEvent('page.open', `開啟智能客服${cell.agentName ? '：' + cell.agentName : ''}`);

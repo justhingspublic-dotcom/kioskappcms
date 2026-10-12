@@ -1,6 +1,11 @@
 /* ==========================================================================
    AI 智能客服（網頁播放器版，2026-09-10）— App AssistantScreen／AssistantViewModel 的網頁翻版。
-   用法：KioskAssist.open({ base, deviceId, deviceKey, agentId, accent, theme, layout, configured, onClose })（accent：null＝站台主題色 theme、0＝JustAI 顏色、ARGB＝指定色）
+   用法：KioskAssist.open({ base, deviceId, deviceKey, agentId, accent, theme, layout, inputPos, configured, onClose })（accent：null＝站台主題色 theme、0＝JustAI 顏色、ARGB＝指定色）
+   - 輸入區位置 inputPos（2026-10-12，沒帶＝上方）：'Bottom'＝原本的樣子（輸入列在底部、對話由上往下、貼底跟著長）；
+     'Top'＝頂欄＋輸入框合成一塊淡主題色頂區；對話照一般順序（舊的在上），捲動跟下方一樣「貼底跟著長」：最後一組至少一個畫面高，
+     所以回答短時捲到底＝新問題停在頂區正下方，回答長過畫面（或圖晚到）就繼續跟著往下、問題捲到頂區後面；
+     訪客自己往上拉就放手，底部出現「回到最新」，點了滑回底部並接著跟。
+   - 跟著捲是滑的不是跳的（2026-10-12）：內容長高時 rAF 每格追剩下距離的 18%（chase），開啟與載入歷史才直接到底。
    - 對話走後台代理 /api/assist/…（帶 X-Device-Key），後台用這台機器 config 裡的客服帳號登入 JustAI；
      訊息回覆是 SSE 逐字，這裡再用「緩衝逐字揭露」打字機效果（同 App REVEAL_INTERVAL_MS=26）。
    - 開場＝頭像＋問候語＋建議問題 chips；使用者泡泡靠右、AI 靠左無框；串流游標；typing 三點；回到底部鈕。
@@ -45,22 +50,24 @@ window.KioskAssist = (() => {
     close(true);
     S = {
       base: opts.base || '', deviceId: opts.deviceId, deviceKey: opts.deviceKey, agentId: String(opts.agentId || '').trim(),
-      accent: Number(opts.accent) === 0 ? 'justai' : (colorCss(opts.accent) || null), theme: colorCss(opts.theme) || null, layout: opts.layout === 'Mobile' ? 'Mobile' : 'Kiosk', configured: !!opts.configured && !!String(opts.agentId || '').trim(),
+      accent: opts.accent != null && opts.accent !== '' && Number(opts.accent) === 0 ? 'justai' : (colorCss(opts.accent) || null), theme: colorCss(opts.theme) || null, layout: opts.layout === 'Mobile' ? 'Mobile' : 'Kiosk', configured: !!opts.configured && !!String(opts.agentId || '').trim(),
       onClose: opts.onClose || (() => {}),
       agent: null, agentError: null, messages: [], pending: [], threadId: null, streaming: false, abort: null,
-      nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: opts.idleMs === 0 ? 0 : (Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS), atBottom: true,
+      nextId: 1, fontScale: 1, msgEls: new Map(), idle: 0, idleMs: opts.idleMs === 0 ? 0 : (Number(opts.idleMs) > 0 ? Number(opts.idleMs) : IDLE_MS),
+      top: opts.inputPos !== 'Bottom', headH: 0, roHead: null, // 輸入區在上方（2026-10-12）：送出後問題先貼在頂區下面，回答長了照樣跟著捲到底；headH＝浮在上面的頂區多高
+      follow: true, lastTop: 0, ro: null, chaseRaf: 0, // 自動捲到底（2026-10-12）：follow＝貼著底部跟著長（上方模式也一樣：最後一組至少一個畫面高，回答短時「到底」就是問題貼在頂區下面）
       voice: null, layer: null, speakId: -1, spoken: 0, speakRate: Number(opts.speakRate) > 0 ? Number(opts.speakRate) : 1,
       upload: opts.upload !== false, // 後台「允許上傳圖片」（2026-09-23）：關掉就不出現上傳鈕
       voiceBlock: SR_OK ? '' : 'unsupported', // 麥克風不能用的原因（2026-09-23，同 App）：''＝可以用
       openedAt: Date.now(), history: null, historyLoading: false, historyError: null, openingThread: null,
     };
-    root = h('div', 'as-root' + (opts.layout === 'Mobile' ? '' : ' kiosk'));
+    root = h('div', 'as-root' + (opts.layout === 'Mobile' ? '' : ' kiosk') + (S.top ? ' pos-top' : ''));
     fitStage();
     window.addEventListener('resize', fitStage);
     speakOn = resolveSpeak(opts.speak !== false); // 後台預設值 vs 訪客自己關過的選擇
     root.style.setProperty('--as-fs', S.layout === 'Kiosk' ? '1.45' : '1');
     applyAccent();
-    root.innerHTML = `
+    const topBar = `
       <header class="as-top">
         <button type="button" class="as-icon-btn" data-act="back" aria-label="返回展示"><span class="material-icons">arrow_back</span></button>
         <div class="as-top-title"><span class="as-name">智能客服</span></div>
@@ -68,10 +75,16 @@ window.KioskAssist = (() => {
         <button type="button" class="as-icon-btn" data-act="font" aria-label="字體大小"><span class="material-icons">format_size</span></button>
         <button type="button" class="as-icon-btn" data-act="history" aria-label="歷史對話"><span class="material-icons">history</span></button>
         <button type="button" class="as-icon-btn" data-act="new" aria-label="新對話" disabled><span class="material-icons">add</span></button>
-      </header>
-      <div class="as-body"><div class="as-scroll"></div><button type="button" class="as-jump" data-act="jump" hidden aria-label="回到底部"><span class="material-icons">arrow_downward</span></button></div>
-      <footer class="as-input" hidden></footer>
+      </header>`;
+    const history = `
       <div class="as-history" hidden><div class="as-history-scrim" data-act="history-close"></div><aside class="as-history-panel"><div class="as-history-head"><span class="as-history-title">歷史對話</span><span class="as-history-sub">最近 7 天</span></div><div class="as-history-list"></div></aside></div>`;
+    // 上方模式：頂欄＋輸入框包成一塊頂區（.as-head）；跳鈕一樣在底部正中間，叫「回到最新」
+    root.innerHTML = S.top ? `
+      <div class="as-head">${topBar}
+      <div class="as-input" hidden></div></div>
+      <div class="as-body"><div class="as-scroll"></div><button type="button" class="as-jump" data-act="jump" hidden aria-label="回到最新"><span class="material-icons">arrow_downward</span></button></div>${history}` : `${topBar}
+      <div class="as-body"><div class="as-scroll"></div><button type="button" class="as-jump" data-act="jump" hidden aria-label="回到底部"><span class="material-icons">arrow_downward</span></button></div>
+      <footer class="as-input" hidden></footer>${history}`;
     (document.getElementById('navClip') || document.body).appendChild(root); // 舞台裁切容器（play.html）
     window.KioskNav?.enter(root); // 進場轉場（play.js；同 App sharedAxisX）
     root.addEventListener('click', onRootClick);
@@ -82,6 +95,7 @@ window.KioskAssist = (() => {
     renderTop();
     renderBody();
     renderInput();
+    if (S.top) watchHead();
     checkVoiceBlock(S); // 麥克風能不能用（權限要非同步查），不能用就先說明一次
     if (S.configured) loadAgent();
   }
@@ -101,6 +115,8 @@ window.KioskAssist = (() => {
     stopVoice();
     clearTimeout(S.idle);
     if (S.reveal) clearInterval(S.reveal);
+    stopChase();
+    S.ro?.disconnect(); S.roHead?.disconnect();
     const el = root; root = null;
     window.removeEventListener('resize', fitStage);
     // 非靜默關閉：滑出後才移除；靜默（重開／休眠）直接移除並把展示畫面復原
@@ -156,6 +172,9 @@ window.KioskAssist = (() => {
   function renderBody() {
     const sc = root.querySelector('.as-scroll');
     sc.innerHTML = ''; S.msgEls.clear();
+    if (S.top) sc.scrollTop = 0; // 開場／提示從最上面開始（頂區浮在上面，窄的 KIOSK 開場可能比畫面高，不要停在舊的捲動位置）
+    S.lastTop = 0; // 清空後捲動位置歸零不是訪客往上拉（有訊息時 scrollToBottom 會再記一次）
+    observeSize(null); syncJump();
     if (!S.configured || S.agentError === '__notconfigured__') {
       sc.appendChild(h('div', 'as-notice', `<span class="material-icons">smart_toy</span><h3>智能客服尚未設定</h3><p>請在後台「機器設定」填寫智能客服帳號，並在這一格的點擊動作選擇客服。</p>`));
       return;
@@ -178,9 +197,34 @@ window.KioskAssist = (() => {
       return;
     }
     const list = h('div', 'as-list');
+    if (S.top) {
+      // 上方模式：照一般順序（舊的在上），一問一答包成一組；捲到底＝最後一組的問題在頂區下面（最後一組至少一個畫面高）
+      exchanges().forEach((g) => list.appendChild(exEl(g)));
+      sc.appendChild(list);
+      observeSize(list);
+      scrollToBottom();
+      return;
+    }
     S.messages.forEach((m) => list.appendChild(messageEl(m)));
     sc.appendChild(list);
-    scrollToBottom(false);
+    observeSize(list);
+    scrollToBottom();
+  }
+  /** 上方模式的「一組」＝一則訪客訊息＋接在後面的 AI 回覆（第一則訪客訊息之前的回覆自成一組）。
+   *  最後一組至少一個畫面高（CSS .as-ex:last-child），回答再短，它的問題也捲得到最上面，下面留白（同 ChatGPT）。 */
+  function exchanges() {
+    const out = [];
+    S.messages.forEach((m) => { if (m.fromUser || !out.length) out.push([]); out[out.length - 1].push(m); });
+    return out;
+  }
+  function exEl(group) { const ex = h('div', 'as-ex'); group.forEach((m) => ex.appendChild(messageEl(m))); return ex; }
+  /** 上方模式：訊息變了但不重建（按停止、回覆是空的）：更新還在的、拿掉不在的；圖片不重載、捲動位置不動。 */
+  function refreshBody() {
+    if (!root.querySelector('.as-list')) return renderBody();
+    const ids = new Set(S.messages.map((m) => m.id));
+    S.msgEls.forEach((el, id) => { if (!ids.has(id)) { el.remove(); S.msgEls.delete(id); } });
+    S.messages.forEach((m) => { const el = !m.fromUser && S.msgEls.get(m.id); if (el) fillMessage(el, m); });
+    syncJump();
   }
   function messageEl(m) {
     const el = h('div', 'as-msg ' + (m.fromUser ? 'user' : 'bot'));
@@ -190,8 +234,8 @@ window.KioskAssist = (() => {
     return el;
   }
   function fillMessage(el, m) {
-    el.innerHTML = '';
     if (m.fromUser) {
+      el.innerHTML = '';
       if (m.attachments.length) {
         const att = h('div', 'as-att');
         m.attachments.forEach((a) => {
@@ -203,27 +247,90 @@ window.KioskAssist = (() => {
       if (m.text) el.appendChild(h('div', 'as-bubble', esc(m.text)));
       return;
     }
-    el.appendChild(avatarEl(44));
-    const body = h('div', 'as-bot-body');
+    // AI 回覆串流時每 26ms 重畫一次（2026-10-12）：頭像與內容框留著只換文字；圖片／相簿／影片／連結卡片沿用同一個元素、也不搬動它
+    // （重建＝圖重載閃一下、高度跳、相簿跳回第一張；元素拔掉再插回去捲動位置也會歸零）
+    if (!el._body) { el.innerHTML = ''; el.appendChild(avatarEl(44)); el._body = el.appendChild(h('div', 'as-bot-body')); }
+    const body = el._body, prev = el._media || new Map(), next = new Map(), kids = [];
+    const media = (key, make, fits) => {
+      let k = key, n = 1; while (next.has(k)) k = key + '#' + ++n; // 同一則出現兩次同一張圖
+      let x = prev.get(k); x = x?._swap || x; // _swap：圖片載入失敗換成的提示
+      if (!x || (fits && !fits(x))) x = make();
+      next.set(k, x); return x;
+    };
     el.classList.toggle('typing', !!(m.streaming && !m.text));
-    if (m.streaming && !m.text) body.appendChild(h('span', 'as-typing', '<i></i><i></i><i></i>'));
+    if (m.streaming && !m.text) kids.push(h('span', 'as-typing', '<i></i><i></i><i></i>'));
     else {
       const blocks = parseBlocks(m.text, m.streaming);
-      blocks.forEach((b, i) => {
-        if (b.type === 'text') body.appendChild(textEl(b.text, m.streaming && i === blocks.length - 1, m.isError));
-        else if (b.type === 'image') body.appendChild(imageEl(b));
-        else if (b.type === 'video') body.appendChild(videoEl(b.videoId));
-        else if (b.type === 'link') body.appendChild(linkEl(b.url));
-      });
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        if (b.type === 'text') kids.push(textEl(b.text, m.streaming && i === blocks.length - 1, m.isError));
+        else if (b.type === 'image') {
+          let j = i; while (blocks[j + 1]?.type === 'image') j++;
+          if (j === i) { kids.push(media('img:' + b.url, () => imageEl(b))); continue; }
+          // 連續兩張以上＝相簿；串流中後面又多一張就加在原本的相簿後面（停在原本那張）
+          const run = blocks.slice(i, j + 1); i = j;
+          const g = media('gal:' + b.url, () => galleryEl(run), (x) => x._list.length <= run.length && x._list.every((p, q) => p.url === run[q].url));
+          if (g._list.length < run.length) g._add(run.slice(g._list.length));
+          kids.push(g);
+        } else if (b.type === 'video') kids.push(media('vid:' + b.videoId, () => videoEl(b.videoId)));
+        else if (b.type === 'link') kids.push(media('link:' + b.url, () => linkEl(b.url)));
+      }
     }
-    el.appendChild(body);
+    [...body.childNodes].forEach((n) => { if (!kids.includes(n)) n.remove(); });
+    kids.forEach((n, i) => { if (body.childNodes[i] !== n) body.insertBefore(n, body.childNodes[i] || null); });
+    el._media = next;
   }
-  function updateMessage(m) { const el = S.msgEls.get(m.id); if (el) { fillMessage(el, m); if (S.atBottom) scrollToBottom(false); } }
-  function scrollToBottom(smooth) { const sc = root.querySelector('.as-scroll'); sc.scrollTo({ top: sc.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); }
+  function updateMessage(m) { const el = S.msgEls.get(m.id); if (el) { fillMessage(el, m); if (S.follow) chase(); } }
+  /** 直接到底、不滑（開啟、整串重畫、載入歷史）。lastTop 記成新位置：onScroll 才不會把這一下當成訪客往上拉。 */
+  function scrollToBottom() { const sc = root.querySelector('.as-scroll'); sc.scrollTop = sc.scrollHeight; S.lastTop = sc.scrollTop; }
+  /** 跟著捲（2026-10-12 user：每長一行、圖晚到就「跳」一下很突兀）：用 rAF 一格一格追到底，每格補上剩下距離的 18%
+   *  （至少 2px，剩不到 2px 就直接到底）＝先快後慢；字一直長就一直順順地追。已經在追就不重開；
+   *  訪客往上拉（onScroll 放手）或關閉就停。送出、回到最新也走這條（一樣是滑過去）。 */
+  function chase() {
+    if (!S || !root || S.chaseRaf || !S.follow || !S.messages.length) return; // 空白開場／提示不跟（KIOSK 窄螢幕開場比畫面高，要停在最上面）
+    const owner = S;
+    const step = () => {
+      owner.chaseRaf = 0;
+      if (S !== owner || !root || !S.follow) return;
+      const sc = root.querySelector('.as-scroll'), before = sc.scrollTop, dist = sc.scrollHeight - sc.clientHeight - before;
+      if (dist < 0.5) return;
+      sc.scrollTop = dist <= 2 ? sc.scrollHeight : before + Math.max(dist * 0.18, 2);
+      S.lastTop = sc.scrollTop; // 自己捲的：下一個 scroll 事件拿它比，訪客只要往上拉一點就看得出來（不會被這一格蓋掉）
+      if (sc.scrollTop > before) S.chaseRaf = requestAnimationFrame(step); // 推不動（小數點對不齊）就別空轉
+    };
+    S.chaseRaf = requestAnimationFrame(step);
+  }
+  function stopChase() { if (S?.chaseRaf) { cancelAnimationFrame(S.chaseRaf); S.chaseRaf = 0; } }
+  /** 回到底部並開始跟隨（送出、回到最新）：滑過去。 */
+  function pinBottom() { S.follow = true; syncJump(); chase(); }
+  /** 自動捲到底（2026-10-12）：訪客自己往上拉（scrollTop 變小，而且不是內容縮短被夾回底部）就放手、停止追；回到離底 96px 內再接上。
+   *  chase 只會讓 scrollTop 越來越大，不會誤判成放手。 */
   function onScroll() {
-    const sc = root.querySelector('.as-scroll');
-    S.atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 96;
-    root.querySelector('.as-jump').hidden = S.atBottom || !S.messages.length;
+    const sc = root.querySelector('.as-scroll'), top = sc.scrollTop, dist = sc.scrollHeight - sc.clientHeight - top;
+    if (top < S.lastTop - 1 && dist > 2) { S.follow = false; stopChase(); }
+    else if (dist <= 96) S.follow = true;
+    S.lastTop = top;
+    syncJump();
+  }
+  function syncJump() {
+    const j = root.querySelector('.as-jump');
+    j.hidden = S.follow || !S.messages.length;
+  }
+  /** 上方模式的頂區浮在內容上面（2026-10-12 user）：捲動區延伸到頂區底下，內容捲到頂區後面、被它的圓角切過去；
+   *  清單（與空白開場）上緣讓出頂區的高度 --as-headh。頂區高度會變（輸入框長高、待傳附件、錯誤訊息、字級），盯著它更新。 */
+  function watchHead() {
+    const head = root.querySelector('.as-head');
+    const set = () => { if (!root || !S || S.headH === head.offsetHeight) return; S.headH = head.offsetHeight; root.style.setProperty('--as-headh', S.headH + 'px'); syncJump(); };
+    set();
+    if (window.ResizeObserver) { S.roHead = new ResizeObserver(set); S.roHead.observe(head); }
+  }
+  /** 內容變高不會觸發 scroll（圖片、影片縮圖、連結卡片的圖晚到；輸入列長高、鍵盤）：盯著訊息列與捲動框的大小，跟隨中就滑到底。 */
+  function observeSize(list) {
+    if (!window.ResizeObserver) return;
+    S.ro = S.ro || new ResizeObserver(() => { if (root && S?.follow) chase(); });
+    S.ro.disconnect();
+    S.ro.observe(root.querySelector('.as-scroll'));
+    if (list) S.ro.observe(list);
   }
 
   // ---------- AI 回覆的區塊解析（同 App MessageBlocks.kt）----------
@@ -315,8 +422,39 @@ window.KioskAssist = (() => {
   function imageEl(b) {
     const img = new Image(); img.className = 'as-img'; img.src = b.url; img.alt = b.alt || '圖片'; img.loading = 'lazy';
     img.addEventListener('click', () => openLayer(`<img class="full" src="${esc(b.url)}" alt="${esc(b.alt || '')}">`));
-    img.addEventListener('error', () => { img.replaceWith(h('div', 'as-video dead', '圖片載入失敗')); });
+    img.addEventListener('error', () => { const d = h('div', 'as-video dead', '圖片載入失敗'); img.replaceWith(d); img._swap = d; }); // _swap：之後重畫改放提示
     return img;
+  }
+  /** 連續兩張以上的圖（2026-10-12 user）：每張圖各自一張圓角卡片、排成一列左右滑，下一張露出一角提示還有；不要外框、箭頭、張數。
+   *  點圖開全螢幕（一樣能滑）。_list／_add：串流中後面又多出圖就直接加在後面。 */
+  function galleryEl(list) {
+    const g = h('div', 'as-strip');
+    g._list = [];
+    g._add = (more) => more.forEach((b) => {
+      const i = g._list.push(b) - 1;
+      const card = h('div', 'as-card'), img = new Image(); img.src = b.url; img.alt = b.alt || '圖片'; img.draggable = false;
+      img.addEventListener('error', () => { card.classList.add('dead'); card.textContent = '圖片載入失敗'; });
+      card.addEventListener('click', () => { if (!card.classList.contains('dead')) openViewer(g._list, i); });
+      card.appendChild(img); g.appendChild(card);
+    });
+    g._add(list);
+    return g;
+  }
+  /** 全螢幕看多張圖：左右滑一次一張（scroll-snap），下方小圓點；點圖以外的暗處關閉。 */
+  function openViewer(list, start) {
+    const s = h('div', 'as-slider full', '<div class="as-slides"></div><div class="as-dots"></div>');
+    const track = s.firstChild, dots = s.lastChild;
+    let raf = 0;
+    list.forEach((b) => {
+      const slide = h('div', 'as-slide'), img = new Image(); img.src = b.url; img.alt = b.alt || '圖片'; img.draggable = false;
+      img.addEventListener('error', () => { slide.classList.add('dead'); slide.textContent = '圖片載入失敗'; });
+      slide.appendChild(img); track.appendChild(slide);
+    });
+    dots.innerHTML = list.length > 1 ? '<i></i>'.repeat(list.length) : '';
+    const sync = () => { const i = Math.round(track.scrollLeft / (track.clientWidth || 1)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };
+    track.addEventListener('scroll', () => { raf = raf || requestAnimationFrame(() => { raf = 0; sync(); }); }, { passive: true });
+    openLayer(s);
+    track.scrollTo({ left: start * track.clientWidth }); sync();
   }
   function videoEl(id) {
     const v = h('div', 'as-video', `<img src="https://img.youtube.com/vi/${esc(id)}/hqdefault.jpg" alt="影片縮圖"><span class="as-play"><span class="material-icons">play_arrow</span></span>`);
@@ -334,11 +472,14 @@ window.KioskAssist = (() => {
     }).catch(() => {});
     return card;
   }
-  function openLayer(inner) {
+  function openLayer(inner) { // inner：HTML 字串或元素（相簿檢視）
     closeLayer();
-    const l = h('div', 'as-layer', inner + '<button type="button" class="as-close" aria-label="關閉"><span class="material-icons">close</span></button>');
+    const l = h('div', 'as-layer', typeof inner === 'string' ? inner : '');
+    if (typeof inner !== 'string') l.appendChild(inner);
+    l.insertAdjacentHTML('beforeend', '<button type="button" class="as-close" aria-label="關閉"><span class="material-icons">close</span></button>');
     l.querySelector('.as-close').addEventListener('click', closeLayer);
-    l.addEventListener('click', (e) => { if (e.target === l || e.target.classList.contains('full')) closeLayer(); });
+    // 點暗處關閉；相簿＝圖以外的空白（箭頭、張數不算）
+    l.addEventListener('click', (e) => { const t = e.target; if (t === l || t.classList.contains('full') || t.matches('.as-slide, .as-slides')) closeLayer(); });
     root.appendChild(l); S.layer = l;
   }
   function openBrowser(url) {
@@ -363,28 +504,50 @@ window.KioskAssist = (() => {
     const ready = S.pending.filter((p) => p.uploaded).length;
     const value = S.draft || '';
     const canSend = (value.trim() || ready) && !uploading;
-    f.innerHTML = `${pendingHtml}${S.inputError ? `<div class="as-err">${esc(S.inputError)}</div>` : ''}
-      <div class="as-pill">
-        <div class="as-mic-row"><button type="button" class="as-circle mic${listening ? ' listening' : ''}${vBlock ? ' blocked' : ''}" data-act="mic" aria-label="${vBlock ? '麥克風無法使用' : (listening ? '停止聆聽' : '開始說話')}"><span class="material-icons">${vBlock ? 'mic_off' : 'mic'}</span></button></div>
-        <div class="as-text-row">
+    const micLabel = vBlock ? '麥克風無法使用' : (listening ? '停止聆聽' : '開始說話'), micIcon = vBlock ? 'mic_off' : 'mic';
+    const rowHtml = `
           ${canAttach ? `<button type="button" class="as-attach" data-act="attach" aria-label="附加檔案"><span class="material-icons">${S.agent.enableImageUpload ? 'add_photo_alternate' : 'insert_drive_file'}</span></button>` : ''}
           ${listening ? `<div class="as-transcript">${esc([value, S.voice.partial].filter(Boolean).join(' ')) || '聆聽中，請說話…'}</div>`
             : `<textarea class="as-field" rows="1" placeholder="詢問任何問題">${esc(value)}</textarea>`}
+          <button type="button" class="as-clear" data-act="clear" aria-label="清除文字" ${(listening ? value || S.voice.partial : value) ? '' : 'hidden'}><span class="material-icons">close</span></button>
           ${S.streaming ? `<button type="button" class="as-circle send" data-act="stop" aria-label="停止回覆">停止</button>`
             : `<button type="button" class="as-circle send" data-act="send" aria-label="送出" ${canSend ? '' : 'disabled'}>送出</button>`}
-        </div>
-      </div>
+        `;
+    const errHtml = S.inputError ? `<div class="as-err">${esc(S.inputError)}</div>` : '';
+    const fileHtml = `
       <input type="file" class="as-file" hidden accept="${[S.agent?.enableImageUpload ? 'image/jpeg,image/png,image/webp,image/gif' : '', S.agent?.enableFileUpload ? '.pdf,.docx,.txt,.md,.csv' : ''].filter(Boolean).join(',')}">`;
+    const micHtml = `<div class="as-mic-row"><button type="button" class="as-circle mic${listening ? ' listening' : ''}${vBlock ? ' blocked' : ''}" data-act="mic" aria-label="${micLabel}"><span class="material-icons">${micIcon}</span></button></div>`;
+    // 上方模式（2026-10-12）：下方那個圓角框上下顛倒、白底：先輸入列、大麥克風在下面（user：大麥克風要留著）；待傳附件與錯誤訊息在框下面
+    f.innerHTML = S.top ? `
+      <div class="as-pill">
+        <div class="as-text-row">${rowHtml}</div>
+        ${micHtml}
+      </div>${pendingHtml}${errHtml}${fileHtml}` : `${pendingHtml}${errHtml}
+      <div class="as-pill">
+        ${micHtml}
+        <div class="as-text-row">${rowHtml}</div>
+      </div>${fileHtml}`;
     const ta = f.querySelector('.as-field');
     if (ta) {
       const grow = () => { ta.style.height = 'auto'; const max = parseFloat(getComputedStyle(ta).maxHeight) || 140; ta.style.height = Math.min(ta.scrollHeight + 1, max) + 'px'; }; // +1：zoom 後的小數高度不溢出；上限跟 CSS max-height（KIOSK 字大時 140 只夠兩行）
       grow();
-      ta.addEventListener('input', () => { S.draft = ta.value; grow(); const b = f.querySelector('[data-act="send"]'); if (b) b.disabled = !((ta.value.trim() || ready) && !uploading); });
+      // 清除鈕先切換再量高度：鈕佔掉的寬度會讓字（或提示字）換行
+      ta.addEventListener('input', () => { S.draft = ta.value; f.querySelector('.as-clear').hidden = !ta.value; grow(); const b = f.querySelector('[data-act="send"]'); if (b) b.disabled = !((ta.value.trim() || ready) && !uploading); });
       ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta.value); } });
       if (S.focusField) { ta.focus(); S.focusField = false; }
     }
+    // 按清除鈕不讓輸入框失焦（螢幕鍵盤不收起來）
+    ['pointerdown', 'mousedown'].forEach((t) => f.querySelector('.as-clear').addEventListener(t, (e) => e.preventDefault()));
     const file = f.querySelector('.as-file');
     if (file) file.addEventListener('change', () => { for (const fl of file.files) addAttachment(fl); file.value = ''; });
+  }
+  /** 一鍵清空（2026-10-12）：清掉打的字，游標留在輸入框；聆聽中就清掉目前聽到的字（含還沒講完的那句），繼續聽。 */
+  function clearDraft() {
+    S.draft = '';
+    const v = S.voice;
+    if (v?.listening) { v.skip = v.seen; v.partial = ''; renderInput(); return; }
+    const ta = root.querySelector('.as-field');
+    if (ta) { ta.value = ''; ta.dispatchEvent(new Event('input')); ta.focus(); }
   }
 
   function onRootClick(e) {
@@ -399,13 +562,14 @@ window.KioskAssist = (() => {
     else if (act === 'history') openHistory();
     else if (act === 'history-close') closeHistory();
     else if (act === 'history-pick') openThread(btn.dataset.tid);
-    else if (act === 'jump') scrollToBottom(true);
+    else if (act === 'jump') pinBottom();
+    else if (act === 'clear') clearDraft();
     else if (act === 'font') toggleFontMenu(btn);
     else if (act === 'mic') { if (S.voiceBlock) showVoiceHelp(); else toggleVoice(); }
     else if (act === 'vh-close') closeVoiceHelp();
     else if (act === 'vh-go') fixVoice();
     else if (act === 'attach') root.querySelector('.as-file')?.click();
-    else if (act === 'send') send(root.querySelector('.as-field')?.value || '');
+    else if (act === 'send') send(root.querySelector('.as-field')?.value ?? S.draft ?? ''); // 聆聽中沒有輸入框：送已聽到的字（同 App）
     else if (act === 'stop') stopStream(false);
     else if (act === 'rm') { const id = Number(btn.closest('.as-pchip').dataset.pid); S.pending = S.pending.filter((p) => p.localId !== id); renderInput(); }
     else if (act === 'font-pick') { S.fontScale = Number(btn.dataset.v); root.style.setProperty('--as-fs', String((S.layout === 'Kiosk' ? 1.45 : 1) * S.fontScale)); root.querySelector('.as-menu')?.remove(); }
@@ -422,7 +586,7 @@ window.KioskAssist = (() => {
   function reset() {
     stopStream(true);
     stopSpeak();
-    S.threadId = null; S.messages = []; S.pending = []; S.streaming = false; S.draft = '';
+    S.threadId = null; S.messages = []; S.pending = []; S.streaming = false; S.draft = ''; S.follow = true;
     renderTop(); renderBody(); renderInput();
   }
   async function send(text) {
@@ -441,9 +605,16 @@ window.KioskAssist = (() => {
     const reply = { id: S.nextId++, text: '', fromUser: false, streaming: true, isError: false, attachments: [] };
     S.messages.push(reply);
     S.streaming = true;
-    if (first) renderBody(); else { const list = root.querySelector('.as-list'); list.appendChild(messageEl(S.messages[S.messages.length - 2])); list.appendChild(messageEl(reply)); }
-    S.atBottom = true; scrollToBottom(true);
-    renderTop(); renderInput();
+    if (S.top) {
+      // 上方模式：輸入區先縮回去（捲動框高度定了再量），新的一組接在最後面，滑到底＝它的問題貼齊上緣；回答長了照樣跟著捲
+      renderTop(); renderInput();
+      if (first) renderBody(); else root.querySelector('.as-list').appendChild(exEl([S.messages[S.messages.length - 2], reply]));
+      pinBottom();
+    } else {
+      if (first) renderBody(); else { const list = root.querySelector('.as-list'); list.appendChild(messageEl(S.messages[S.messages.length - 2])); list.appendChild(messageEl(reply)); }
+      pinBottom();
+      renderTop(); renderInput();
+    }
 
     // 打字機：SSE 增量進 target，每 26ms 揭露 1～4 字（積壓越多越快）
     let target = '', revealed = 0;
@@ -482,7 +653,7 @@ window.KioskAssist = (() => {
       if (S.abort !== ctrl) return;
       clearInterval(S.reveal); S.reveal = 0;
       reply.text = target; reply.streaming = false;
-      if (!reply.text) { S.messages = S.messages.filter((m) => m !== reply); renderBody(); } else { updateMessage(reply); speakFollow(reply, true); }
+      if (!reply.text) { S.messages = S.messages.filter((m) => m !== reply); if (S.top) refreshBody(); else renderBody(); } else { updateMessage(reply); speakFollow(reply, true); }
     } catch (e) {
       if (S.abort !== ctrl) return; // 被停止或關閉
       clearInterval(S.reveal); S.reveal = 0;
@@ -505,7 +676,7 @@ window.KioskAssist = (() => {
     const full = S.target ? S.target() : ''; S.target = null;
     S.messages = S.messages.map((m) => (m.streaming ? { ...m, streaming: false, text: m.fromUser ? m.text : (full || m.text) } : m)).filter((m) => m.fromUser || m.text);
     S.streaming = false;
-    if (!silent) { renderBody(); renderTop(); renderInput(); }
+    if (!silent) { if (S.top) refreshBody(); else renderBody(); renderTop(); renderInput(); }
   }
 
   // ---------- 歷史對話（2026-09-14，同 App HistoryPanel）：右側滑入、淺灰圓角卡片、點了載回並關閉 ----------
@@ -551,9 +722,9 @@ window.KioskAssist = (() => {
         id: S.nextId++, text: m.content, fromUser: m.fromUser, streaming: false, isError: false,
         attachments: m.attachments.map((a) => ({ name: a.name, previewUrl: a.fileUrl || '', isImage: a.isImage })),
       }));
-      S.openingThread = null;
+      S.openingThread = null; S.follow = true;
       closeHistory();
-      renderTop(); renderBody(); renderInput();
+      renderTop(); renderBody(); renderInput(); // renderBody 直接到底（不滑）；上方模式最後一組回答短時＝最後一個問題在頂區正下方
     } catch (e) {
       S.openingThread = null; S.historyError = e.message || '無法連線'; renderHistory();
     }
@@ -596,21 +767,24 @@ window.KioskAssist = (() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const rec = new SR(); rec.lang = 'zh-TW'; rec.continuous = true; rec.interimResults = true;
-    const v = { rec, listening: true, partial: '', want: true, lastSpeech: Date.now(), timer: 0 };
+    const v = { rec, listening: true, partial: '', want: true, lastSpeech: Date.now(), timer: 0, seen: 0, skip: 0 }; // skip：按清除時已聽到的結果數，之後不再採用
     S.voice = v;
     const armSilence = () => { clearTimeout(v.timer); v.timer = setTimeout(() => { if (Date.now() - v.lastSpeech >= SILENCE_MS) stopVoice(); else armSilence(); }, SILENCE_MS); };
     rec.onresult = (ev) => {
-      let interim = '';
+      let interim = '', heard = false;
+      v.seen = ev.results.length;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const t = ev.results[i][0].transcript;
+        heard = heard || !!t.trim();
+        if (i < v.skip) continue;
         if (ev.results[i].isFinal) { S.draft = [S.draft || '', t.trim()].filter(Boolean).join(' '); }
         else interim += t;
       }
       v.partial = interim.trim();
-      if (v.partial || ev.results[ev.results.length - 1]?.isFinal) v.lastSpeech = Date.now();
+      if (heard || ev.results[ev.results.length - 1]?.isFinal) v.lastSpeech = Date.now();
       renderInput();
     };
-    rec.onend = () => { if (S?.voice === v && v.want && Date.now() - v.lastSpeech < SILENCE_MS) { try { rec.start(); } catch { stopVoice(); } } else if (S?.voice === v) stopVoice(); };
+    rec.onend = () => { if (S?.voice === v && v.want && Date.now() - v.lastSpeech < SILENCE_MS) { v.seen = v.skip = 0; try { rec.start(); } catch { stopVoice(); } } else if (S?.voice === v) stopVoice(); };
     rec.onerror = (ev) => {
       if (ev.error === 'no-speech' || ev.error === 'aborted') return;
       stopVoice();

@@ -9,14 +9,16 @@ let deviceId = '';
 let wsDevName = ''; // 進工作區時機器列表上的名稱（config 沒帶 deviceName 時的後備）
 let state = null;         // { version, config: { pages:[...], activePage } }
 let pageIndex = 0;
-let selected = null;      // { bi, sub: null|'a'|'b' }
+let selected = null;      // { bi, path }：path＝從區塊根往下的 'a'/'b' 字串（''＝根）；編輯器裡一頁只有一個區塊，bi 一律 0
 let dirty = false;
 let activePageTouched = false; // 只有按過「在機器上展示此頁」才隨儲存送出 activePage
 let meIsAdmin = false;
 let wsMode = 'device';    // 工作區 modal 模式：'device'＝編輯某台機器；'shared'＝編輯共用版面
 let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡哪一個版面（id）
 
-const MAX_BLOCKS = 3, MAX_PAGES = 8, MAX_IMAGES = 12;
+const MAX_PAGES = 8, MAX_IMAGES = 12;
+// 排版更自由（2026-10-12）：每一格都能再切；一頁最多 12 格，切完（含同排平均）任一格窄於畫面寬 12%／矮於畫面高 6% 就不給切
+const MAX_CELLS = 12, MIN_SPLIT_W = 0.12, MIN_SPLIT_H = 0.06;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片', ParkInfo: '園區資訊' };
 // 測站功能（2026-09-10 user 指示）：站台沒設園區測站 API 就整組藏起來——內容「園區資訊」、天氣來源「園區測站」、
 // 點擊動作「園區資訊」都不出現（既有格子已經選了的話仍保留，才不會一開就變成別的東西）。
@@ -34,7 +36,7 @@ const DEFAULT_CELL = () => ({
   t: 'cell', bg: 'Solid', bgColor: 4280693304 /* 0xFF263238 */, bgImgs: [], scale: 'Crop', dur: 8, bgBlur: 0,
   content: 'None', mqSpeed: 100, txtSize: 100, glow: false, edgeFade: false, video: '', web: '', text: '',
   wAuto: true, wCounty: '', wDistrict: '', wDynBg: false,
-  tap: 'None', tapUrl: '', parkHere: '', parkFx: 'Sweep', parkLayout: 'Auto', parkInfoLayout: 'Kiosk', agentId: '', agentName: '', assistantLayout: 'Kiosk', agentSpeak: true, agentSpeakRate: 1, agentUpload: true,
+  tap: 'None', tapUrl: '', parkHere: '', parkFx: 'Sweep', parkLayout: 'Auto', parkInfoLayout: 'Kiosk', agentId: '', agentName: '', assistantLayout: 'Kiosk', agentInputPos: 'Top', agentSpeak: true, agentSpeakRate: 1, agentUpload: true,
 });
 // App ParkCtaStyle：「點我查看」按鈕的看板動態（None = 靜態）
 const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
@@ -51,10 +53,10 @@ function hintOf(cell) {
   return cell.tap === 'OpenParkInfo' ? 'Button' : 'None';
 }
 const ctaLabelOf = (cell) => (cell.tapLabel || '').trim() || '點我查看';
-// 這一頁所有格子（區塊本身或分割後的兩半）
+// 這一頁所有格子（每個區塊往下切到底的葉格）
 function pageCells(p) {
   const out = [];
-  (p?.blocks || []).forEach((b) => { const n = b.node || {}; if (n.t === 'split') { if (n.a) out.push(n.a); if (n.b) out.push(n.b); } else out.push(n); });
+  (p?.blocks || []).forEach((b) => leavesOf(b.node).forEach((l) => out.push(l.cell)));
   return out;
 }
 // 一頁只有一格會動：這格開了按鈕動態，同頁其他「按鈕」格的動態改成「無」，回傳改了幾格
@@ -601,19 +603,207 @@ const page = () => state.config.pages[pageIndex];
 const colorCss = (n) => '#' + (Number(n ?? 4280693304) >>> 0).toString(16).padStart(8, '0').slice(2);
 const isRemote = (uri) => /^https?:\/\//.test(uri) || uri.startsWith('/files/');
 
-function getCell(sel) {
-  const node = page().blocks[sel.bi]?.node;
-  if (!node) return null;
-  if (sel.sub) return node.t === 'split' ? node[sel.sub] : null;
-  return node.t === 'cell' ? node : null;
+// ---------- 版面樹（2026-10-12 排版更自由：每一格都能再切）----------
+// 一頁＝blocks[{ id, w, node }]；node＝格子 { t:'cell', … } 或分割 { t:'split', dir, ratio, a, b }。
+// dir 'Horizontal'＝橫的分隔線、上下疊（a 在上）；'Vertical'＝左右並排（a 在左）；ratio＝a 佔的比例。
+// 與 App LayoutRenderer 同一套語意（App 本來就會一路遞迴畫下去）；App 解析時 ratio 一律夾在 0.1–0.9、區塊權重至少 0.1，
+// 這裡產生的值也都守在範圍內。編輯器打開一頁就把多個「大區塊」併成一個區塊（巢狀上下切），之後一律用 path 指格子。
+const clampRatio = (r) => { const v = Number(r); return Math.min(0.9, Math.max(0.1, Number.isFinite(v) ? v : 0.5)); };
+const roundRatio = (r) => Math.round(clampRatio(r) * 10000) / 10000;
+const isSplit = (n) => !!n && n.t === 'split';
+/** path 位置的節點（走不到＝null）。 */
+function nodeAt(n, path) {
+  for (const k of path || '') { if (!isSplit(n)) return null; n = n[k]; }
+  return n || null;
 }
-/** 把 sel 位置的葉格換成 cell（sub=null 時該區塊必定是未分割的單格）。 */
+/** 把 path 位置換成 v，回傳新的根（path＝'' 時換掉的就是根）。 */
+function replaceAt(root, path, v) {
+  if (!path) return v;
+  const parent = nodeAt(root, path.slice(0, -1));
+  if (isSplit(parent)) parent[path.slice(-1)] = v;
+  return root;
+}
+/** 所有葉格，深度優先＝畫面上由左而右、由上而下的閱讀順序。 */
+function leavesOf(n, path = '', out = []) {
+  if (isSplit(n)) { leavesOf(n.a, path + 'a', out); leavesOf(n.b, path + 'b', out); }
+  else if (n) out.push({ cell: n, path });
+  return out;
+}
+/** 某個節點物件在樹裡的路徑（找不到＝null）：切割／平均會重建樹，選取用物件找回來。 */
+function pathOf(n, target, path = '') {
+  if (n === target) return path;
+  if (!isSplit(n)) return null;
+  const a = pathOf(n.a, target, path + 'a');
+  return a !== null ? a : pathOf(n.b, target, path + 'b');
+}
+/** 每個節點在區塊裡的位置（0–1 比例）：Map(path → { x, y, w, h })。 */
+function layoutRects(root) {
+  const m = new Map();
+  (function walk(n, p, x, y, w, h) {
+    m.set(p, { x, y, w, h });
+    if (!isSplit(n)) return;
+    const r = clampRatio(n.ratio);
+    if (n.dir === 'Vertical') { walk(n.a, p + 'a', x, y, w * r, h); walk(n.b, p + 'b', x + w * r, y, w * (1 - r), h); }
+    else { walk(n.a, p + 'a', x, y, w, h * r); walk(n.b, p + 'b', x, y + h * r, w, h * (1 - r)); }
+  })(root, '', 0, 0, 1, 1);
+  return m;
+}
+/** 一串同方向的成員重建成平衡二元樹：每個節點 ratio＝左半權重÷全部（全部等重＝真正平均）。
+ *  切點挑「左半最接近一半」的位置，比例才會落在 1/3–2/3 附近，碰不到 App 的 0.1–0.9 夾值。 */
+function chainOf(items, dir) {
+  if (items.length === 1) return items[0].n;
+  const total = items.reduce((s, it) => s + it.w, 0);
+  let k = 1, best = Infinity, acc = 0;
+  for (let i = 1; i < items.length; i++) {
+    acc += items[i - 1].w;
+    const d = Math.abs(acc / total - 0.5);
+    if (d < best - 1e-9) { best = d; k = i; }
+  }
+  const left = items.slice(0, k);
+  const lw = left.reduce((s, it) => s + it.w, 0);
+  return { t: 'split', dir, ratio: roundRatio(lw / total), a: chainOf(left, dir), b: chainOf(items.slice(k), dir) };
+}
+/** 舊版面的多個大區塊（直向堆疊、高度權重）→ 一棵等價的樹（巢狀上下切，比例照權重）。 */
+function blocksToNode(blocks) {
+  if (!blocks || !blocks.length) return DEFAULT_CELL();
+  return chainOf(blocks.map((b) => ({ n: b.node || DEFAULT_CELL(), w: Math.max(0.1, Number(b.w) || 1) })), 'Horizontal');
+}
+/** 編輯器打開一頁：多個大區塊併成一個區塊（畫起來一模一樣）。不算修改——沒動內容就不必重新發布。
+ *  舊格式的選取（{ bi, sub }）順便換成 path。 */
+function normalizePage(pg) {
+  if (!pg) return;
+  const blocks = pg.blocks || [];
+  const legacy = !!selected && selected.path == null;
+  let keep = null;
+  if (legacy) {
+    const n = blocks[selected.bi] && blocks[selected.bi].node;
+    keep = n && (selected.sub ? (isSplit(n) ? n[selected.sub] : null) : n);
+  }
+  if (blocks.length !== 1 || !blocks[0].node) pg.blocks = [{ id: (blocks[0] && blocks[0].id) || 1, w: 1, node: blocksToNode(blocks) }];
+  if (legacy) {
+    const p = keep ? pathOf(pg.blocks[0].node, keep) : null;
+    selected = p === null ? null : { bi: 0, path: p };
+  }
+}
+/** 一排＝從 path 的父分割往上、同方向分割連成的最大一串；回傳那一串最上面的 path 與方向（根格＝null）。 */
+function runAt(root, path) {
+  if (!path) return null;
+  let top = path.slice(0, -1);
+  const dir = nodeAt(root, top).dir;
+  while (top && nodeAt(root, top.slice(0, -1)).dir === dir) top = top.slice(0, -1);
+  return { top, dir };
+}
+/** 一排裡每個成員（沿這個方向排開的子樹）佔整排的比例。 */
+function runShares(n, dir, share = 1, out = []) {
+  if (isSplit(n) && n.dir === dir) {
+    const r = clampRatio(n.ratio);
+    runShares(n.a, dir, share * r, out); runShares(n.b, dir, share * (1 - r), out);
+  } else out.push({ n, share });
+  return out;
+}
+/** 拖分隔線（2026-10-12 user：拖一條線不該動到別的格子）：一排裡每個成員記下路徑與大小，拖動時只改這條線兩邊
+ *  緊鄰的兩個成員（兩個加起來不變），其他成員大小不動；樹的形狀不變，只重算這一排每一刀的比例。
+ *  （平均分配把三欄存成「（左、中）｜右」，以前直接改那一刀的比例，左邊那格會被一起縮放。） */
+function pairRun(root, path) {
+  const dir = nodeAt(root, path).dir;
+  let top = path;
+  while (top && nodeAt(root, top.slice(0, -1)).dir === dir) top = top.slice(0, -1);
+  const ms = [];
+  (function walk(n, p, share) {
+    if (isSplit(n) && n.dir === dir) { const r = clampRatio(n.ratio); walk(n.a, p + 'a', share * r); walk(n.b, p + 'b', share * (1 - r)); }
+    else ms.push({ path: p, share });
+  })(nodeAt(root, top), top, 1);
+  let k = -1;
+  ms.forEach((m, j) => { if (m.path.startsWith(path + 'a')) k = j; }); // 線左／上那一格＝這一刀 a 半邊的最後一個成員
+  return { top, dir, ms, k, f0: ms[k].share / (ms[k].share + ms[k + 1].share) };
+}
+/** 依「兩格裡左／上那格佔 f」算出這一排每一刀的新比例；有哪一刀會超出 0.1–0.9（App 讀檔會夾）就回 null。 */
+function pairRatios(root, pr, f) {
+  const sh = pr.ms.map((m) => m.share), pair = sh[pr.k] + sh[pr.k + 1];
+  sh[pr.k] = pair * f; sh[pr.k + 1] = pair * (1 - f);
+  const sum = (pre) => pr.ms.reduce((t, m, j) => t + (m.path.startsWith(pre) ? sh[j] : 0), 0);
+  const out = [];
+  (function walk(n, p) {
+    if (!isSplit(n) || n.dir !== pr.dir) return;
+    out.push({ n, r: sum(p + 'a') / sum(p) });
+    walk(n.a, p + 'a'); walk(n.b, p + 'b');
+  })(nodeAt(root, pr.top), pr.top);
+  return out.every((x) => x.r >= 0.1 - 1e-9 && x.r <= 0.9 + 1e-9) ? out : null;
+}
+/** 一排是不是已經平均（每個成員與平均值差在整排的 1% 內）。 */
+function runIsEqual(n, dir) {
+  const s = runShares(n, dir);
+  return s.every((m) => Math.abs(m.share - 1 / s.length) <= 0.01);
+}
+/** top 那一排重建成平衡樹、每個成員一樣大。 */
+function equalizeRun(root, top, dir) {
+  return replaceAt(root, top, chainOf(runShares(nodeAt(root, top), dir).map((m) => ({ n: m.n, w: 1 })), dir));
+}
+const SPLIT_SIDES = ['top', 'right', 'bottom', 'left'];
+const SIDE_DIR = { top: 'Horizontal', bottom: 'Horizontal', left: 'Vertical', right: 'Vertical' };
+const SIDE_LABEL = { top: '在上方加一格', right: '在右邊加一格', bottom: '在下方加一格', left: '在左邊加一格' };
+/** 分割：新的空白格加在 side 那一邊。這一排（同方向）原本就平均（±1%）才全部重新平均（兩欄再加一格＝三等分）；
+ *  原本大小不一（例如舊版面上面很窄的跑馬燈）就只把這一格對半切，別的格子不動（2026-10-12：不然在大圖下面加一格，
+ *  跑馬燈會跟著被拉成一樣高）。要全部拉平用「平均分配」。回傳 { root, fresh }。 */
+function splitTree(root, path, side) {
+  const cell = nodeAt(root, path);
+  const fresh = DEFAULT_CELL();
+  const dir = SIDE_DIR[side];
+  const first = side === 'left' || side === 'top';
+  const run = path && nodeAt(root, path.slice(0, -1)).dir === dir ? runAt(root, path) : null;
+  const wasEqual = !run || runIsEqual(nodeAt(root, run.top), dir);
+  root = replaceAt(root, path, { t: 'split', dir, ratio: 0.5, a: first ? fresh : cell, b: first ? cell : fresh });
+  if (!wasEqual) return { root, fresh };
+  let top = path;
+  while (top && nodeAt(root, top.slice(0, -1)).dir === dir) top = top.slice(0, -1);
+  return { root: equalizeRun(root, top, dir), fresh };
+}
+/** 這一格四邊各能不能切：滿 12 格不行；切完（含同排平均）有格子窄於畫面寬 12%（左右）／矮於畫面高 6%（上下）
+ *  而且比原本還小，也不行（原本就被拖得很窄的格子，不會害別的地方都不能切）。 */
+function splitSides(root, path) {
+  const ok = { top: false, right: false, bottom: false, left: false };
+  const cell = nodeAt(root, path);
+  if (!cell || isSplit(cell) || leavesOf(root).length >= MAX_CELLS) return ok;
+  for (const side of SPLIT_SIDES) {
+    const sim = JSON.parse(JSON.stringify(root));
+    const rb = layoutRects(sim);
+    const before = new Map(leavesOf(sim).map((l) => [l.cell, rb.get(l.path)]));
+    const after = splitTree(sim, path, side).root;
+    const ra = layoutRects(after);
+    const horiz = SIDE_DIR[side] === 'Vertical';
+    const min = horiz ? MIN_SPLIT_W : MIN_SPLIT_H;
+    ok[side] = leavesOf(after).every((l) => {
+      const r = ra.get(l.path), b = before.get(l.cell);
+      const size = horiz ? r.w : r.h;
+      return size >= min - 1e-6 || (!!b && size >= (horiz ? b.w : b.h) - 1e-6);
+    });
+  }
+  return ok;
+}
+/** 刪掉 path 那一格：父分割換成另一半（另一半接手空出來的位置）；那一排原本平均（±1%）就重新平均。回傳 { root, sibling }。 */
+function deleteFromTree(root, path) {
+  if (!path) return { root, sibling: null };
+  const parentPath = path.slice(0, -1);
+  const parent = nodeAt(root, parentPath);
+  const { top, dir } = runAt(root, path);
+  const wasEqual = runIsEqual(nodeAt(root, top), dir);
+  const sibling = parent[path.slice(-1) === 'a' ? 'b' : 'a'];
+  root = replaceAt(root, parentPath, sibling);
+  const t = nodeAt(root, top);
+  if (wasEqual && isSplit(t) && t.dir === dir) root = equalizeRun(root, top, dir);
+  return { root, sibling };
+}
+
+function getCell(sel) {
+  const n = nodeAt(page().blocks[sel.bi]?.node, sel.path || '');
+  return n && !isSplit(n) ? n : null;
+}
+/** 把 sel 位置的葉格換成 cell。 */
 function setCell(sel, cell) {
   const block = page().blocks[sel.bi];
-  if (!block) return;
-  if (sel.sub) { if (block.node.t === 'split') block.node[sel.sub] = cell; }
-  else block.node = cell;
+  if (block) block.node = replaceAt(block.node, sel.path || '', cell);
 }
+const sameSel = (a, b) => !!a && !!b && a.bi === b.bi && (a.path || '') === (b.path || '');
 /**
  * 對調兩格的設定（背景、內容、天氣…全部跟著走），格位大小不動。
  * 只換葉格所以永遠合法：不會把分割節點塞進子格。選取框跟著被拖的格子走。
@@ -622,24 +812,19 @@ function swapCells(from, to) {
   const a = getCell(from), b = getCell(to);
   if (!a || !b || a === b) return false;
   setCell(from, b); setCell(to, a);
-  if (selected && selected.bi === from.bi && selected.sub === from.sub) selected = { ...to };
-  else if (selected && selected.bi === to.bi && selected.sub === to.sub) selected = { ...from };
-  setDirty(true);
-  return true;
-}
-/** 整個大區塊往上/往下搬一格（連同高度比與內部分割），選取框跟著走。 */
-function moveBlock(bi, dir) {
-  const blocks = page().blocks;
-  const j = bi + dir;
-  if (j < 0 || j >= blocks.length) return false;
-  [blocks[bi], blocks[j]] = [blocks[j], blocks[bi]];
-  if (selected && selected.bi === bi) selected = { ...selected, bi: j };
-  else if (selected && selected.bi === j) selected = { ...selected, bi };
+  if (sameSel(selected, from)) selected = { ...to };
+  else if (sameSel(selected, to)) selected = { ...from };
   setDirty(true);
   return true;
 }
 
-/** 與 App cellPixelSize 相同：這一格在機器實體螢幕上佔的像素。 */
+/** 分割的子格像素（App splitChildSize 同算法：每一層各自四捨五入）。 */
+function splitChildPx(px, node, second) {
+  const ratio = clampRatio(node.ratio);
+  const frac = second ? 1 - ratio : ratio;
+  return node.dir === 'Horizontal' ? { w: px.w, h: Math.round(px.h * frac) } : { w: Math.round(px.w * frac), h: px.h };
+}
+/** 與 App cellPixelSize 相同：這一格在機器實體螢幕上佔的像素（沿 path 一層層往下乘）。 */
 function cellPixelSizeOf(sel) {
   const scr = state.config.screen;
   const SW = scr && scr.w > 0 ? scr.w : 1080;
@@ -647,23 +832,15 @@ function cellPixelSizeOf(sel) {
   const blocks = page().blocks;
   const total = blocks.reduce((s, b) => s + (b.w || 1), 0);
   let px = { w: SW, h: Math.round((SH * (blocks[sel.bi]?.w || 1)) / total) };
-  const node = blocks[sel.bi]?.node;
-  if (sel.sub && node?.t === 'split') {
-    const ratio = Math.min(0.9, Math.max(0.1, node.ratio));
-    const frac = sel.sub === 'a' ? ratio : 1 - ratio;
-    px = node.dir === 'Horizontal'
-      ? { w: px.w, h: Math.round(px.h * frac) }
-      : { w: Math.round(px.w * frac), h: px.h };
-  }
+  let n = blocks[sel.bi]?.node;
+  for (const k of sel.path || '') { if (!isSplit(n)) break; px = splitChildPx(px, n, k === 'b'); n = n[k]; }
   return px;
 }
 
+/** 面板標題：格子照閱讀順序編號（由左而右、由上而下）。 */
 function cellLabel(sel) {
-  const base = `區塊 ${sel.bi + 1}`;
-  if (!sel.sub) return base;
-  const dir = page().blocks[sel.bi].node.dir;
-  const names = dir === 'Vertical' ? ['左', '右'] : ['上', '下'];
-  return `${base} · ${sel.sub === 'a' ? names[0] : names[1]}`;
+  const i = leavesOf(page().blocks[sel.bi]?.node).findIndex((l) => l.path === (sel.path || ''));
+  return `格子 ${i + 1}`;
 }
 
 // ---------- 整體渲染 ----------
@@ -801,29 +978,59 @@ $('showPageBtn').addEventListener('click', async () => {
   finally { btn.disabled = false; updateShowPageBtn(); }
 });
 
-$('addBlockBtn').addEventListener('click', () => {
-  const blocks = page().blocks;
-  if (blocks.length >= MAX_BLOCKS) return setStatus(`一頁最多可放 ${MAX_BLOCKS} 個大區塊。`, true);
-  blocks.push({ id: Math.max(0, ...blocks.map((b) => b.id || 0)) + 1, w: 1, node: DEFAULT_CELL() });
-  setDirty(true); render();
-});
-
 // ---------- 畫布 ----------
 function renderCanvas() {
   const canvas = $('canvas');
   previewTimers.forEach(clearInterval);
   previewTimers = [];
-  const blocks = page().blocks;
-  const addFull = blocks.length >= MAX_BLOCKS;
-  $('addBlockBtn').disabled = addFull;
-  $('addBlockBtn').title = addFull ? `最多 ${MAX_BLOCKS} 個大區塊，已達上限` : '';
+  normalizePage(page()); // 舊版面的多個大區塊先併成一個區塊（畫起來一樣），之後每一格都能再切
   buildCanvas(canvas, page(), state.config.screen, { timers: previewTimers });
   requestAnimationFrame(() => fitPreview(canvas));
 }
 
+/** 選取格往 side 那一邊加一格（新格子＝空白格），同一排原本一樣大就自動平均；切完選新格子。 */
+function splitSelectedCell(side) {
+  const block = selected && page().blocks[selected.bi];
+  if (!block) return;
+  if (!splitSides(block.node, selected.path)[side]) {
+    return setStatus(leavesOf(block.node).length >= MAX_CELLS ? `無法再加格子。一頁最多 ${MAX_CELLS} 格。` : '無法往這一邊加格子。格子太小了。', true);
+  }
+  const { root, fresh } = splitTree(block.node, selected.path, side);
+  block.node = root;
+  selected = { bi: selected.bi, path: pathOf(root, fresh) };
+  setDirty(true);
+  renderCanvas(); renderPanel();
+}
+
+// 編輯畫布的格子位置：整棵樹算出每格的比例（0–1），絕對定位成百分比；內側邊各退半個縫，外圈貼齊。
+// （巢狀 flex 每一層都會扣掉分隔線寬，切得越深比例越不準；照比例放才跟機器、播放頁一致。）唯讀預覽縫＝0，跟機器一樣無縫。
+const CANVAS_GAP = 8;
+const pctOf = (v) => `${(v * 100).toFixed(4)}%`;
+function placeBox(el, r, gap) {
+  const g = gap / 2, E = 1e-6;
+  const l = r.x > E ? g : 0, t = r.y > E ? g : 0;
+  const rr = r.x + r.w < 1 - E ? g : 0, b = r.y + r.h < 1 - E ? g : 0;
+  el.style.left = `calc(${pctOf(r.x)} + ${l}px)`;
+  el.style.top = `calc(${pctOf(r.y)} + ${t}px)`;
+  el.style.width = `calc(${pctOf(r.w)} - ${l + rr}px)`;
+  el.style.height = `calc(${pctOf(r.h)} - ${t + b}px)`;
+}
+/** 分隔線＝12px 寬的拖曳區，壓在兩格之間的縫上，長度＝這個分割的範圍。 */
+function placeDivider(el, r, n, gap) {
+  placeBox(el, r, gap);
+  const at = clampRatio(n.ratio);
+  if (n.dir === 'Vertical') { el.style.left = `calc(${pctOf(r.x + r.w * at)} - 6px)`; el.style.width = '12px'; }
+  else { el.style.top = `calc(${pctOf(r.y + r.h * at)} - 6px)`; el.style.height = '12px'; }
+}
+/** 新格子預覽：新格子會出現在選取格的哪一半。 */
+const halfRect = (r, side) => (side === 'left' ? { ...r, w: r.w / 2 } : side === 'right' ? { ...r, x: r.x + r.w / 2, w: r.w / 2 }
+  : side === 'top' ? { ...r, h: r.h / 2 } : { ...r, y: r.y + r.h / 2, h: r.h / 2 });
+
 /**
  * 把一頁畫進 canvas 元素（編輯畫布與縮圖預覽共用）。
  * opts.readonly＝唯讀預覽：不畫分隔把手/角標、格子不可點；opts.timers＝輪播計時器要收進哪個陣列。
+ * 編輯畫布另外畫：每個分割的分隔線（任何深度）與新格子預覽框（右側十字滑上去時出現，canvas._preview）。
+ * 拖分隔線時只重新定位（canvas._place），放開才整個重畫。
  */
 // 預覽畫布現在對應的螢幕寬（裝置 px）：cqw 相對整個畫布，格子內以裝置 px 設計的尺寸要除以它換算，不是除以格子寬
 // （之前分割成兩半的格子，徽章／園區按鈕會放大兩倍——user 2026-09-10 回報）
@@ -840,35 +1047,76 @@ function buildCanvas(canvas, pg, screen, opts) {
   canvas.style.setProperty('--sr', (SW / SH).toFixed(5)); // 底框內 contain 縮放用（CSS .canvas-frame > .canvas）
   canvas.classList.toggle('is-landscape', SW > SH); // 橫式（縮圖放大預覽 .tp-canvas 以寬度定尺寸）
   canvas.classList.toggle('is-readonly', !!opts.readonly); // 唯讀預覽：格子不亮框、不變手指（CSS .is-readonly）
+  const editable = !opts.readonly;
   const blocks = pg.blocks || [];
-  const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0) || 1;
+  // 舊版面（多個大區塊）在縮圖裡不改資料：照同一套換算成一棵樹來畫
+  const tree = blocks.length === 1 && blocks[0].node ? blocks[0].node : blocksToNode(blocks);
+  const root = document.createElement('div');
+  root.className = 'cv-root';
+  canvas.appendChild(root);
+  const gap = editable ? CANVAS_GAP : 0;
 
-  // 與 App cellPixelSize 相同：格子的「實際機器像素」尺寸，顯示在右上角標籤
-  const splitChildPx = (px, node, second) => {
-    const ratio = Math.min(0.9, Math.max(0.1, node.ratio));
-    const frac = second ? 1 - ratio : ratio;
-    return node.dir === 'Horizontal'
-      ? { w: px.w, h: Math.round(px.h * frac) }
-      : { w: Math.round(px.w * frac), h: px.h };
-  };
-
-  blocks.forEach((block, bi) => {
-    const blockPx = { w: SW, h: Math.round((SH * (block.w || 1)) / totalW) };
-    const el = document.createElement('div');
-    el.className = 'block';
-    el.style.flex = String((block.w || 1) / totalW);
-    const node = block.node;
-    if (node.t === 'split') {
-      el.style.flexDirection = node.dir === 'Vertical' ? 'row' : 'column';
-      el.appendChild(cellDiv(node.a, { bi, sub: 'a' }, node.ratio, splitChildPx(blockPx, node, false), opts));
-      if (!opts.readonly) el.appendChild(splitDivider(bi, node));
-      el.appendChild(cellDiv(node.b, { bi, sub: 'b' }, 1 - node.ratio, splitChildPx(blockPx, node, true), opts));
-    } else {
-      el.appendChild(cellDiv(node, { bi, sub: null }, 1, blockPx, opts));
+  // 格子（右上角標籤＝與 App cellPixelSize 相同的「實際機器像素」）＋每個分割一條分隔線
+  const cells = [], dividers = [];
+  (function walk(n, path, px) {
+    if (isSplit(n)) {
+      walk(n.a, path + 'a', splitChildPx(px, n, false));
+      walk(n.b, path + 'b', splitChildPx(px, n, true));
+      if (editable) dividers.push({ el: splitDivider(canvas, tree, n, path), n, path });
+      return;
     }
-    canvas.appendChild(el);
-    if (!opts.readonly && bi < blocks.length - 1) canvas.appendChild(blockDivider(bi));
-  });
+    cells.push({ el: cellDiv(n || DEFAULT_CELL(), { bi: 0, path }, px, opts), path });
+  })(tree, '', { w: SW, h: SH });
+  cells.forEach((c) => root.appendChild(c.el));
+  dividers.forEach((d) => root.appendChild(d.el));
+
+  // 新格子預覽（2026-10-12 user：畫布上的＋拿掉，面板的十字就夠）：滑到／聚焦右側十字的方向鈕時，
+  // 用虛線框標出新格子會出現在選取格的哪一半；canvas._preview(side)，side＝null 收起
+  canvas._preview = null;
+  canvas._previewEven = null;
+  const selPath = editable && selected && selected.bi === 0 ? selected.path : null;
+  const selNode = selPath != null ? nodeAt(tree, selPath) : null;
+  if (selNode && !isSplit(selNode)) {
+    const ghost = document.createElement('div');
+    ghost.className = 'cv-ghost';
+    ghost.textContent = '新格子';
+    ghost.hidden = true;
+    root.appendChild(ghost);
+    canvas._preview = (side) => {
+      if (!side) { ghost.hidden = true; return; }
+      placeBox(ghost, halfRect(layoutRects(tree).get(selPath), side), gap);
+      ghost.hidden = false;
+    };
+    // 「平均分配」預覽：這一格所在的那一排，按下去之後每一個成員的位置（整排的範圍平均切開）
+    const run = runAt(tree, selPath);
+    if (run) {
+      const n = runShares(nodeAt(tree, run.top), run.dir).length;
+      const evens = [];
+      canvas._previewEven = (on) => {
+        evens.forEach((e) => e.remove());
+        evens.length = 0;
+        if (!on) return;
+        const R = layoutRects(tree).get(run.top), v = run.dir === 'Vertical';
+        for (let i = 0; i < n; i++) {
+          const box = document.createElement('div');
+          box.className = 'cv-ghost is-even';
+          box.innerHTML = `<span>${v ? '一樣寬' : '一樣高'}</span>`; // 標籤放框的上緣，不跟格子原本的字疊在一起
+          root.appendChild(box);
+          placeBox(box, v ? { x: R.x + (R.w * i) / n, y: R.y, w: R.w / n, h: R.h } : { x: R.x, y: R.y + (R.h * i) / n, w: R.w, h: R.h / n }, gap);
+          evens.push(box);
+        }
+      };
+    }
+  }
+
+  const place = () => {
+    const rects = layoutRects(tree);
+    canvas._rects = rects;
+    cells.forEach((c) => placeBox(c.el, rects.get(c.path), gap));
+    dividers.forEach((d) => placeDivider(d.el, rects.get(d.path), d.n, gap));
+  };
+  canvas._place = place;
+  place();
 }
 
 /**
@@ -1127,15 +1375,14 @@ function autoTextColor(bg) {
 
 let previewTimers = [];
 
-function cellDiv(cell, sel, flex, sizePx, opts) {
+function cellDiv(cell, sel, sizePx, opts) {
   opts = opts || {};
   const timers = opts.timers || previewTimers;
   const el = document.createElement('div');
   el.className = 'cell';
   el.dataset.bi = sel.bi;
-  el.dataset.sub = sel.sub || '';
-  if (!opts.readonly && selected && selected.bi === sel.bi && selected.sub === sel.sub) el.classList.add('selected');
-  el.style.flex = String(flex);
+  el.dataset.path = sel.path; // 位置由 buildCanvas 照比例放（placeBox）
+  if (!opts.readonly && sameSel(selected, sel)) el.classList.add('selected');
   el.style.background = colorCss(cell.bgColor);
   if (cell.bg === 'Image') {
     // 跟 App 的 ImageContent 一樣：多張輪播、每張停留 dur 秒、600ms 淡入淡出
@@ -1347,8 +1594,8 @@ function cellDiv(cell, sel, flex, sizePx, opts) {
 }
 
 /**
- * 拖曳把手的共用行為：拖曳期間只直接改兩側元素的 flex（畫布不重畫，指標不會
- * 「斷手」），放開時才重畫一次定案。
+ * 拖曳把手的共用行為：拖曳期間只重新定位（畫布不重畫，指標不會「斷手」），放開時才重畫一次定案。
+ * onDrag(位移, 事件)：事件給指標位置（分隔線的比例小標籤跟著指標走）。
  */
 function attachDrag(el, isVertical, onDrag, onEnd) {
   el.addEventListener('pointerdown', (down) => {
@@ -1357,7 +1604,7 @@ function attachDrag(el, isVertical, onDrag, onEnd) {
     el.classList.add('dragging');
     document.body.style.cursor = isVertical ? 'col-resize' : 'row-resize';
     const startPos = isVertical ? down.clientX : down.clientY;
-    const move = (m) => onDrag((isVertical ? m.clientX : m.clientY) - startPos);
+    const move = (m) => onDrag((isVertical ? m.clientX : m.clientY) - startPos, m);
     const up = () => {
       el.classList.remove('dragging');
       document.body.style.cursor = '';
@@ -1399,6 +1646,7 @@ function attachCellDrag(el, sel) {
       ghost = el.cloneNode(true);
       ghost.classList.remove('selected', 'drag-source');
       ghost.classList.add('drag-ghost');
+      ghost.style.left = ghost.style.top = '0px'; // 格子本身是畫布裡的百分比位置，幽靈改跟著指標（transform）
       ghost.style.width = `${rect.width}px`;
       ghost.style.height = `${rect.height}px`;
       ghost.style.transformOrigin = `${offX}px ${offY}px`; // 縮小時抓點不動
@@ -1422,7 +1670,7 @@ function attachCellDrag(el, sel) {
       ghost.remove();
       el.classList.remove('drag-source');
       document.body.style.cursor = '';
-      const to = target && { bi: Number(target.dataset.bi), sub: target.dataset.sub || null };
+      const to = target && { bi: Number(target.dataset.bi), path: target.dataset.path || '' };
       setTarget(null);
       if (to && swapCells(sel, to)) { renderCanvas(); renderPanel(); }
       // 拖了但沒放到格子上：什麼都不改，_dragged 留著讓緊接的 click 不要換選取
@@ -1436,7 +1684,7 @@ function attachCellDrag(el, sel) {
 /** 拖曳過程中即時更新每格右上角的實際像素數字（與 App 預覽一致）。 */
 function updateBadges() {
   $('canvas').querySelectorAll('.cell').forEach((el) => {
-    const sel = { bi: Number(el.dataset.bi), sub: el.dataset.sub || null };
+    const sel = { bi: Number(el.dataset.bi), path: el.dataset.path || '' };
     const px = cellPixelSizeOf(sel);
     const span = el.querySelector('.pv-size-badge span');
     if (span) span.textContent = span.textContent.replace(/\d+×\d+/, `${px.w}×${px.h}`);
@@ -1450,49 +1698,52 @@ function updateBadges() {
   }
 }
 
-/** 大區塊之間的把手：上下拖曳調整兩個區塊的高度比（兩塊合計不變）。 */
-function blockDivider(i) {
-  const el = document.createElement('div');
-  el.className = 'h-divider major';
-  el.title = '拖曳調整高度';
-  el.addEventListener('pointerdown', () => {
-    el._blocks = page().blocks;
-    el._total = el._blocks.reduce((s, b) => s + (b.w || 1), 0);
-    el._pair = (el._blocks[i].w || 1) + (el._blocks[i + 1].w || 1);
-    el._start = el._blocks[i].w || 1;
-    el._h = $('canvas').getBoundingClientRect().height;
-  });
-  attachDrag(el, false, (delta) => {
-    const min = el._total * 0.08;
-    const w1 = Math.min(el._pair - min, Math.max(min, el._start + (delta / el._h) * el._total));
-    el._blocks[i].w = Math.round(w1 * 1000) / 1000;
-    el._blocks[i + 1].w = Math.round((el._pair - w1) * 1000) / 1000;
-    el.previousElementSibling.style.flex = String(el._blocks[i].w / el._total);
-    el.nextElementSibling.style.flex = String(el._blocks[i + 1].w / el._total);
-    setDirty(true);
-    updateBadges();
-  }, () => renderCanvas());
-  return el;
-}
-
-/** 分割格之間的把手：沿分割方向拖曳調整兩格比例。 */
-function splitDivider(bi, node) {
+/** 分隔線拖到這些比例附近（±2.5%）會吸附。 */
+const SNAP_AT = [1 / 2, 1 / 3, 2 / 3, 1 / 4, 3 / 4];
+/** 分割之間的把手（任何深度都有）：沿分割方向拖曳調整兩邊比例，夾在 0.1–0.9（App 同範圍）；
+ *  靠近 1/2、1/3、2/3、1/4、3/4 會吸附，指標旁的小標籤顯示目前比例（吸附時換主題色）。 */
+function splitDivider(canvas, tree, node, path) {
   const el = document.createElement('div');
   const vertical = node.dir === 'Vertical';
-  el.className = (vertical ? 'v-divider' : 'h-divider') + ' minor';
+  el.className = 'cv-divider ' + (vertical ? 'is-v' : 'is-h');
+  el.dataset.path = path;
   el.title = '拖曳調整比例';
+  let tip = null, pr = null;
   el.addEventListener('pointerdown', () => {
-    const r = el.parentElement.getBoundingClientRect();
-    el._size = vertical ? r.width : r.height;
-    el._start = node.ratio;
+    canvas.classList.add('is-resizing'); // 拖的時候先收起預覽框，畫面乾淨
+    const box = el.parentElement.getBoundingClientRect();
+    // 只動線兩邊緊鄰的兩格：拖動距離換算成「這兩格」裡的比例
+    pr = pairRun(tree, path);
+    const r1 = canvas._rects.get(pr.ms[pr.k].path), r2 = canvas._rects.get(pr.ms[pr.k + 1].path);
+    el._size = (vertical ? box.width * (r1.w + r2.w) : box.height * (r1.h + r2.h)) || 1;
+    el._start = pr.f0;
   });
-  attachDrag(el, vertical, (delta) => {
-    node.ratio = Math.min(0.9, Math.max(0.1, el._start + delta / el._size));
-    el.previousElementSibling.style.flex = String(node.ratio);
-    el.nextElementSibling.style.flex = String(1 - node.ratio);
+  attachDrag(el, vertical, (delta, m) => {
+    let v = Math.min(0.9, Math.max(0.1, el._start + delta / el._size));
+    const snap = SNAP_AT.find((s) => Math.abs(v - s) <= 0.025);
+    if (snap !== undefined) v = snap;
+    let rs = pairRatios(tree, pr, v);
+    if (!rs) { // 拖太遠會讓某一刀超出 0.1–0.9：停在拖得到的最遠處
+      let lo = el._start, hi = v;
+      for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (pairRatios(tree, pr, mid)) lo = mid; else hi = mid; }
+      v = lo; rs = pairRatios(tree, pr, v);
+    }
+    if (rs) rs.forEach((x) => { x.n.ratio = Math.round(x.r * 10000) / 10000; });
+    if (!tip) { tip = document.createElement('div'); tip.className = 'cv-drag-tip'; document.body.appendChild(tip); }
+    const a = Math.round(v * 100);
+    tip.textContent = `${a}% ｜ ${100 - a}%`;
+    tip.classList.toggle('is-snap', snap !== undefined);
+    tip.style.left = `${m.clientX + 14}px`;
+    tip.style.top = `${m.clientY + 18}px`;
+    canvas._place();
     setDirty(true);
     updateBadges();
-  }, () => renderCanvas());
+  }, () => {
+    if (tip) { tip.remove(); tip = null; }
+    canvas.classList.remove('is-resizing');
+    renderCanvas();
+    $('cellPanel')._syncLayoutTools?.(); // 比例變了：十字能不能按、平均分配亮不亮跟著更新
+  });
   return el;
 }
 
@@ -1503,14 +1754,15 @@ function renderPanel() {
   // 被夾回 0，每改一個設定就跳回頂部（user 2026-09-09 回報 UX 很差）。重建完再把位置放回去。
   const scrollers = [panel, panel.closest('.b-modal-body')].filter(Boolean);
   const savedScroll = scrollers.map((el) => [el, el.scrollTop]);
+  if (state && page()) normalizePage(page()); // 舊格式的選取／多個大區塊（renderCanvas 通常已先做過）
   const sel = selected;
   const cell = sel && getCell(sel);
-  // 只有「同一格重繪」才放回去；點到別的格子仍從頂部開始看
-  const panelKey = cell ? `${sel.bi}/${sel.sub || ''}` : '';
-  const sameCell = panel.dataset.renderedKey === panelKey;
-  panel.dataset.renderedKey = panelKey;
+  // 只有「同一格重繪」才放回去；點到別的格子仍從頂部開始看（用格子物件比：切割／平均之後同一格的 path 會變）
+  const sameCell = !!cell && panel._renderedCell === cell;
+  panel._renderedCell = cell || null;
   const restoreScroll = () => { if (sameCell) savedScroll.forEach(([el, top]) => { if (el.scrollTop !== top) el.scrollTop = top; }); };
   panel.querySelectorAll('.seg-row').forEach((row) => row._dispose?.());
+  panel._syncLayoutTools = null; // 版面區段（十字／平均分配）的狀態重算，下面建好才掛上
   panel.innerHTML = '';
   panel.classList.remove('hidden');
   panel.classList.toggle('is-empty', !cell);
@@ -1581,59 +1833,96 @@ function renderPanel() {
     return r;
   };
 
-  // ---- 版面（分割 / 合併 / 區塊操作；分割限制改掛按鈕 tooltip，不佔版面）----
+  // ---- 版面（2026-10-12 排版更自由）：十字按哪一邊新格子就加在哪一邊（同畫布上格子邊的「＋」），
+  //      同一排原本一樣大就自動平均（大小不一只切這一格）；「平均分配」把這一格所在的那一排調成一樣大；「刪除這格」把位置交給旁邊那一格 ----
   {
-    const blocks = page().blocks;
+    const block = page().blocks[sel.bi];
+    const tree = block.node;
+    const total = leavesOf(tree).length;
     sec('版面');
-    const actions = rowFull();
-    actions.classList.add('ins-actions');
-    const actionGroup = (label, ...buttons) => {
-      const group = document.createElement('div');
-      group.className = 'ins-action-group';
-      group.setAttribute('role', 'group');
-      group.setAttribute('aria-label', label);
-      group.append(...buttons);
-      actions.appendChild(group);
+    const wrap = rowFull();
+    wrap.classList.add('split-tools');
+    const cross = document.createElement('div');
+    cross.className = 'split-cross';
+    cross.setAttribute('role', 'group');
+    cross.setAttribute('aria-label', '分割這一格');
+    const ARROW = { top: 'arrow-up', left: 'arrow-left', right: 'arrow-right', bottom: 'arrow-down' };
+    const NAME = { top: '上方', left: '左邊', right: '右邊', bottom: '下方' };
+    const dirBtns = {};
+    const dirBtn = (side) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'split-dir';
+      b.dataset.side = side;
+      b.innerHTML = `<i data-lucide="${ARROW[side]}" aria-hidden="true"></i><span>${NAME[side]}</span>`;
+      b.setAttribute('aria-label', SIDE_LABEL[side]);
+      b.onclick = () => splitSelectedCell(side);
+      // 滑上去／鍵盤聚焦：畫布先用虛線框標出新格子的位置
+      const show = () => { if (!b.disabled) document.getElementById('canvas')._preview?.(side); };
+      const hide = () => document.getElementById('canvas')._preview?.(null);
+      b.addEventListener('mouseenter', show); b.addEventListener('focus', show);
+      b.addEventListener('mouseleave', hide); b.addEventListener('blur', hide);
+      dirBtns[side] = b;
+      return b;
     };
-    if (!sel.sub) {
-      const limitTip = '每個大塊只能分割一次，子格不可再分割';
-      const b1 = btn('上下分割', () => {
-        blocks[sel.bi].node = { t: 'split', dir: 'Horizontal', ratio: 0.5, a: cell, b: DEFAULT_CELL() };
-        selected = { bi: sel.bi, sub: 'a' }; setDirty(true); refresh();
-      });
-      const b2 = btn('左右分割', () => {
-        blocks[sel.bi].node = { t: 'split', dir: 'Vertical', ratio: 0.5, a: cell, b: DEFAULT_CELL() };
-        selected = { bi: sel.bi, sub: 'a' }; setDirty(true); refresh();
-      });
-      b1.title = limitTip; b2.title = limitTip;
-      actionGroup('分割區塊', b1, b2);
-    } else {
-      actionGroup('合併區塊', btn('移除此格（合併）', () => {
-        const other = sel.sub === 'a' ? 'b' : 'a';
-        blocks[sel.bi].node = blocks[sel.bi].node[other];
-        selected = { bi: sel.bi, sub: null }; setDirty(true); refresh();
-      }));
-    }
-    if (blocks.length > 1) {
-      const up = btn('區塊上移', () => { if (moveBlock(sel.bi, -1)) refresh(); });
-      const down = btn('區塊下移', () => { if (moveBlock(sel.bi, 1)) refresh(); });
-      up.disabled = sel.bi === 0;
-      down.disabled = sel.bi === blocks.length - 1;
-      up.title = down.title = '整個大區塊連同分割與高度一起搬動；要交換兩格的設定，直接在畫布上把格子拖到另一格放開';
-      actionGroup('調整區塊順序', up, down);
-      const del = btn('刪除區塊', async () => {
-        const ok = await BDialog.confirm({
-          title: '刪除這個大區塊？', desc: '區塊內的設定會一併刪除。', variant: 'danger', confirmText: '刪除',
-        });
-        if (!ok) return;
-        blocks.splice(sel.bi, 1);
-        selected = null; setDirty(true); refresh();
-      });
-      del.classList.add('b-btn-text', 'b-btn-text-danger', 'ins-action-delete');
-      del.title = '刪除整個區塊';
-      del.setAttribute('aria-label', '刪除整個區塊');
-      actions.appendChild(del);
-    }
+    const self = document.createElement('div');
+    self.className = 'split-self';
+    self.textContent = '這一格';
+    const blank = () => document.createElement('span');
+    cross.append(blank(), dirBtn('top'), blank(), dirBtn('left'), self, dirBtn('right'), blank(), dirBtn('bottom'), blank());
+    const side = document.createElement('div');
+    side.className = 'split-side';
+    const count = hint(`目前 ${total} 格（最多 ${MAX_CELLS} 格；太小的格子不能再切）`);
+    count.classList.add('split-count');
+    const acts = document.createElement('div');
+    acts.className = 'split-acts';
+    const even = btn('平均分配', () => {
+      const r = runAt(block.node, sel.path);
+      if (!r) return;
+      block.node = equalizeRun(block.node, r.top, r.dir);
+      const p = pathOf(block.node, cell);
+      selected = p === null ? null : { bi: sel.bi, path: p };
+      setDirty(true); refresh();
+    });
+    // 滑上去／鍵盤聚焦：畫布先框出按下去之後同一排每一格的位置
+    const evenShow = () => { if (!even.disabled) document.getElementById('canvas')._previewEven?.(true); };
+    const evenHide = () => document.getElementById('canvas')._previewEven?.(false);
+    even.addEventListener('mouseenter', evenShow); even.addEventListener('focus', evenShow);
+    even.addEventListener('mouseleave', evenHide); even.addEventListener('blur', evenHide);
+    const del = btn('刪除這格', async () => {
+      // 有設定的格子先確認（沒有復原）；空白格直接刪
+      const used = (cell.content && cell.content !== 'None') || (cell.bg === 'Image' && (cell.bgImgs || []).length) || (cell.tap && cell.tap !== 'None');
+      if (used && !(await BDialog.confirm({
+        title: '刪除這一格？', desc: '這一格的設定會一併刪除，空出來的位置交給旁邊的格子。', variant: 'danger', confirmText: '刪除',
+      }))) return;
+      const { root, sibling } = deleteFromTree(block.node, sel.path);
+      block.node = root;
+      const p = sibling && !isSplit(sibling) ? pathOf(root, sibling) : null; // 接手的那一格是單格就選它
+      selected = p === null ? null : { bi: sel.bi, path: p };
+      setDirty(true); refresh();
+    });
+    del.classList.add('b-btn-text', 'b-btn-text-danger');
+    del.disabled = !sel.path;
+    del.title = sel.path ? '刪掉後，空出來的位置交給旁邊那一格' : '這一頁只剩一格，不能刪除';
+    acts.append(even, del);
+    side.append(hint('按哪一邊，新格子就加在哪一邊；滑上去會先在畫布上預覽。同一排原本一樣大時會自動平均。'), count, acts);
+    wrap.append(cross, side);
+    if (window.lucide) lucide.createIcons({ nodes: [cross] });
+    // 能不能往哪邊切、要不要平均都跟著格子大小變：拖完分隔線只重算這幾顆鈕（整個面板重畫會閃一下）
+    const syncTools = () => {
+      const t = block.node, ok = splitSides(t, sel.path), run = runAt(t, sel.path);
+      const full = leavesOf(t).length >= MAX_CELLS;
+      for (const s of SPLIT_SIDES) {
+        dirBtns[s].disabled = !ok[s];
+        dirBtns[s].title = ok[s] ? SIDE_LABEL[s] : full ? `一頁最多 ${MAX_CELLS} 格` : '格子太小，不能再往這一邊切';
+      }
+      const evenNow = !run || runIsEqual(nodeAt(t, run.top), run.dir);
+      even.disabled = evenNow;
+      even.title = !run ? '這一頁只有一格' : evenNow ? '同一排的格子已經一樣大'
+        : `把這一格所在的那一排（${run.dir === 'Vertical' ? '左右並排' : '上下相疊'}）調成一樣大`;
+    };
+    syncTools();
+    panel._syncLayoutTools = syncTools;
   }
 
   // ---- 背景（天氣格多一個「天氣背景」＝動畫天空）----
@@ -1903,6 +2192,9 @@ function renderPanel() {
         [['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']],
         cell.assistantLayout || 'Kiosk', (v) => { cell.assistantLayout = v; touch(); },
       ));
+      // 輸入區位置（2026-10-12 user）：下方＝原本的樣子；上方＝輸入框併進頂欄、最新的問答排最上面（螢幕鍵盤在下面，不會擋到輸入框）。跟介面各自獨立，App 同一個欄位
+      const posRow = subRow('輸入區位置', selInput([['Bottom', '下方'], ['Top', '上方']], cell.agentInputPos === 'Bottom' ? 'Bottom' : 'Top', (v) => { cell.agentInputPos = v; touch(); }));
+      posRow.querySelector('.ins-label').title = '下方：輸入列在畫面底部，對話由上往下排；上方：輸入框在頂欄正下方，最新的一問一答排在最上面';
       // 客服主題色（2026-09-14 定案）：「自動」＝站台主題色（後台 nav 設的那個）；「JustAI」＝客服後台設定的顏色（哨兵值 0）；其餘＝指定色。App／播放頁同規則
       const accentRow = subRow('主題色', swatchRow(ACCENT_SWATCHES, cell.agentAccent, true, (v) => {
         if (v === null) delete cell.agentAccent; else cell.agentAccent = v;
@@ -3824,6 +4116,8 @@ function canonicalJson(v) {
   return JSON.stringify(v, (_k, val) =>
     (val && typeof val === 'object' && !Array.isArray(val)) ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]])) : val);
 }
+/** 一頁畫出來的內容（比對用）：多個大區塊的舊頁面跟編輯器併成一個區塊的新頁面畫起來一樣，不算不同。 */
+const pageTreeJson = (blocks) => canonicalJson(blocks && blocks.length === 1 ? blocks[0].node : blocksToNode(blocks || []));
 
 /** 一個版面對這批機器的計畫：每台 action = showing（已在展示）／switch（有這頁，切過去）／add（先加入再切）／
  *  full（頁數滿了加不進去）／unreadable（讀不到設定）；showing/switch 另帶 stale＝機器上那一頁的內容跟版面目前的不同
@@ -3831,7 +4125,7 @@ function canonicalJson(v) {
 function planLayoutShow(layout, infos) {
   const srcPages = layout.pages || [];
   const srcPortrait = !layout.screen || layout.screen.h >= layout.screen.w;
-  const srcBlocks = canonicalJson((srcPages[0] || {}).blocks || []);
+  const srcBlocks = pageTreeJson((srcPages[0] || {}).blocks);
   return infos.map((info) => {
     if (!info.cfg) return { ...info, action: 'unreadable' };
     const pages = info.cfg.pages || [];
@@ -3839,7 +4133,7 @@ function planLayoutShow(layout, infos) {
     const portraitMismatch = (!scr || scr.h >= scr.w) !== srcPortrait;
     const idx = findLayoutPage(pages, layout);
     if (idx >= 0) {
-      const stale = canonicalJson(pages[idx].blocks || []) !== srcBlocks;
+      const stale = pageTreeJson(pages[idx].blocks) !== srcBlocks;
       return { ...info, idx, portraitMismatch, stale, action: idx === (info.cfg.activePage || 0) ? 'showing' : 'switch' };
     }
     if (pages.length + srcPages.length > MAX_PAGES) return { ...info, action: 'full' };
@@ -4202,7 +4496,8 @@ setInterval(async () => {
     const keepPage = pageIndex, keepSel = selected;
     state = await api('GET', `/api/config/${encodeURIComponent(deviceId)}`);
     pageIndex = Math.min(keepPage, state.config.pages.length - 1);
-    selected = keepSel && getCell(keepSel) ? keepSel : null;
+    // 選取用 path 指格子：新版本那一頁還是多個大區塊（render 時才併）就不留選取，免得指到別格
+    selected = keepSel && page() && (page().blocks || []).length === 1 && getCell(keepSel) ? keepSel : null;
     render();
     setStatus(`「${curDevName()}」有新的變更，已自動更新。`);
   } catch { /* 網路暫時異常就等下一輪 */ } finally { versionPollBusy = false; }

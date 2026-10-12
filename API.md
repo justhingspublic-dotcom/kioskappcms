@@ -123,7 +123,7 @@ cell 欄位（與 App 的 `LayoutTree.kt` 序列化一致）：
 `content`(None/Marquee/Weather/Text/Web/Video)、`txtColor`、`mqSpeed`、`video`、`web`、`text`、
 `wAuto`/`wCounty`/`wDistrict`/`wDynBg`(天氣)、`wSrc`(Standard/Station，天氣資料來源)、
 `wStUrl`(園區測站 API 網址)/`wStation`(測站代號，空＝輪播全部)、`tap`(None/OpenWeb/OpenAssistant)、`tapUrl`、
-`agentId`/`agentName`/`agentAccent`(ARGB 十進位，省略=自動)/`assistantLayout`(AI 客服)。
+`agentId`/`agentName`/`agentAccent`(ARGB 十進位，省略=自動)/`assistantLayout`(AI 客服)/`agentInputPos`(Bottom/Top，客服輸入區位置，省略=Top)。
 
 `sleep` 欄位（與 App DataStore 的 `sleep_schedule_json` 同格式）：`periods[].day` 用
 java.time 慣例（1=週一 … 7=週日）、`start`/`end` 為凌晨起算的分鐘數（0–1439）；
