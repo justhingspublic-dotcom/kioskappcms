@@ -12,7 +12,7 @@
   #appDownloadModal.is-visible, #appDownloadModal.is-visible .b-modal { animation: none; transition: none; }
 }
 #appDownloadModal [hidden] { display: none !important; }
-/* 寬版（2026-10-13 user：跟使用說明等 modal 一樣是電腦螢幕比例）：上＝版本列（固定）、中＝「這次更新」列點清單在框裡自己捲、
+/* 寬版（2026-10-13 user：跟使用說明等 modal 一樣是電腦螢幕比例）：上＝版本列（固定）、中＝「更新內容」列點清單在框裡自己捲、
    底部欄＝細分隔線＋左安裝提示／右下載鈕。清單底下留白並淡出，捲到底也不會貼著底部欄 */
 .b-modal.is-app-download { width: min(860px, calc(100vw - 48px)); max-width: none; height: min(600px, calc(100dvh - 2rem)); max-height: none; display: flex; flex-direction: column; overflow: hidden; }
 .is-app-download .b-modal-head, .is-app-download .b-modal-foot { flex-shrink: 0; }
@@ -28,12 +28,13 @@
 .app-release-icon svg { width: 24px; height: 24px; }
 .app-release-version { margin: 0; font-size: 1.5rem; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .app-release-meta { margin: .2rem 0 0; color: var(--text-body-subtle); font-size: .8125rem; }
-.app-release-heading { margin: 0 0 .75rem; font-size: 1rem; font-weight: 600; }
+.app-release-heading { margin: 0; font-size: 1rem; font-weight: 600; }
 .app-release-notes {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  list-style: none; margin: 0; padding: 0 12px 28px 0; overflow-wrap: anywhere;
+  list-style: none; margin: 0; padding: 20px 12px 28px 0; overflow-wrap: anywhere;
   scrollbar-width: thin; scrollbar-color: var(--border-default) transparent;
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+  /* 上下兩端都淡出（2026-10-13 user）：捲動時內容在「更新內容」標題下方與底部欄上方漸漸淡掉；上下留白剛好是淡出區，沒捲時第一、最後一點不會被淡到 */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 28px), transparent);
 }
 .app-release-notes li { position: relative; padding-left: 1.1rem; line-height: 1.65; }
 .app-release-notes li::before { content: ''; position: absolute; left: 0; top: .66em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent, currentColor); }

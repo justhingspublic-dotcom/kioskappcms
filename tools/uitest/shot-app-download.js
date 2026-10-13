@@ -38,6 +38,8 @@ const release = JSON.parse(fs.readFileSync(process.env.RELEASE, 'utf8'));
     });
     console.log(`${w}x${h}`, JSON.stringify(m));
     await page.screenshot({ path: path.join(OUT, `${w}x${h}.png`) });
+    await page.evaluate(() => { const n = document.getElementById('appReleaseNotes'); n.scrollTop = (n.scrollHeight - n.clientHeight) / 2; }); await sleep(200);
+    await page.screenshot({ path: path.join(OUT, `${w}x${h}-scrolled.png`) });
     await page.close();
   }
   console.log(errs.length ? errs.join('\n') : 'no page errors');
