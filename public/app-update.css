@@ -12,13 +12,15 @@
   #appDownloadModal.is-visible, #appDownloadModal.is-visible .b-modal { animation: none; transition: none; }
 }
 #appDownloadModal [hidden] { display: none !important; }
-/* 寬版（2026-10-13 user：跟使用說明等 modal 一樣是電腦螢幕比例）：上＝版本列、中＝這次更新兩欄小卡、
-   底部欄＝細分隔線＋左安裝提示／右下載鈕（內容捲動時不會貼著按鈕） */
-.b-modal.is-app-download { width: min(860px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; }
+/* 寬版（2026-10-13 user：跟使用說明等 modal 一樣是電腦螢幕比例）：上＝版本列（固定）、中＝「這次更新」列點清單在框裡自己捲、
+   底部欄＝細分隔線＋左安裝提示／右下載鈕。清單底下留白並淡出，捲到底也不會貼著底部欄 */
+.b-modal.is-app-download { width: min(860px, calc(100vw - 48px)); max-width: none; height: min(600px, calc(100dvh - 2rem)); max-height: none; display: flex; flex-direction: column; overflow: hidden; }
 .is-app-download .b-modal-head, .is-app-download .b-modal-foot { flex-shrink: 0; }
 #appDownloadModal .b-modal-head { border-bottom: 0; padding-bottom: 4px; }
 #appDownloadModal .b-modal-foot { gap: 16px; }
-.is-app-download .b-modal-body { overflow-y: auto; min-height: 0; font-size: .9375rem; }
+.is-app-download .b-modal-body { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding-bottom: 0; font-size: .9375rem; }
+#appDownloadDetails { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#appDownloadDetails > :not(.app-release-notes) { flex: none; }
 #appDownloadStatus { margin: .5rem 0; color: var(--text-body-subtle); }
 #appDownloadStatus.is-error { color: var(--fg-danger); }
 .app-release-summary { display: flex; align-items: center; gap: .875rem; margin-bottom: 1.5rem; }
@@ -27,13 +29,19 @@
 .app-release-version { margin: 0; font-size: 1.5rem; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .app-release-meta { margin: .2rem 0 0; color: var(--text-body-subtle); font-size: .8125rem; }
 .app-release-heading { margin: 0 0 .75rem; font-size: 1rem; font-weight: 600; }
-.app-release-notes { list-style: none; padding: 0; margin: 0 0 .25rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; overflow-wrap: anywhere; }
-.app-release-notes li { padding: 14px 16px; border-radius: var(--radius-md); background: var(--neutral-secondary-soft); border: 1px solid var(--border-default); line-height: 1.6; font-size: .875rem; }
-.app-note-title { display: block; font-size: .9375rem; font-weight: 600; color: var(--text-heading, inherit); }
-.app-note-body { display: block; margin-top: .3rem; color: var(--text-body-subtle); }
+.app-release-notes {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  list-style: none; margin: 0; padding: 0 12px 28px 0; overflow-wrap: anywhere;
+  scrollbar-width: thin; scrollbar-color: var(--border-default) transparent;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+.app-release-notes li { position: relative; padding-left: 1.1rem; line-height: 1.65; }
+.app-release-notes li::before { content: ''; position: absolute; left: 0; top: .66em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent, currentColor); }
+.app-release-notes li + li { margin-top: 1rem; }
+.app-note-title { display: block; font-weight: 600; }
+.app-note-body { display: block; margin-top: .15rem; color: var(--text-body-subtle); }
 .app-release-hint { flex: 1; min-width: 0; margin: 0; color: var(--text-body-subtle); font-size: .8125rem; line-height: 1.5; }
 @media (max-width: 42rem) {
-  .app-release-notes { grid-template-columns: minmax(0, 1fr); }
   #appDownloadModal .b-modal-foot { flex-wrap: wrap; }
   .app-release-hint { flex-basis: 100%; }
   .header-app-download span { display: none; }

@@ -33,7 +33,7 @@ const release = JSON.parse(fs.readFileSync(process.env.RELEASE, 'utf8'));
     await page.waitForSelector('#appDownloadDetails:not([hidden])', { timeout: 8000 });
     await sleep(500);
     const m = await page.evaluate(() => {
-      const r = document.querySelector('#appDownloadModal .b-modal').getBoundingClientRect(), b = document.querySelector('#appDownloadModal .b-modal-body');
+      const r = document.querySelector('#appDownloadModal .b-modal').getBoundingClientRect(), b = document.querySelector('#appReleaseNotes');
       return { w: Math.round(r.width), h: Math.round(r.height), scrolls: b.scrollHeight > b.clientHeight + 1, titles: [...document.querySelectorAll('.app-note-title')].map((t) => t.textContent) };
     });
     console.log(`${w}x${h}`, JSON.stringify(m));
