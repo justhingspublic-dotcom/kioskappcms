@@ -169,13 +169,18 @@
 /* 白框跟頂區下緣同心（2026-10-12 user）：頂區下緣圓角＝白框圓角 28px＋內距 8px×比例，左、右、下內距一樣；
    白框在 .as-input 裡（KIOSK zoom 2），頂區沒有 zoom，所以頂區的圓角要再乘 --as-iz（＝.as-input 的 zoom）才是同一個單位 */
 .as-root.pos-top { --as-iz: 1; }
-.as-root.pos-top.kiosk { --as-iz: 2; } /* 跟 .as-root.kiosk .as-input { zoom: 2 } 一致 */
+/* KIOSK 上方模式（2026-10-13 user：輸入區比頂欄大太多、頭輕腳重）：輸入區跟頂欄同一個放大倍數 1.6（下方模式維持 2），
+   --as-iz 跟著 .as-input 的 zoom；大麥克風 68→56、與輸入列間距 16→10（同 App） */
+.as-root.pos-top.kiosk { --as-iz: 1.6; }
+.as-root.pos-top.kiosk .as-input { zoom: 1.6; }
+.as-root.pos-top .as-circle.mic { width: calc(56px * var(--as-scale)); height: calc(56px * var(--as-scale)); }
+.as-root.pos-top .as-circle.mic .material-icons { font-size: calc(28px * var(--as-scale)); }
 .as-root.pos-top .as-head { position: absolute; top: 0; left: 0; right: 0; z-index: 3; background: color-mix(in srgb, var(--as-accent) 9%, #fff); box-shadow: 0 4px 16px rgba(0,0,0,.05); --as-hr: calc((28px + 8px * var(--as-scale)) * var(--as-iz)); border-radius: 0 0 var(--as-hr) var(--as-hr); }
 .as-root.pos-top .as-top { background: transparent; border-bottom: 0; }
 .as-root.pos-top .as-input { background: transparent; padding: 2px calc(8px * var(--as-scale)) calc(8px * var(--as-scale)); }
 .as-root.pos-top .as-pill { background: #fff; } /* 跟下方同一個圓角框，只是白底、上下顛倒：輸入列在上、大麥克風在下（user：大麥克風要留著） */
 .as-root.pos-top .as-text-row { margin-top: 0; }
-.as-root.pos-top .as-mic-row { margin-top: 16px; }
+.as-root.pos-top .as-mic-row { margin-top: 10px; }
 .as-root.pos-top .as-pending { max-width: calc(900px * var(--as-scale)); margin: 0 auto; padding: 10px 4px 0; }
 .as-root.pos-top .as-err { max-width: calc(900px * var(--as-scale)); margin: 0 auto; padding: 8px 16px 0; }
 .as-root.pos-top .as-list { padding-top: calc(var(--as-headh, 0px) + 24px * var(--as-scale)); } /* 問題停的位置＝頂區下緣再 24px */
