@@ -3665,17 +3665,17 @@ function connIcon(d) {
   let cls, icon, title, body;
   if (d.KeyMismatch) {
     cls = 'danger'; icon = 'key-round'; title = '金鑰不符';
-    body = '這台機器最近用錯誤的連線金鑰連上來。請到機器的「雲端同步」重新填入本站的連線金鑰。';
+    body = '這台機器最近用錯誤的連線金鑰連上來。請到機器的「雲端同步」重新連線到本站。';
   } else if (d.ServerMatch === false) {
     cls = 'warning'; icon = 'unplug'; title = `連到別的伺服器（${shortServer(d.LastServerUrl)}）`;
-    body = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」按「一鍵填入正式伺服器」。`;
+    body = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」重新連線到本站。`;
   } else if (d.ServerMatch === true) {
     // 綠勾只在「在線」時顯示（2026-09-09）：這筆是機器最後一次連上本站時自報的，離線後它若改連別台伺服器，
     // 本站不會再收到任何回報、無從得知，掛著綠勾會誤導（user 實測：手機切去正式站，這裡仍顯示設定正確）。
     // 黃／紅警告照舊離線也顯示——那是最後一次接觸時就看到的問題，值得留著。
     if (!(d.LastSeenAgoSec < 60)) return null;
     cls = 'ok'; icon = 'circle-check'; title = '連線設定正確';
-    body = `伺服器位址與連線金鑰都是本站的。${d.LastAppVersion ? `\nApp v${d.LastAppVersion}` : ''}`;
+    body = `伺服器位址與連線金鑰都是本站的。\n${keyKindText(d)}${d.LastAppVersion ? `\nApp v${d.LastAppVersion}` : ''}`;
   } else {
     return null;
   }
@@ -3685,6 +3685,13 @@ function connIcon(d) {
   el.setAttribute('aria-label', `${title}。${body}`);
   attachTip(el, title, body, cls);
   return el;
+}
+/** 連線金鑰說明（2026-10-13）：每台專屬金鑰換好了沒。網頁播放頁一直用共用金鑰（網址上那把），不會換。 */
+function keyKindText(d) {
+  if (d.KeyKind === 'own') return '這台使用自己專屬的連線金鑰。';
+  if (d.KeyKind === 'pending') return '正在換成這台專屬的連線金鑰。';
+  if (/^web/i.test(d.LastAppVersion || '')) return '網頁播放頁使用共用的連線金鑰。';
+  return '這台還在使用共用的連線金鑰，更新到新版 App 後會自動換成專屬的。';
 }
 /** hover 說明面板（page-help 同款外觀；掛在 body、fixed 定位，不會被表格捲動容器裁掉）：
  *  錨在元素下方 8px、左緣對齊元素；右邊貼到視窗就往內縮，下面放不下就改開在上方。 */
@@ -3751,7 +3758,7 @@ async function renderDevicesView() {
       '<tr><td colspan="8"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>' +
       '<p class="b-empty-title">還沒有機器連上來</p>' +
-      '<p class="b-empty-sub">在 kiosk 機器的 App 裡開啟「雲端同步」，機器會自動出現在這裡。</p>' +
+      '<p class="b-empty-sub">按右上角「新增機器」，輸入機器畫面上的配對碼，機器就會出現在這裡。</p>' +
       '</div></td></tr>';
     if (window.lucide) lucide.createIcons();
     return;
@@ -3800,6 +3807,248 @@ async function renderDevicesView() {
   }
   // BDropdown.init 移除：表格裡已無 select（原本是「屬於」的分配下拉）
   if (window.lucide) lucide.createIcons();
+}
+
+// ---------- 機器總覽 › 新增機器（2026-10-13 配對碼） ----------
+// 機器 App「雲端同步」顯示 6 位數配對碼（同一組登記在每個場域）。這裡一個對話框走完：輸入配對碼（6 格，像驗證碼）→「下一步」才查
+// → 確認機型並取名 → 正在新增（轉圈，等機器真的連上）→ 已新增（打勾）→ 自己關、清單已經有這台而且在線。步驟之間有過場：
+// 舊內容往左淡出、新內容從右淡入、對話框高度跟著平順伸縮（user 2026-10-13：關掉就該是新增成功；處理中要有過場；
+// 配對碼要像驗證碼那樣一格一格；打滿不要自動查，按下一步才判斷；換步驟不要直接跳）。
+// 輸入的是已經在本場域的機器（它按了重新配對）：不給新增，改說「已在清單中」；連在別的場域的機器，取名時提醒會從那邊移除。
+$('addDeviceBtn').addEventListener('click', async () => {
+  if (await pairDialog()) renderDevicesView();
+});
+
+/** 新增機器對話框。外觀同 BDialog（.b-modal.is-alert）；處理中不能關（Esc、點遮罩都不理），免得以為取消了其實已經新增。
+ *  機器 20 秒內沒連上：照樣算新增成功（後台已建好這台），改成說明＋「知道了」。回傳 true＝已新增、false＝取消。 */
+function pairDialog() {
+  return new Promise((resolve) => {
+    const hint = '名稱會顯示在機器總覽，之後也可以更名。';
+    const codeHint = '請輸入機器畫面上顯示的 6 位數配對碼。';
+    // 機器目前連在別的場域（user 2026-10-13：要讓人知道這台已經在某個場域）：取名這一步先講清楚新增後會怎樣
+    const nameDesc = (i) => (i.model ? `機型：${i.model}\n` : '') +
+      (i.currentSite ? `此機器目前連線到「${i.currentSite}」，新增後將從該場域移除。\n` : '') + hint;
+    const existsDesc = (name) => `此機器已經以「${name}」連線到這個場域，不需要再次新增。`;
+    const overlay = document.createElement('div');
+    overlay.className = 'b-modal-overlay';
+    overlay.setAttribute('data-modal-vue', ''); // 同 BDialog：別讓殼層 modal JS 接管
+    overlay.setAttribute('data-modal-anim', 'vue');
+    overlay.style.zIndex = '1600';
+    overlay.innerHTML =
+      '<div class="b-modal is-alert pair-dlg" role="dialog" aria-modal="true" aria-labelledby="pairDlgTitle">' +
+        '<div class="b-alert-body">' +
+          '<div class="b-alert-icon pair-dlg-icon" aria-hidden="true" hidden></div>' +
+          '<h2 class="b-alert-title" id="pairDlgTitle"></h2>' +
+          '<p class="b-alert-desc" aria-live="polite" style="white-space:pre-line"></p>' +
+          '<div class="otp" role="group" aria-label="配對碼"></div>' +
+          '<input class="b-input pair-name" type="text" aria-label="機器名稱" placeholder="例：一樓大廳" style="margin-top:12px;width:100%;text-align:center">' +
+        '</div>' +
+        '<div class="b-alert-foot">' +
+          '<button type="button" class="b-btn b-btn-quiet">取消</button>' +
+          '<button type="button" class="b-btn b-btn-text">下一步</button>' +
+        '</div>' +
+      '</div>';
+    const q = (sel) => overlay.querySelector(sel);
+    const icon = q('.pair-dlg-icon'), title = q('.b-alert-title'), descEl = q('.b-alert-desc');
+    const otp = q('.otp'), nameInput = q('.pair-name'), foot = q('.b-alert-foot');
+    const [cancelBtn, okBtn] = foot.querySelectorAll('button');
+    let phase = 'code', code = '', info = null, added = false, closed = false, checking = false;
+
+    // ---- 6 格配對碼：打一個跳下一格、退格回上一格、可整組貼上（「482 913」中間有空格也收）、打滿自動查 ----
+    const boxes = [];
+    for (let i = 0; i < 6; i++) {
+      if (i === 3) { const gap = document.createElement('span'); gap.className = 'otp-gap'; otp.appendChild(gap); }
+      const b = document.createElement('input');
+      b.className = 'otp-box';
+      b.type = 'text';
+      b.inputMode = 'numeric';
+      b.maxLength = 1;
+      b.autocomplete = i === 0 ? 'one-time-code' : 'off';
+      b.setAttribute('aria-label', `第 ${i + 1} 碼`);
+      otp.appendChild(b);
+      boxes.push(b);
+    }
+    const otpValue = () => boxes.map((b) => b.value).join('');
+    /** 一開始改號碼就把「找不到這組配對碼」的紅框與說明收回 */
+    function clearError() {
+      otp.classList.remove('is-error');
+      if (descEl.classList.contains('is-error')) { descEl.textContent = codeHint; descEl.classList.remove('is-error'); }
+    }
+    function fill(from, digits) {
+      let i = from;
+      for (const d of digits) { if (i > 5) break; boxes[i++].value = d; }
+      boxes[Math.min(i, 5)].focus();
+      clearError();
+      okBtn.disabled = otpValue().length !== 6;
+    }
+    boxes.forEach((b, i) => {
+      b.addEventListener('input', () => {
+        const digits = b.value.replace(/\D/g, '');
+        b.value = '';
+        if (digits) fill(i, digits);
+        else { okBtn.disabled = true; clearError(); }
+      });
+      b.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !b.value && i > 0) { e.preventDefault(); boxes[i - 1].value = ''; boxes[i - 1].focus(); okBtn.disabled = true; clearError(); }
+        else if (e.key === 'ArrowLeft' && i > 0) { e.preventDefault(); boxes[i - 1].focus(); }
+        else if (e.key === 'ArrowRight' && i < 5) { e.preventDefault(); boxes[i + 1].focus(); }
+        else if (e.key === 'Enter') e.preventDefault();
+      });
+      b.addEventListener('focus', () => b.select());
+      b.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const digits = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+        if (digits) fill(digits.length >= 6 ? 0 : i, digits.slice(0, 6));
+      });
+    });
+
+    /** 換步驟的過場：舊內容往左淡出 → 換內容 → 新內容從右淡入，期間對話框高度從舊的平順變成新的。
+     *  系統設定「減少動態效果」時只淡出淡入、不位移不伸縮（照樣看得出換了一步）。 */
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const body = q('.b-alert-body'), modal = q('.pair-dlg');
+    async function transition(update) {
+      if (!modal.animate) { update(); return; }
+      const dx = reduceMotion ? 0 : 14;
+      const ease = 'cubic-bezier(.22, 1, .36, 1)';
+      const parts = [body, foot]; // 按鈕列一起淡出淡入（新增中／已新增沒有按鈕列）
+      const h0 = modal.offsetHeight;
+      const outs = parts.map((el) => el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${-dx}px)` }],
+        { duration: 140, easing: 'ease-in', fill: 'forwards' }));
+      await Promise.all(outs.map((x) => x.finished.catch(() => {})));
+      update();
+      const h1 = modal.offsetHeight;
+      outs.forEach((x) => x.cancel());
+      modal.style.overflow = 'hidden';
+      if (!reduceMotion) modal.animate([{ height: h0 + 'px' }, { height: h1 + 'px' }], { duration: 240, easing: ease });
+      await Promise.all(parts.map((el) => el.animate([{ opacity: 0, transform: `translateX(${dx}px)` }, { opacity: 1, transform: 'none' }],
+        { duration: 240, easing: ease }).finished.catch(() => {})));
+      modal.style.overflow = '';
+    }
+    function show(next, t, d) {
+      phase = next;
+      title.textContent = t;
+      descEl.textContent = d;
+      descEl.classList.toggle('is-error', next === 'error');
+      const ic = { busy: 'loader-circle', done: 'circle-check', slow: 'circle-check', exists: 'info' }[next];
+      icon.hidden = !ic;
+      icon.className = 'b-alert-icon pair-dlg-icon is-' + next;
+      icon.innerHTML = ic ? `<i data-lucide="${ic}"${next === 'busy' ? ' class="b-spin"' : ''}></i>` : '';
+      otp.hidden = next !== 'code';
+      nameInput.hidden = !(next === 'name' || next === 'error');
+      foot.hidden = next === 'busy' || next === 'done';
+      okBtn.textContent = next === 'code' ? '下一步' : next === 'slow' || next === 'exists' ? '知道了' : '新增';
+      cancelBtn.hidden = next === 'slow' || next === 'exists';
+      okBtn.disabled = next === 'code' && otpValue().length !== 6;
+      if (window.lucide) lucide.createIcons();
+    }
+    async function lookup() {
+      if (checking || phase !== 'code') return;
+      code = otpValue();
+      if (code.length !== 6) return;
+      checking = true;
+      boxes.forEach((b) => { b.disabled = true; });
+      okBtn.disabled = true;
+      okBtn.textContent = '確認中…';
+      try {
+        info = await api('GET', `/api/pair/code/${code}`);
+        // 這台本來就在本場域（機器按了重新配對、又輸入到同一個場域）：不新增第二台，機器那邊也已經收起配對碼
+        if (info.existing) {
+          await transition(() => show('exists', '這台機器已在清單中', existsDesc(info.existing.name)));
+          okBtn.focus();
+          return;
+        }
+        await transition(() => show('name', '幫這台機器取個名字', nameDesc(info)));
+        nameInput.focus();
+      } catch (e) {
+        okBtn.textContent = '下一步';
+        okBtn.disabled = false;
+        descEl.textContent = e.message;
+        descEl.classList.add('is-error');
+        otp.classList.remove('is-error'); void otp.offsetWidth; otp.classList.add('is-error'); // 重播搖晃
+        boxes.forEach((b) => { b.disabled = false; });
+        boxes[5].focus();
+      } finally {
+        checking = false;
+      }
+    }
+    function close(val) {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey, true);
+      overlay.classList.remove('is-open');
+      setTimeout(() => {
+        overlay.remove();
+        if (!document.querySelector('.b-modal-overlay.is-open')) document.body.classList.remove('b-modal-lock');
+      }, 200);
+      resolve(val);
+    }
+    async function submit() {
+      if (phase === 'code') return lookup();
+      if (phase === 'slow') return close(true);
+      if (phase === 'exists') return close(false);
+      const name = nameInput.value.trim();
+      if (!name) { show('name', '幫這台機器取個名字', '請幫這台機器取個名字。\n' + hint); nameInput.focus(); return; }
+      await transition(() => show('busy', '正在新增', '正在連線到機器，請稍候…'));
+      let res;
+      try { res = await api('POST', '/api/pair/claim', { code, name }); }
+      catch (e) { await transition(() => show('error', '無法新增機器', e.message)); nameInput.focus(); return; }
+      added = true;
+      const t0 = Date.now();
+      let online = false;
+      while (!online && Date.now() - t0 < 20000) {
+        await new Promise((r) => setTimeout(r, 700));
+        const list = await api('GET', '/api/devices').catch(() => null);
+        const d = list && list.find((x) => x.DeviceId === res.deviceId);
+        online = !!(d && d.LastSeenAgoSec != null && d.LastSeenAgoSec < 30);
+      }
+      if (online) {
+        await transition(() => show('done', `已新增「${res.deviceName}」`, '機器已經連上，可以開始管理內容了。'));
+        setTimeout(() => close(true), 1400);
+      } else {
+        await transition(() => show('slow', `已新增「${res.deviceName}」`, '機器還沒連上。請確認機器開著而且有網路，連上後清單會顯示「在線」。'));
+      }
+    }
+    const canDismiss = () => phase === 'code' || phase === 'name' || phase === 'error' || phase === 'exists';
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation();
+        if (canDismiss()) close(false);
+        else if (phase === 'slow') close(true);
+      } else if (e.key === 'Enter' && e.target === nameInput) {
+        e.preventDefault(); // 同 BDialog：Enter 不送出，一律按鈕
+      }
+    }
+    okBtn.addEventListener('click', submit);
+    cancelBtn.addEventListener('click', () => close(added));
+    overlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target !== overlay) return;
+      if (canDismiss()) close(false);
+      else if (phase === 'slow') close(true);
+    });
+    document.addEventListener('keydown', onKey, true);
+
+    show('code', '新增機器', codeHint);
+    document.body.appendChild(overlay);
+    document.body.classList.add('b-modal-lock');
+    overlay.classList.add('is-visible');
+    void overlay.offsetWidth;
+    // 從開框到關掉，對話框高度都不變（user 2026-10-13：換到取名、新增中都不要改高度）：開框當下（還沒畫出來）
+    // 把每一步輪流擺上去量，取最高的當對話框最小高度；內容區撐滿並垂直置中（style.css .pair-dlg），
+    // 沒有按鈕列的步驟（新增中／已新增）內容一樣在中間。量完回到第一步
+    {
+      let h = 0;
+      const measure = () => { h = Math.max(h, modal.offsetHeight); };
+      show('name', '幫這台機器取個名字', nameDesc({ model: '—', currentSite: '揚昇高爾夫球場' })); measure();
+      show('exists', '這台機器已在清單中', existsDesc('一樓大廳展示機')); measure();
+      show('busy', '正在新增', '正在連線到機器，請稍候…'); measure();
+      show('slow', '已新增「一樓大廳」', '機器還沒連上。請確認機器開著而且有網路，連上後清單會顯示「在線」。'); measure();
+      show('code', '新增機器', codeHint); measure();
+      modal.style.minHeight = h + 'px';
+    }
+    overlay.classList.add('is-open');
+    setTimeout(() => boxes[0].focus(), 0);
+  });
 }
 
 // ---------- 機器總覽 › 展示版面（2026-09-09 批量展示，精靈式 modal） ----------
@@ -4244,7 +4493,7 @@ function dangerZoneCard() {
       '<div class="b-pop page-help"><button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>' +
       '<div class="b-pop-panel page-help-panel"><p class="b-pop-panel-title">說明</p>' +
       `<p>從後台移除「${esc(curDevName())}」並停止同步。</p>` +
-      '<p>機器端的連線資料會一併清除，需重新輸入伺服器位址、機器編號與金鑰才能再接回來。</p></div></div>';
+      '<p>機器端的連線資料會一併清除，要在機器上重新配對才能再接回來。</p></div></div>';
     const actions = document.createElement('div');
     actions.className = 'danger-actions';
     const cancel = document.createElement('button');
@@ -4263,7 +4512,7 @@ function dangerZoneCard() {
         const ok = await BDialog.confirm({
           title: `要刪除「${curDevName()}」嗎？`,
           desc: '機器會從後台移除並停止同步，畫面照常播放。\n' +
-            '機器端的連線資料會一併清除，之後需在機器上重新輸入伺服器位址、機器編號與金鑰才能再接回來。\n' +
+            '機器端的連線資料會一併清除，之後要在機器上重新配對才能再接回來。\n' +
             '此動作無法復原。',
           variant: 'danger', confirmText: '刪除', countdown: 3,
         });

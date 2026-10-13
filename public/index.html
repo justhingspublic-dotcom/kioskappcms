@@ -154,8 +154,8 @@
             <div class="b-pop page-help conn-help">
               <button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>
               <div class="b-pop-panel page-help-panel">
-                <p>在機器的「雲端同步」設定頁填入相同的伺服器位址與連線金鑰，機器就會連上這個後台。</p>
-                <p>這兩項只能在伺服器端設定，這裡僅供查看與複製。</p>
+                <p>Android 展示機不用抄這裡：在機器的「雲端同步」按「連線到後台」，再到機器總覽按「新增機器」輸入配對碼就好。</p>
+                <p>這裡的連線金鑰是共用的那一把，給網頁螢幕的播放頁網址用。只能在伺服器端設定，這裡僅供查看與複製。</p>
                 <p>沒有 App 的機器（例如 Windows 電腦）用瀏覽器開「播放頁網址」就是一台機器，會出現在機器總覽。所有螢幕開同一個網址；第一次開啟時螢幕上會請你填那面螢幕的名字（伺服器有設預設機器名就不用填，所有螢幕同一個畫面），之後那台機器會記住。要改名，在畫面左上角連點五下。</p>
               </div>
             </div>
@@ -215,16 +215,19 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
+                <p>點「新增機器」，輸入機器畫面上的 6 位數配對碼並取個名字，機器幾秒內就會出現在清單裡。</p>
                 <p>點「內容管理」進入該機器的版面與設定。</p>
                 <p>點右上角「批量調整展示畫面」，先勾選機器、再挑一個共用版面，就能一次讓這幾台切換到同一個版面並進入展示模式；還沒加入那個版面的機器會先把版面接在現有頁面後面再切換。</p>
-                <p>點「更名」可直接修改機器名稱，會同步回機器；也可在 kiosk 機器的「雲端同步」設定裡填寫。沒有名稱時顯示編號。</p>
-                <p>「狀態」欄第二行是連線設定檢查：「連到別的伺服器」表示機器填的位址不是本站，在這裡做的變更送不到機器；「金鑰不符」表示機器填的連線金鑰錯了。兩種都到機器的「雲端同步」按「一鍵填入正式伺服器」即可。</p>
+                <p>點「更名」可直接修改機器名稱，會同步回機器。沒有名稱時顯示編號。</p>
+                <p>「狀態」欄第二行是連線設定檢查：「連到別的伺服器」表示機器填的位址不是本站，在這裡做的變更送不到機器；「金鑰不符」表示機器填的連線金鑰錯了。兩種都到機器的「雲端同步」重新連線到本站即可。</p>
               </div>
             </div>
           </div>
           <!-- 重整（2026-09-07 指示）：只放 icon，灰底方圓角，同工作區頁籤列的重新載入鈕 -->
           <div class="page-actions">
             <!-- 批量調整展示畫面（2026-09-09）：精靈式 modal＝勾機器 → 選共用版面 → 完成，讓這幾台一起切過去 -->
+            <!-- 新增機器（2026-10-13）：輸入機器畫面上的配對碼 → 取名，伺服器發這台專屬的連線金鑰 -->
+            <button id="addDeviceBtn" class="b-btn" type="button">新增機器</button>
             <button id="showLayoutBtn" class="b-btn b-btn-primary" type="button">批量調整展示畫面</button>
             <button id="devicesReloadBtn" class="icon-btn" type="button" title="重新整理" aria-label="重新整理機器清單"><i data-lucide="refresh-cw"></i></button>
           </div>
@@ -512,14 +515,14 @@
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="compass" aria-hidden="true"></i></span><h4>開始使用</h4></div>
               <p class="gd-lead">後台是展示機的遠端控制中心。把機器連上來之後，版面與設定都在這裡改，按「儲存並發布」機器就會立即更新。螢幕有兩種接法：裝了 App 的 Android 展示機，或用瀏覽器開的網頁螢幕（見<span class="gd-ui">網頁螢幕</span>一章）。</p>
               <ol class="gd-steps">
-                <li>側欄下方的<span class="gd-ui">機器連線資訊</span>有伺服器位址、連線金鑰與展示頁網址，各自按<span class="gd-ui">複製</span>。</li>
-                <li>到機器上打開 App 管理頁，進入<span class="gd-ui">設定</span>＞<span class="gd-ui">雲端同步</span>，貼上位址與金鑰並開啟同步。同一個內網可以直接按<span class="gd-ui">一鍵填入正式伺服器</span>。可以順便填一個好記的機器名稱。</li>
-                <li>幾秒後機器會出現在<span class="gd-ui">機器總覽</span>。沒填名稱時列表顯示機器編號。</li>
+                <li>到機器上打開 App 管理頁，按右上角的連線圖示（橘色＝還沒連線），畫面會出現 6 位數配對碼和倒數時間，10 分鐘內有效。</li>
+                <li>回到後台的<span class="gd-ui">機器總覽</span>按<span class="gd-ui">新增機器</span>，在 6 個格子輸入配對碼（打滿會自動往下），再幫機器取個名字。在哪個場域的後台輸入，機器就連到哪個場域；原本連在別的場域的機器，會自動從那邊移除。已經在這個場域的機器，會顯示「這台機器已在清單中」，不會重複新增。</li>
+                <li>對話框顯示「已新增」就完成了，機器已經連上、出現在<span class="gd-ui">機器總覽</span>，連線圖示變成綠色。不用在機器上打位址或金鑰。</li>
                 <li>點該列的<span class="gd-ui">內容管理</span>進入工作區編排版面，按<span class="gd-ui">儲存並發布</span>。</li>
               </ol>
               <div class="gd-shot-row">
-                <figure class="gd-shot is-sm"><img src="img/manual/conn-info.png" alt="機器連線資訊" loading="lazy"><figcaption class="gd-shot-cap">步驟 1：側欄「機器連線資訊」，三項都可以直接複製。</figcaption></figure>
-                <figure class="gd-shot is-phone"><img src="img/manual/kiosk-cloud-sync.png" alt="機器上的雲端同步設定" loading="lazy"><figcaption class="gd-shot-cap">步驟 2：機器上的「雲端同步」，填入位址、金鑰與機器名稱。</figcaption></figure>
+                <figure class="gd-shot is-phone"><img src="img/manual/kiosk-pairing.png" alt="機器上的配對碼" loading="lazy"><figcaption class="gd-shot-cap">步驟 1：機器管理頁按連線圖示，下方升起配對碼。</figcaption></figure>
+                <figure class="gd-shot is-sm"><img src="img/manual/add-device.png" alt="後台新增機器" loading="lazy"><figcaption class="gd-shot-cap">步驟 2：機器總覽「新增機器」，6 格輸入配對碼。</figcaption></figure>
               </div>
               <p class="gd-sub">右上角的工具</p>
               <div class="gd-tbl">
@@ -538,7 +541,7 @@
               <div class="gd-tbl">
                 <div class="gd-row"><b>尺寸與解析度</b><span>機器自己回報的螢幕吋數與像素。網頁螢幕量不到實體大小，尺寸顯示<span class="gd-ui">不支援</span>；舊版 App 還沒回報過則顯示「—」。</span></div>
                 <div class="gd-row"><b>狀態</b><span>綠點「在線」表示機器正在連線；「離線」會標示多久沒回報；「尚未回報」是伺服器啟動後還沒連線過的機器。</span></div>
-                <div class="gd-row"><b>連線檢查</b><span>狀態下方出現<span class="gd-ui">連到別的伺服器</span>表示機器填的位址不是本站，在這裡做的變更送不到它；<span class="gd-ui">金鑰不符</span>表示機器填的連線金鑰錯了。兩種都到機器的<span class="gd-ui">雲端同步</span>按<span class="gd-ui">一鍵填入正式伺服器</span>即可。</span></div>
+                <div class="gd-row"><b>連線檢查</b><span>狀態下方出現<span class="gd-ui">連到別的伺服器</span>表示機器填的位址不是本站，在這裡做的變更送不到它；<span class="gd-ui">金鑰不符</span>表示機器的連線金鑰不對。兩種都到機器的<span class="gd-ui">雲端同步</span>按<span class="gd-ui">重新配對</span>即可。</span></div>
                 <div class="gd-row"><b>更名</b><span>按<span class="gd-ui">更名</span>直接修改機器名稱，會同步回機器。</span></div>
                 <div class="gd-row"><b>內容管理</b><span>按<span class="gd-ui">內容管理</span>進入該機器的工作區，編排版面與修改設定。</span></div>
                 <div class="gd-row"><b>批量調整展示畫面</b><span>右上角的按鈕：先勾要調整的機器，再挑一個共用版面，這幾台就會一起切到那個版面並進入展示模式。還沒有那個版面的機器，會先把版面接在現有頁面後面再切過去。</span></div>
@@ -666,7 +669,7 @@
                 <div class="gd-row"><b>回到管理頁</b><span>進入展示後 6 秒內點右上角齒輪、左上角連點 5 下、或按系統返回，都要輸入管理 PIN。</span></div>
                 <div class="gd-row"><b>訪客動線</b><span>訪客點格子開啟的網頁、客服與園區資訊頁，閒置到設定的時間就自動回到展示畫面，客服對話同時重置。時間在後台的<span class="gd-ui">閒置返回</span>調整。</span></div>
                 <div class="gd-row"><b>客服朗讀</b><span>對話頁上方的喇叭鈕可以隨時開關朗讀；預設開或關由後台那一格的設定決定。</span></div>
-                <div class="gd-row"><b>立即同步</b><span>在<span class="gd-ui">設定</span>＞<span class="gd-ui">雲端同步</span>按<span class="gd-ui">立即同步</span>可手動拉一次；<span class="gd-ui">一鍵填入正式伺服器</span>會自動帶入正確的位址與金鑰。</span></div>
+                <div class="gd-row"><b>連線狀態</b><span>管理頁右上角的連線圖示：綠色＝已連線、橘色＝未連線、紅色斷開＝暫時無法同步（恢復後自動同步）。點一下可查看連線、重新配對或中斷連線。後台發布的內容會自動套用，不需要手動同步。</span></div>
                 <div class="gd-row"><b>軟體更新</b><span><span class="gd-ui">設定</span>＞<span class="gd-ui">軟體更新</span>檢查並安裝新版，有新版時會標示。原有的場域與展示設定都會保留。</span></div>
                 <div class="gd-row"><b>休眠診斷</b><span>休眠時段沒有關螢幕時，到<span class="gd-ui">休眠時段</span>執行「硬體診斷」與「測試關閉螢幕」確認機器支援。</span></div>
               </div>
@@ -697,9 +700,10 @@
             <section id="gd-sec-faq">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="circle-help" aria-hidden="true"></i></span><h4>常見問題</h4></div>
               <div class="gd-tbl">
-                <div class="gd-row"><b>機器顯示離線</b><span>檢查機器網路，以及雲端同步的位址與金鑰是否與側欄相同。機器每半分鐘會回報一次。</span></div>
-                <div class="gd-row"><b>狀態下方有提示字</b><span>「連到別的伺服器」或「金鑰不符」表示機器的連線設定不對，在機器的雲端同步按「一鍵填入正式伺服器」即可。</span></div>
-                <div class="gd-row"><b>發布後沒變</b><span>確認機器在線，並在機器上按過「開始展示」。仍沒變就在機器的雲端同步頁按「立即同步」。</span></div>
+                <div class="gd-row"><b>機器顯示離線</b><span>檢查機器網路，以及機器的雲端同步是否連到這個場域。機器每半分鐘會回報一次。</span></div>
+                <div class="gd-row"><b>連線圖示變紅</b><span>多半是機器的網路暫時中斷，網路恢復後會自動同步，不需要處理。點連線圖示可看原因；只有顯示「請重新配對」時才需要重新配對。</span></div>
+                <div class="gd-row"><b>狀態下方有提示字</b><span>「連到別的伺服器」或「金鑰不符」表示機器的連線設定不對，在機器的雲端同步按「重新配對」即可。</span></div>
+                <div class="gd-row"><b>發布後沒變</b><span>確認機器在線，並在機器上按過「開始展示」。仍沒變就檢查機器的網路，或點連線圖示確認連線狀態。</span></div>
                 <div class="gd-row"><b>客服無法連線</b><span>到機器設定按「測試連線」確認帳密。憑證錯誤時，測試結果會附上機器時間與憑證資訊。</span></div>
                 <div class="gd-row"><b>沒有附件按鈕</b><span>該格的「允許上傳圖片」關著，或該代理人在 JustAI 後台沒開啟圖片／檔案上傳權限。</span></div>
                 <div class="gd-row"><b>客服不會唸出回覆</b><span>先確認對話頁上方的喇叭鈕是開的。整顆鈕都沒出現，表示那台機器沒有安裝中文語音。</span></div>

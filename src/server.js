@@ -21,12 +21,15 @@ const health = require('./health');
 const audit = require('./audit');
 const events = require('./events');
 const screenModels = require('./screen-models');
+const { createDeviceKeys } = require('./device-keys');
 
 const PORT = Number(process.env.PORT || 3000);
 // 子路徑（2026-09-08）：正式站掛在 /joye（https://justdisplay.justhings.com.tw/joye），
 // 根網址留給未來各後台的統一入口。留空＝掛在根（開發機）。所有路由照舊寫根路徑，由下方 root 掛載。
 const BASE_PATH = String(process.env.BASE_PATH || '').trim().replace(/\/+$/, '').replace(/^(?=[^/])/, '/').replace(/^\/$/, '');
+// 共用金鑰（舊制，所有機器同一把）：2026-10-13 起每台有自己的專屬金鑰（src/device-keys.js），這把永久保留當備援。
 const DEVICE_KEY = process.env.DEVICE_KEY;
+const deviceKeys = createDeviceKeys({ db, log, sharedKey: DEVICE_KEY });
 // 站台品牌（2026-09-10，第二個場域 sunrise 起同一份程式碼跑多個站台）：
 // SITE_NAME＝客戶名稱（後台標題、登入頁、根入口卡片）；SITE_LOGO＝登入頁橫式 logo（public/ 底下的相對路徑，
 // 留空＝沒有客戶 logo，登入頁改顯示公司 J 標＋客戶名稱）。沒設＝卓也小屋（正式站 .env 不用改）。
@@ -144,7 +147,7 @@ function noteDevice(deviceId, req, keyOk) {
 }
 app.use((req, _res, next) => {
   const m = req.path.match(/^\/api\/(?:config|devices)\/([^/]+)/); // 機器事件上傳（/api/devices/:id/events）也算露面
-  if (m && req.get('X-Device-Key')) noteDevice(decodeURIComponent(m[1]), req, isDevice(req));
+  if (m && req.get('X-Device-Key')) { const id = decodeURIComponent(m[1]); noteDevice(id, req, isDevice(req, id)); }
   next();
 });
 
@@ -229,8 +232,10 @@ function currentUser(req) {
   if (Date.now() > s.expiry) { tokens.delete(token); return null; }
   return s;
 }
-function isDevice(req) {
-  return DEVICE_KEY && req.get('X-Device-Key') === DEVICE_KEY;
+/** 機器金鑰驗證（2026-10-13 起分專屬／共用兩種，見 src/device-keys.js）。路徑上有機器編號就要對得上那台；
+ *  沒有（上傳檔案、測站代理）＝任何有效金鑰都可。 */
+function isDevice(req, deviceId = req.params && req.params.deviceId) {
+  return deviceKeys.check(req.get('X-Device-Key'), deviceId);
 }
 function requireUser(req, res, next) {
   req.user = currentUser(req);
@@ -444,18 +449,35 @@ app.put('/api/devices/:deviceId/owner', requireAdmin, async (req, res) => {
 
 // ---- 刪除機器（限管理員）----
 // 刪掉設定列並記進 KioskDeviceRemoved；叫醒掛在 /wait 的機器，它下一個請求就會收到 410 而自己清空連線設定。
-app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
-  const named = (await db.getPool().request().input('id', db.sql.NVarChar(64), req.params.deviceId)
+// 專屬金鑰（KioskDeviceKey）刻意留著：機器要能用它連上來才收得到 410；同一台重新配對時會換一把新的。
+/** 從後台移除一台機器（後台刪除、機器自己中斷連線共用）：刪設定列、記進 KioskDeviceRemoved、叫醒它的 /wait。回傳原本的名稱。 */
+async function removeDevice(deviceId) {
+  const named = (await db.getPool().request().input('id', db.sql.NVarChar(64), deviceId)
     .query('SELECT DeviceName FROM dbo.KioskConfig WHERE DeviceId = @id')).recordset[0];
   await db.getPool().request()
-    .input('id', db.sql.NVarChar(64), req.params.deviceId)
+    .input('id', db.sql.NVarChar(64), deviceId)
     .query(`DELETE FROM dbo.KioskConfig WHERE DeviceId = @id;
             IF NOT EXISTS (SELECT 1 FROM dbo.KioskDeviceRemoved WHERE DeviceId = @id)
               INSERT INTO dbo.KioskDeviceRemoved (DeviceId) VALUES (@id);`);
-  deviceLastSeen.delete(req.params.deviceId);
-  notifyWaiters(req.params.deviceId, 0);
-  const delName = named?.DeviceName || req.params.deviceId;
-  audit.record(req, { action: 'device.delete', targetType: 'device', targetId: req.params.deviceId, targetName: delName, summary: `刪除機器「${delName}」${named?.DeviceName ? `（${req.params.deviceId}）` : ''}` });
+  deviceLastSeen.delete(deviceId);
+  notifyWaiters(deviceId, 0);
+  return named?.DeviceName || null;
+}
+
+app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
+  const name = await removeDevice(req.params.deviceId);
+  const delName = name || req.params.deviceId;
+  audit.record(req, { action: 'device.delete', targetType: 'device', targetId: req.params.deviceId, targetName: delName, summary: `刪除機器「${delName}」${name ? `（${req.params.deviceId}）` : ''}` });
+  res.json({ ok: true });
+});
+
+// ---- 機器自己中斷連線（2026-10-13）：App 按「中斷連線」順便把自己從這個場域的後台拿掉（user：手機斷了、後台還留著那台很怪）。
+// 跟後台刪除同一套；機器那邊已經先清掉自己的連線設定，不會再來拿 410。
+app.post('/api/devices/:deviceId/disconnect', async (req, res) => {
+  if (!isDevice(req)) return res.status(401).json({ error: '金鑰不正確。' });
+  const name = (await removeDevice(req.params.deviceId)) || req.params.deviceId;
+  audit.record(req, { action: 'device.disconnect', targetType: 'device', targetId: req.params.deviceId, targetName: name, summary: `機器「${name}」在機器上中斷連線，已從後台移除` });
+  log.info('device', '機器自己中斷連線，已從後台移除', { device: req.params.deviceId, rid: req.id });
   res.json({ ok: true });
 });
 
@@ -511,6 +533,9 @@ app.get('/api/devices', requireUser, async (req, res) => {
       ServerMatch: LastServerUrl ? normalizeServerUrl(LastServerUrl) === mine : null,
       KeyMismatch: keyMismatch,
       LastKeyMismatchAt: LastKeyMismatchAt || null,
+      // 連線金鑰（2026-10-13）：own＝已換成這台專屬的、pending＝已發出還沒用過、shared＝還在用共用金鑰
+      KeyKind: deviceKeys.kindOf(row.DeviceId),
+      KeySource: deviceKeys.sourceOf(row.DeviceId), // pair＝配對碼加入、exchange＝用共用金鑰換的；重設金鑰的說明不同
     };
   }));
 });
@@ -526,7 +551,9 @@ async function readVersion(deviceId) {
 app.get('/api/config/:deviceId/version', async (req, res) => {
   if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
   // themeColor（2026-09-14）：站台主題色跟著版本回，機器每輪對帳都會看到、不用動設定版本
-  res.json({ version: await readVersion(req.params.deviceId), themeColor: siteThemeColor });
+  // keyKind（2026-10-13）：機器還在用共用金鑰＝'shared'，新版 App 看到就換一把專屬的（POST /api/devices/:id/key）
+  const keyKind = isDevice(req) ? deviceKeys.identify(req.get('X-Device-Key')).kind : undefined;
+  res.json({ version: await readVersion(req.params.deviceId), themeColor: siteThemeColor, keyKind });
 });
 
 // ---- 長輪詢：kiosk 掛在這支等新版本，網頁一發布立刻回應（最多掛 25 秒）----
@@ -578,6 +605,8 @@ app.get('/api/config/:deviceId', async (req, res) => {
     .query('SELECT Version, ConfigJson, UpdatedAt FROM dbo.KioskConfig WHERE DeviceId = @id');
   const row = r.recordset[0];
   if (!row) return res.status(404).json({ error: '這台機器還沒有任何設定。' });
+  // 版本 0＝剛用配對碼新增、機器還沒把內容推上來（src/pairing.js）：這份只有名稱，別讓後台拿去編
+  if (row.Version === 0 && !isDevice(req)) return res.status(409).json({ error: '這台機器正在連線，請過幾秒再試一次。' });
   res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson), themeColor: siteThemeColor });
 });
 
@@ -654,7 +683,11 @@ app.put('/api/config/:deviceId', async (req, res) => {
   {
     const prev = await db.getPool().request()
       .input('id', db.sql.NVarChar(64), req.params.deviceId)
-      .query('SELECT ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
+      .query('SELECT Version, ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
+    // 版本 0（剛配對、機器還沒推內容）：後台這時寫進去會變成版本 1 的「只有名稱」設定，機器反而會去拉這份空的——先擋
+    if (prev.recordset[0]?.Version === 0 && !isDevice(req)) {
+      return res.status(409).json({ error: '這台機器正在連線，請過幾秒再試一次。' });
+    }
     prevParsed = prev.recordset[0] ? JSON.parse(prev.recordset[0].ConfigJson) : null;
     config = Object.assign({}, prevParsed || {}, config);
     if (config.activePage === undefined) config.activePage = 0;
@@ -935,6 +968,26 @@ app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, 
   res.json({ id, url: `/files/${req.file.filename}` });
 });
 
+// ---- 換專屬金鑰（2026-10-13）：還在用共用金鑰的機器（舊機器更新到新版 App）自己來換，不用到現場 ----
+// 只收共用金鑰、而且這台還沒確認過專屬金鑰；發出去的這把要等機器第一次用它連上才算數（見 src/device-keys.js）。
+app.post('/api/devices/:deviceId/key', async (req, res) => {
+  if (deviceKeys.identify(req.get('X-Device-Key'))?.kind !== 'shared' || !isDevice(req)) {
+    return res.status(401).json({ error: '金鑰不正確。' });
+  }
+  const deviceKey = await deviceKeys.issue(req.params.deviceId, { confirmed: false, source: 'exchange' });
+  log.info('device', '機器用共用金鑰換到專屬金鑰', { device: req.params.deviceId, rid: req.id });
+  res.json({ deviceKey });
+});
+// 重設連線金鑰（限管理員）：作廢這台的專屬金鑰。App 會用它留著的共用金鑰再換一把；用配對碼加入的機器沒有共用金鑰，要到現場重新配對。
+app.post('/api/devices/:deviceId/key/reset', requireAdmin, async (req, res) => {
+  await deviceKeys.revoke(req.params.deviceId);
+  const named = (await db.getPool().request().input('id', db.sql.NVarChar(64), req.params.deviceId)
+    .query('SELECT DeviceName FROM dbo.KioskConfig WHERE DeviceId = @id')).recordset[0];
+  const name = named?.DeviceName || req.params.deviceId;
+  audit.record(req, { action: 'device.key.reset', targetType: 'device', targetId: req.params.deviceId, targetName: name, summary: `重設機器「${name}」的連線金鑰` });
+  res.json({ ok: true });
+});
+
 // ---- 機器事件（2026-09-10）：App 定期把本機記的事件批次送上來；後台不做頁面，只存 DB（查詢限管理員）----
 app.post('/api/devices/:deviceId/events', async (req, res) => {
   if (!isDevice(req)) return res.status(401).json({ error: '金鑰不正確。' });
@@ -1038,6 +1091,8 @@ app.use('/admin', express.static(PUBLIC_DIR, { maxAge: '1h' }));
 
 // AI 智能客服代理（2026-09-10，網頁播放器用）：路由在 src/assist.js，只收機器金鑰
 require('./assist')(app, { db, log, isDevice });
+// 配對碼（2026-10-13）：新機器在 App 上顯示 6 位數，後台「新增機器」輸入就加入，路由在 src/pairing.js
+require('./pairing')(app, { db, log, audit, deviceKeys, requireUser });
 
 // API 找不到路由：回 JSON，不要 Express 預設的 HTML 頁（網頁 api() 讀 .error 才有東西可顯示；2026-09-15）
 app.use('/api', (req, res) => res.status(404).json({ error: '找不到這個項目。', requestId: req.id }));
@@ -1105,12 +1160,24 @@ function checkApiDocs() {
 }
 checkApiDocs();
 
+/** 各站台（路徑＋名稱）：.env PORTAL_SITES＝「路徑=名稱;路徑=名稱」，沒設＝只有這個站台自己。 */
+function siteList() {
+  return String(process.env.PORTAL_SITES || `${BASE_PATH}=${SITE_NAME}`).split(';').map((s) => s.trim()).filter(Boolean)
+    .map((s) => { const i = s.indexOf('='); return i < 0 ? { path: s, name: s } : { path: s.slice(0, i).trim(), name: s.slice(i + 1).trim() }; });
+}
+
 // 掛載：有 BASE_PATH 就整個後台掛在子路徑底下（/joye/api/…、/joye/files/…、/joye/admin/ 網頁），
 // 沒結尾斜線的 /joye 轉到 /joye/（再由 app 轉到 /joye/admin/）；根 / ＝各後台的統一入口清單。
 const root = express();
 // Common release endpoints live outside /joye and /sunrise and do not need a tenant login.
 // Only public version notes and signed APKs are exposed; publishing remains a server-side task.
 root.use(require('./app-releases').createReleaseRouter());
+// 站台清單（2026-10-13，App 配對畫面「選擇場域」用）：跟 App 更新一樣放在根網址、不分站台、不用登入。
+// 內容＝入口清單同一份 .env PORTAL_SITES（只有名稱與路徑，不含任何機密）；正式站由根網址那個實例（joye）回應。
+root.get('/api/sites', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ sites: siteList() });
+});
 if (BASE_PATH) {
   // Express 的 get('/joye') 連 '/joye/' 也會進來，只對「沒結尾斜線」的那個轉址，否則會無限轉址
   root.get(BASE_PATH, (req, res, next) => (req.path === BASE_PATH ? res.redirect(301, BASE_PATH + '/') : next()));
@@ -1119,8 +1186,7 @@ if (BASE_PATH) {
   // 與 /joye 後台自己的帳號（Bearer token、sessionStorage）互不相干。
   // 入口清單的卡片：.env PORTAL_SITES＝「路徑=名稱;路徑=名稱」（例 /joye=卓也小屋;/sunrise=揚昇高爾夫球場），
   // 沒設＝只有這個站台自己。清單頁由根網址那個 Node 實例（正式站＝joye，port 3000）送出，其他站台的實例收不到根路徑。
-  const portalSites = String(process.env.PORTAL_SITES || `${BASE_PATH}=${SITE_NAME}`).split(';').map((s) => s.trim()).filter(Boolean)
-    .map((s) => { const i = s.indexOf('='); return i < 0 ? { path: s, name: s } : { path: s.slice(0, i).trim(), name: s.slice(i + 1).trim() }; });
+  const portalSites = siteList();
   const portalCards = portalSites.map((s) =>
     `        <a class="site-card" href="${escHtml(s.path)}/admin/"><span class="site-name">${escHtml(s.name)}</span><span class="site-path">${escHtml(s.path)}/admin/</span><i data-lucide="arrow-right" aria-hidden="true"></i></a>`).join('\n');
   const rootIndex = fs.readFileSync(path.join(__dirname, 'root-index.html'), 'utf8').replace(/\{\{BASE\}\}/g, BASE_PATH).replace('{{CARDS}}', portalCards);
@@ -1195,6 +1261,7 @@ if (process.env.KIOSK_CHILD === '1') {
       await migrateSharedToGlobal();
       await seedThemeColor();
       await loadSessions();
+      await deviceKeys.load();
       log.info('db', '資料庫連線成功');
       await audit.prune();
       await events.prune();

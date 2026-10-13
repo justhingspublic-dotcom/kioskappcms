@@ -1462,3 +1462,31 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 頂欄「開啟展示頁」超連結（2026-09-10）：外觀同 .header-icon-btn（那是 button 的樣式，a 要補上去掉底線與置中） */
 .header-right a.header-play-link { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .header-right a.header-play-link:hover { text-decoration: none; }
+
+/* 新增機器第二步（2026-10-13 配對碼）：正在新增＝主題色轉圈、已新增＝綠勾；錯誤說明紅字 */
+.pair-dlg-icon.is-busy, .pair-dlg-icon.is-exists { color: var(--fg-brand); } /* 已在清單中＝主題色資訊圖示（不是錯誤） */
+.pair-dlg-icon.is-done, .pair-dlg-icon.is-slow { color: var(--fg-success); }
+.pair-dlg-icon.is-done :where(.lucide, svg), .pair-dlg-icon.is-slow :where(.lucide, svg) { animation: pair-pop .32s cubic-bezier(.22, 1, .36, 1); }
+@keyframes pair-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+.pair-dlg .b-alert-desc.is-error { color: var(--fg-danger); }
+/* 配對碼 6 格（像驗證碼）：前三後三中間多空一點，對得上機器畫面上的「482 913」；外觀沿用 .b-input 的底色、邊框與聚焦 */
+.pair-dlg .otp { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
+/* 對話框裡各段（圖示、6 格、名稱框、按鈕列、取消鈕）用 hidden 切換；kit 的 .b-input／.b-alert-foot 有寫 display，要蓋過去 */
+.pair-dlg [hidden] { display: none !important; }
+/* 對話框高度從頭到尾固定（app.js 開框時量最高那一步設 min-height）：內容區撐滿、垂直置中 */
+.pair-dlg { display: flex; flex-direction: column; }
+.pair-dlg .b-alert-body { flex: 1 0 auto; display: flex; flex-direction: column; justify-content: center; }
+/* 正在新增／已新增沒有按鈕列：內容下方自己留白 */
+.pair-dlg:has(> .b-alert-foot[hidden]) .b-alert-body { padding-bottom: 24px; }
+.pair-dlg .otp-gap { width: 10px; flex: none; }
+.pair-dlg .otp-box {
+  width: 40px; height: 50px; padding: 0; flex: none; box-sizing: border-box;
+  text-align: center; font-family: inherit; font-size: 24px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text-heading);
+  background: var(--neutral-secondary-medium); border: 1px solid var(--border-default-medium); border-radius: 10px;
+  box-shadow: var(--shadow-xs); caret-color: var(--brand); transition: border-color .15s, box-shadow .15s;
+}
+.pair-dlg .otp-box:focus { outline: none; border-color: var(--border-brand); box-shadow: 0 0 0 1px var(--brand); }
+.pair-dlg .otp-box:disabled { opacity: .6; }
+.pair-dlg .otp.is-error .otp-box { border-color: var(--border-danger); }
+.pair-dlg .otp.is-error { animation: otp-shake .36s ease; }
+@keyframes otp-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }

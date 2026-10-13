@@ -9,7 +9,7 @@ info:
     | 呼叫者 | 驗證方式 |
     |---|---|
     | 管理網頁 | 先 `POST /api/login` 拿 token，之後每個請求帶 `Authorization: Bearer <token>`（12 小時失效；伺服器重啟需重新登入） |
-    | kiosk 機器 | 每個請求帶 `X-Device-Key: <DEVICE_KEY>`（值在伺服器 `.env`，App 設定頁填相同值） |
+    | kiosk 機器 | 每個請求帶 `X-Device-Key`：這台專屬的金鑰（配對碼加入時拿到，或舊機器用共用金鑰換來的），或伺服器 `.env` 的共用金鑰 `DEVICE_KEY`（舊制，永久保留當備援；已確認專屬金鑰的機器不再接受） |
 
     **權限只分兩級**（2026-09-07 定案）：管理員＝多「帳號管理」與管理 PIN；一般帳號看得到、改得動全部機器，共用設定只能改休眠排程。
 
@@ -39,6 +39,8 @@ tags:
     description: 客戶感測器 API 代理（天氣格「園區測站」來源）
   - name: 操作紀錄
     description: 誰、什麼時候、對哪台機器／帳號做了什麼（限管理員；保留 180 天）
+  - name: 配對與金鑰
+    description: 配對碼加入新機器、舊機器用共用金鑰換專屬金鑰（2026-10-13）
   - name: 機器事件
     description: App 在機器上記的事件（啟動、閃退、同步失敗／恢復、切頁、休眠、喚醒）批次上傳與查詢；保留 90 天
 
@@ -52,7 +54,7 @@ components:
       type: apiKey
       in: header
       name: X-Device-Key
-      description: kiosk 機器：伺服器 `.env` 的 `DEVICE_KEY`
+      description: kiosk 機器：這台專屬的金鑰，或伺服器 `.env` 的共用金鑰 `DEVICE_KEY`
 
   responses:
     Unauthorized:
@@ -266,12 +268,22 @@ components:
           format: date-time
           nullable: true
           description: 最近一次帶錯誤 Device Key 連線的時間（UTC）。
+        KeyKind:
+          type: string
+          enum: [own, pending, shared]
+          description: 連線金鑰（2026-10-13）：own＝已換成這台專屬的；pending＝已發出、機器還沒用過；shared＝還在用共用金鑰（舊版 App、網頁播放頁）。
+        KeySource:
+          type: string
+          enum: [pair, exchange]
+          nullable: true
+          description: 專屬金鑰怎麼來的：pair＝配對碼加入；exchange＝舊機器用共用金鑰換的；null＝沒有專屬金鑰。
 
     VersionResponse:
       type: object
       properties:
         version: { type: integer, example: 3, description: 該機器沒設定過為 0 }
         themeColor: { type: string, example: "#0051A8", description: "站台主題色 #RRGGBB（2026-09-14）：機器每輪對帳讀到就套用；/wait 回應也帶" }
+        keyKind: { type: string, enum: [own, shared], description: "只對機器請求回（2026-10-13）：shared＝這次用的是共用金鑰，新版 App 看到會呼叫 POST /api/devices/{deviceId}/key 換一把專屬的" }
 
     ConfigResponse:
       type: object
@@ -735,6 +747,207 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "503": { $ref: '#/components/responses/DbNotReady' }
 
+  /api/pair/start:
+    post:
+      tags: [配對與金鑰]
+      summary: 機器開始配對（登記 6 位數配對碼）
+      description: |
+        不用登入（機器還沒有任何憑證）。配對碼 10 分鐘有效（另有 1 分鐘寬限），到期機器自己再登記一組。同一來源最多同時 10 組、全站 200 組。
+        App 1.58 起機器自己產號碼（code），拿同一組去 GET /api/sites 列出的每個場域登記：在哪個場域的後台輸入，機器就連到那裡，其他場域的登記由機器取消。
+        已經連在本場域的機器（按了重新配對）帶 `current`＋`X-Device-Key` 證明自己：金鑰對得上、後台清單裡也有它，後台查這組號碼時就回 `existing`、不新增第二台。
+        連在別的場域的機器只帶 `currentSite`（場域名稱），後台取名時提醒新增後會從那邊移除。兩者都不帶＝新機器（舊版 App）。
+      parameters:
+        - { name: X-Device-Key, in: header, required: false, schema: { type: string }, description: 帶 current 時一起帶，這台目前的連線金鑰 }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code: { type: string, example: "482913", description: 機器自己產的 6 位數；本站已有人用回 409，機器換一組重來。沒帶＝伺服器產 }
+                suggestedId: { type: string, description: 機器建議的編號（機型-ANDROID_ID 後四碼）；有人用了伺服器會加尾碼 }
+                model: { type: string, description: 機型，後台輸入配對碼時顯示給人確認 }
+                current: { type: string, description: 機器目前在本場域的編號（只送給它目前連的場域）；金鑰不對或清單裡沒有＝當新機器 }
+                currentSite: { type: string, example: 卓也小屋, description: 機器目前連在別的場域：那個場域的名稱 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pairId: { type: string, description: 只有這台機器知道的配對編號，用來等結果 }
+                  code: { type: string, example: "482913" }
+                  expiresInSec: { type: integer, example: 600 }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "409":
+          description: 這組配對碼在本站已有人使用，機器換一組重來
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "429":
+          description: 申請太多次
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+  /api/pair/{pairId}/wait:
+    get:
+      tags: [配對與金鑰]
+      summary: 機器等配對結果（長輪詢，最多 25 秒）
+      parameters:
+        - { name: pairId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: waiting＝還沒有人輸入，再掛一次；done＝配對完成，帶這台的編號、名稱與專屬金鑰；already＝後台輸入了，但這台本來就在本場域（沒有新增），機器收起配對碼、維持原本的連線
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [waiting, done, already] }
+                  deviceId: { type: string }
+                  deviceName: { type: string }
+                  deviceKey: { type: string }
+        "404":
+          description: 配對碼已過期（或伺服器重啟過），機器應重新申請
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/pair/{pairId}:
+    delete:
+      tags: [配對與金鑰]
+      summary: 機器離開配對畫面，這組配對碼立刻作廢
+      parameters:
+        - { name: pairId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+  /api/pair/code/{code}:
+    get:
+      tags: [配對與金鑰]
+      summary: 後台查配對碼是哪台機器
+      description: 這台本來就在本場域時回 `existing`（不能新增），同時通知機器（它的長輪詢收到 already）、這組號碼隨即作廢。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string, example: "482913" } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  model: { type: string }
+                  suggestedId: { type: string }
+                  currentSite: { type: string, description: 機器目前連在別的場域（場域名稱）；新增後會從那邊移除 }
+                  expiresInSec: { type: integer }
+                  existing:
+                    type: object
+                    description: 只有這台本來就在本場域時才有（其他欄位不帶）
+                    properties:
+                      deviceId: { type: string }
+                      name: { type: string, description: 機器總覽上的名稱 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404":
+          description: 找不到（打錯、過期或已用掉）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/pair/claim:
+    post:
+      tags: [配對與金鑰]
+      summary: 後台輸入配對碼新增機器
+      description: 配好機器編號、發這台專屬的金鑰並叫醒正在等的機器；配對碼隨即作廢。機器收到後自己開始同步，幾秒內出現在機器總覽。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name]
+              properties:
+                code: { type: string, example: "482913" }
+                name: { type: string, example: 一樓大廳 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deviceId: { type: string }
+                  deviceName: { type: string }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404":
+          description: 找不到（打錯、過期或已用掉）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "409":
+          description: 這台本來就在本場域（沒先查碼就直接新增時）；不新增，機器那邊同樣收到 already
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/devices/{deviceId}/key:
+    post:
+      tags: [配對與金鑰]
+      summary: 機器用共用金鑰換一把專屬金鑰
+      description: |
+        只收共用金鑰，而且這台還沒確認過專屬金鑰（`/version` 回 `keyKind: shared` 時 App 自動呼叫）。
+        發出的金鑰要等機器第一次用它連上才生效「共用金鑰不能再代表這台」；在那之前共用金鑰照常能用，換到一半斷線也不影響。
+      security: [{ deviceKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/deviceId' }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deviceKey: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
+  /api/devices/{deviceId}/disconnect:
+    post:
+      tags: [配對與金鑰]
+      summary: 機器自己中斷連線（從這個場域的後台移除）
+      description: App「中斷連線」時呼叫，效果同後台刪除這台（設定列刪掉、記為已移除）。機器已先清掉自己的連線設定。
+      security: [{ deviceKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/deviceId' }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "410": { $ref: '#/components/responses/DeviceRemoved' }
+  /api/devices/{deviceId}/key/reset:
+    post:
+      tags: [配對與金鑰]
+      summary: 重設連線金鑰（限管理員）
+      description: 作廢這台的專屬金鑰。舊機器會用留著的共用金鑰自己再換一把；用配對碼加入的機器要到現場重新配對。
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/deviceId' }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ok' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { $ref: '#/components/responses/DbNotReady' }
   /api/devices/{deviceId}/events:
     post:
       tags: [機器事件]

@@ -140,6 +140,17 @@ async function init() {
       ExpiresAt DATETIME2    NOT NULL,
       CreatedAt DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
     );
+    -- 每台機器專屬的連線金鑰（2026-10-13，src/device-keys.js）：只存 SHA-256。Confirmed＝機器已經用專屬金鑰連上過，
+    -- 從此共用金鑰（.env DEVICE_KEY）不能再代表這台。Source＝pair（配對碼加入）／exchange（舊機器用共用金鑰換來的）。
+    IF OBJECT_ID('dbo.KioskDeviceKey') IS NULL
+    CREATE TABLE dbo.KioskDeviceKey (
+      DeviceId    NVARCHAR(64) NOT NULL PRIMARY KEY,
+      KeyHash     CHAR(64)     NOT NULL,
+      Confirmed   BIT          NOT NULL DEFAULT 0,
+      Source      NVARCHAR(16) NOT NULL,
+      CreatedAt   DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME(),
+      ConfirmedAt DATETIME2    NULL
+    );
   `);
   return pool;
 }
