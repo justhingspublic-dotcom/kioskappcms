@@ -36,8 +36,16 @@
       byId('appReleaseVersion').textContent = `版本 ${version}`;
       const date = new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeZone: 'Asia/Taipei' }).format(new Date(release.releasedAt));
       byId('appReleaseMeta').textContent = `${date} · ${(release.fileSize / 1024 / 1024).toFixed(1)} MB · Android APK`;
+      // 每條＝「標題：說明」（2026-10-13 起使用者導向的寫法）：冒號前的短標題加粗另起一行；沒有標題的照原樣
       byId('appReleaseNotes').replaceChildren(...release.changelog.map(note => {
-        const li = document.createElement('li'); li.textContent = note; return li;
+        const li = document.createElement('li');
+        const cut = note.indexOf('：');
+        if (cut > 0 && cut <= 24) {
+          const title = document.createElement('strong'); title.className = 'app-note-title'; title.textContent = note.slice(0, cut);
+          const body = document.createElement('span'); body.className = 'app-note-body'; body.textContent = note.slice(cut + 1);
+          li.append(title, body);
+        } else li.textContent = note;
+        return li;
       }));
       download.href = expectedPath;
       download.download = `kiosk-app-${version}.apk`;
