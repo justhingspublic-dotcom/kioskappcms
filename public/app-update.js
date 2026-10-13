@@ -10,6 +10,7 @@
   const download = byId('appDownloadFile');
   const retry = byId('appDownloadRetry');
   const closeButton = byId('appDownloadClose');
+  const hint = byId('appReleaseHint');
   let request, lastFocus, isolated = [], closeTimer;
 
   async function load() {
@@ -21,6 +22,7 @@
     status.classList.remove('is-error');
     status.textContent = '正在取得最新版本…';
     details.hidden = download.hidden = retry.hidden = true;
+    if (hint) hint.hidden = true; // 舊的 index.html（部署當下的快取）沒有這一欄也不出錯
     download.removeAttribute('href');
     try {
       const response = await fetch('/api/app/releases/latest', { cache: 'no-store', signal: controller.signal });
@@ -51,6 +53,7 @@
       download.download = `kiosk-app-${version}.apk`;
       download.textContent = '下載 APK';
       details.hidden = download.hidden = false;
+      if (hint) hint.hidden = false;
       status.textContent = `最新版本 ${version} 已載入。`;
       status.hidden = true;
     } catch (error) {
