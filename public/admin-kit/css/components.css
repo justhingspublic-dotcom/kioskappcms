@@ -550,6 +550,14 @@ body.b-modal-lock { overflow: hidden; }
 /* 可點（opts.onClick）：吃得到滑鼠、手指游標、滑鼠停著暫停倒數（不會讀到一半滑走） */
 .b-toast.is-clickable { pointer-events: auto; cursor: pointer; }
 .b-toast.is-clickable:hover { animation-play-state: paused; border-color: var(--border-default-medium, var(--border-default)); }
+/* 動作鈕（opts.action，例「復原」）：主題色文字鈕，靠右；有動作的 toast 吃得到滑鼠、滑鼠停著暫停倒數 */
+.b-toast.has-action { pointer-events: auto; }
+.b-toast.has-action:hover { animation-play-state: paused; }
+.b-toast-action {
+  flex: none; margin: -4px -6px -4px 4px; padding: 4px 8px; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--accent-text, var(--fg-brand)); transition: background .15s;
+}
+.b-toast-action:hover { background: color-mix(in srgb, var(--brand) 8%, transparent); }
 @media (prefers-reduced-motion: reduce) {
   .b-toast { animation: b-toast-fade 4.4s ease both; }
   @keyframes b-toast-fade { 0%{opacity:0} 8%{opacity:1} 90%{opacity:1} 100%{opacity:0} }

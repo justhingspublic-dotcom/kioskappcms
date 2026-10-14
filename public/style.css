@@ -1652,3 +1652,10 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 }
 /* 中文斷行：避免最後一行只剩一個字（「移／除。」） */
 .notif-text, .b-toast-desc { text-wrap: pretty; }
+
+/* 換頁過場（2026-10-14 精修）：kit 原本 .12s 純淡入，幾乎看不出來；改 .22s 淡入＋由下往上 6px。
+   最後一格 transform: none（不能停在 translateY(0)，任何 transform 都會讓裡面 fixed 的下拉選單偏位） */
+@keyframes jd-view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.main-content.is-spa-entered { animation: jd-view-in .22s cubic-bezier(.22, 1, .36, 1) both; }
+@media (prefers-reduced-motion: reduce) { .main-content.is-spa-entered { animation: b-spa-fade-in .12s ease-out both; } }
+.ws-dirty-note.is-plain::before { display: none; } /* ⌘S 沒有修改時的提示：不帶圓點 */

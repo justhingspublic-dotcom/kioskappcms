@@ -115,7 +115,7 @@ async function api(method, url, body, isForm) {
 }
 
 // ---------- 登入 ----------
-function showLogin() { $('loginView').classList.remove('hidden'); $('mainView').classList.add('hidden'); }
+function showLogin() { $('loginView').classList.remove('hidden'); $('mainView').classList.add('hidden'); updateDocTitle(); }
 function showMain() { $('loginView').classList.add('hidden'); $('mainView').classList.remove('hidden'); }
 function logout() {
   // 伺服器端也把 token 作廢（2026-09-10 登入工作階段改存 DB）；失敗不影響本機登出
@@ -364,6 +364,8 @@ function openWsModal() {
   m.classList.add('is-visible');
   document.body.classList.add('b-modal-lock');
   $('saveBtn').textContent = wsMode === 'shared' ? '儲存版面' : '儲存並發布';
+  $('saveBtn').title = `${$('saveBtn').textContent}（${IS_MAC ? '⌘S' : 'Ctrl+S'}）`;
+  setTimeout(updateDocTitle, 0); // 分頁標題換成機器名稱（標題列的名字由呼叫端填）
   // 儲存鈕兩種模式都在固定底部欄（2026-09-07 指示：device 模式也從 header 搬下來）
   $('wsFooter').appendChild($('saveBtn'));
   if (window.lucide) lucide.createIcons();
@@ -474,6 +476,7 @@ function resetSharedEditorState() {
 }
 
 async function exitWorkspace() {
+  setTimeout(updateDocTitle, 300); // 關掉後分頁標題回到目前這一頁
   if (!(await confirmDiscard())) return;
   stopDeviceWatch();
   setDirty(false);
@@ -599,7 +602,36 @@ function wsDirtyNote() {
   }
   return n;
 }
+/** 可復原的刪除（2026-10-14 精修）：不先跳「確定要刪除嗎？」，直接刪、跳 toast「已刪除…　復原」，6 秒內按復原＝這個版面回到刪之前。
+ *  只在刪完之後還沒有其他修改時有效（之後又改了別的就不能復原，免得把後面的修改一起蓋掉）；存檔、關掉工作區也就失效。
+ *  只用在還沒發布、救得回來的編輯動作（頁籤、格子、圖片）；刪機器、刪帳號這種真的刪掉的照舊先確認。 */
+let undoSeq = 0;
+function withUndo(label, doDelete) {
+  const snap = {
+    pages: JSON.parse(JSON.stringify(state.config.pages)), activePage: state.config.activePage,
+    pageIndex, selected: selected ? { ...selected } : null, deviceId, wsMode, sharedLayoutId,
+  };
+  doDelete();
+  const seq = undoSeq;
+  BToast.show(label, 'info', {
+    icon: 'trash-2', duration: 6000,
+    action: {
+      label: '復原',
+      onClick: () => {
+        const same = state && seq === undoSeq && deviceId === snap.deviceId && wsMode === snap.wsMode
+          && sharedLayoutId === snap.sharedLayoutId && $('wsModal').classList.contains('is-visible');
+        if (!same) { BToast.warning('已經有其他修改，無法復原。'); return; }
+        state.config.pages = snap.pages;
+        state.config.activePage = snap.activePage;
+        pageIndex = snap.pageIndex;
+        selected = snap.selected;
+        setDirty(true); render();
+      },
+    },
+  });
+}
 function setDirty(v) {
+  undoSeq++;
   dirty = v; $('saveBtn').disabled = !v;
   const note = wsDirtyNote();
   if (note) { note.textContent = v ? (wsMode === 'shared' ? '尚有修改未儲存' : '尚有修改未發布') : ''; note.classList.toggle('is-on', !!v); }
@@ -927,17 +959,14 @@ function renderTabs() {
     if (state.config.pages.length > 1) {
       const del = document.createElement('button');
       del.innerHTML = '<i data-lucide="x"></i>'; del.title = '刪除此頁'; del.setAttribute('aria-label', '刪除此頁');
-      del.onclick = async (e) => {
+      del.onclick = (e) => {
         e.stopPropagation();
-        const ok = await BDialog.confirm({
-          title: `刪除「${p.name || `頁面 ${i + 1}`}」？`, desc: '這一頁的版面會一併刪除。',
-          variant: 'danger', confirmText: '刪除',
+        withUndo(`已刪除「${p.name || `頁面 ${i + 1}`}」。`, () => {
+          state.config.pages.splice(i, 1);
+          if ((state.config.activePage || 0) >= state.config.pages.length) state.config.activePage = state.config.pages.length - 1;
+          pageIndex = Math.min(pageIndex, state.config.pages.length - 1);
+          selected = null; setDirty(true); render();
         });
-        if (!ok) return;
-        state.config.pages.splice(i, 1);
-        if ((state.config.activePage || 0) >= state.config.pages.length) state.config.activePage = state.config.pages.length - 1;
-        pageIndex = Math.min(pageIndex, state.config.pages.length - 1);
-        selected = null; setDirty(true); render();
       };
       tab.appendChild(del);
     }
@@ -1916,17 +1945,17 @@ function renderPanel() {
     const evenHide = () => document.getElementById('canvas')._previewEven?.(false);
     even.addEventListener('mouseenter', evenShow); even.addEventListener('focus', evenShow);
     even.addEventListener('mouseleave', evenHide); even.addEventListener('blur', evenHide);
-    const del = btn('刪除這格', async () => {
-      // 有設定的格子先確認（沒有復原）；空白格直接刪
+    const del = btn('刪除這格', () => {
+      // 有設定的格子：直接刪＋「復原」toast（原本先跳確認）；空白格直接刪、不跳
       const used = (cell.content && cell.content !== 'None') || (cell.bg === 'Image' && (cell.bgImgs || []).length) || (cell.tap && cell.tap !== 'None');
-      if (used && !(await BDialog.confirm({
-        title: '刪除這一格？', desc: '這一格的設定會一併刪除，空出來的位置交給旁邊的格子。', variant: 'danger', confirmText: '刪除',
-      }))) return;
-      const { root, sibling } = deleteFromTree(block.node, sel.path);
-      block.node = root;
-      const p = sibling && !isSplit(sibling) ? pathOf(root, sibling) : null; // 接手的那一格是單格就選它
-      selected = p === null ? null : { bi: sel.bi, path: p };
-      setDirty(true); refresh();
+      const doDelete = () => {
+        const { root, sibling } = deleteFromTree(block.node, sel.path);
+        block.node = root;
+        const p = sibling && !isSplit(sibling) ? pathOf(root, sibling) : null; // 接手的那一格是單格就選它
+        selected = p === null ? null : { bi: sel.bi, path: p };
+        setDirty(true); refresh();
+      };
+      if (used) withUndo('已刪除這一格。', doDelete); else doDelete();
     });
     del.classList.add('b-btn-text', 'b-btn-text-danger');
     del.disabled = !sel.path;
@@ -2448,7 +2477,7 @@ function thumbList(cell, cellPx) {
       }
       const del = document.createElement('button');
       del.innerHTML = SVG_X; del.title = '移除這張'; del.setAttribute('aria-label', '移除這張圖片'); // 線條 icon 取代 ✕ 字元（2026-10-14 精修）
-      del.onclick = () => { cell.bgImgs.splice(i, 1); setDirty(true); renderCanvas(); redraw(); };
+      del.onclick = () => withUndo('已移除這張圖片。', () => { cell.bgImgs.splice(i, 1); setDirty(true); renderCanvas(); redraw(); });
       t.appendChild(del);
       box.appendChild(t);
     });
@@ -3529,6 +3558,7 @@ function switchView(view) {
   $('sharedLayoutView').classList.toggle('hidden', view !== 'sharedLayout');
   $('sharedSettingsView').classList.toggle('hidden', view !== 'sharedSettings');
   $('usersView').classList.toggle('hidden', view !== 'users');
+  titleView = view; updateDocTitle();
   spaFade();
   if (view === 'devices') renderDevicesView().catch((e) => setStatus('無法取得機器清單。' + e.message, true)); // 以前失敗＝默默空表
   if (view === 'sharedLayout') renderSharedLayoutView();
@@ -3911,7 +3941,7 @@ const notifMine = (n) => n.Kind === 'content' && n.ActorUsername === meUsername;
 /** 同一個 GroupKey、時間相鄰（3 分鐘內）的合成一則；回傳 [{ at, type, text, deviceId, count }]（新到舊）。 */
 function groupNotifs(items) {
   const out = [];
-  for (const n of items) {
+  for (const n of items || []) {
     if (notifMine(n)) continue;
     const last = out[out.length - 1];
     if (last && n.GroupKey && last.groupKey === n.GroupKey && new Date(last.oldest) - new Date(n.At) < 3 * 60_000) {
@@ -3946,6 +3976,7 @@ function paintNotifBadge() {
   const prev = notifBadgeShown;
   notifBadgeShown = n;
   $('notifBtn').setAttribute('aria-label', n ? `通知（${n} 則未讀）` : '通知');
+  updateDocTitle();
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (!n) {
     if (b.hidden) return;
@@ -4073,6 +4104,58 @@ function setNotifPanel(open) {
   $('notifBtn').setAttribute('aria-expanded', String(open));
 }
 $('notifBtn').addEventListener('click', () => setNotifPanel($('notifPanel').hidden));
+
+// ---------- 瀏覽器分頁標題與小圖示（2026-10-14 精修）----------
+// 標題＝「(未讀數) 目前這一頁｜站名 展示機管理系統」，開著工作區時是機器名稱；有未讀時分頁小圖示右上角加紅點。
+// 切到別的分頁也看得到有新通知、在哪一頁。
+const BASE_TITLE = document.title;
+const VIEW_TITLE = { devices: '機器總覽', sharedLayout: '版面設定', sharedSettings: '共用機器設定', users: '帳號管理' };
+let titleView = '';
+function updateDocTitle() {
+  const n = token ? unreadNotifCount() : 0;
+  let page = '';
+  if (token && !$('mainView').classList.contains('hidden')) {
+    page = $('wsModal').classList.contains('is-visible') ? ($('wsDeviceName').textContent || '').trim() : (VIEW_TITLE[titleView] || '');
+  }
+  document.title = (n ? `(${n > 9 ? '9+' : n}) ` : '') + (page && page !== '—' ? `${page}｜` : '') + BASE_TITLE;
+  setFaviconDot(n > 0);
+}
+let favBase = null, favDot = false;
+function setFaviconDot(on) {
+  const link = document.querySelector('link[rel~="icon"]');
+  if (!link || on === favDot) return;
+  favDot = on;
+  if (!favBase) favBase = { href: link.href, type: link.getAttribute('type') };
+  if (!on) { link.href = favBase.href; if (favBase.type) link.type = favBase.type; return; }
+  const img = new Image();
+  img.onload = () => {
+    if (!favDot) return;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0, 64, 64);
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(50, 14, 14, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#DC2626'; g.beginPath(); g.arc(50, 14, 11, 0, Math.PI * 2); g.fill();
+    link.type = 'image/png';
+    link.href = c.toDataURL('image/png');
+  };
+  img.src = favBase.href;
+}
+
+// ---------- ⌘S／Ctrl+S＝儲存並發布（2026-10-14 精修）：只在工作區開著時接手，瀏覽器的「另存網頁」不會跳出來 ----------
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+document.addEventListener('keydown', (e) => {
+  if (!(e.key === 's' || e.key === 'S') || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.altKey) return;
+  if (!$('wsModal').classList.contains('is-visible')) return;
+  e.preventDefault();
+  if (!$('saveBtn').disabled) { $('saveBtn').click(); return; }
+  // 沒有修改：底部欄閃一句「目前沒有新的修改」，讓人知道有按到
+  const note = wsDirtyNote();
+  if (!note || dirty) return;
+  note.textContent = '目前沒有新的修改'; note.classList.add('is-on', 'is-plain');
+  clearTimeout(note._t);
+  note._t = setTimeout(() => { note.classList.remove('is-plain'); setDirty(dirty); }, 1600);
+}, true);
 document.addEventListener('click', (e) => { if (!e.target.closest('.header-notif-wrap')) setNotifPanel(false); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setNotifPanel(false); });
 // 時間文字（12 分鐘前）跟著走

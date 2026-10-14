@@ -45,7 +45,7 @@
     }
 
     /* opts（2026-10-14，JustDisplay 機器事件通知）：icon＝換圖示、desc＝第二行說明、onClick＝整則可點（點了關掉）、
-       duration＝停留毫秒（預設 4400）。滑鼠停在可點的 toast 上會暫停倒數。回傳 toast 元素。 */
+       duration＝停留毫秒（預設 4400）、action＝右邊的動作鈕。滑鼠停在可點／有動作的 toast 上會暫停倒數。回傳 toast 元素。 */
     function showToast(message, type, opts) {
         opts = opts || {};
         if (!TOAST_ICON[type]) type = 'success';
@@ -81,6 +81,16 @@
             if (!wrap.children.length) wrap.remove();
         }
         t.addEventListener('animationend', dispose);
+        /* opts.action＝{ label, onClick }：右邊一顆文字鈕（例「復原」），按了關掉 toast（2026-10-14） */
+        if (opts.action && opts.action.label) {
+            t.classList.add('has-action');
+            var act = document.createElement('button');
+            act.type = 'button';
+            act.className = 'b-toast-action';
+            act.textContent = opts.action.label;
+            act.addEventListener('click', function (e) { e.stopPropagation(); dispose(); opts.action.onClick && opts.action.onClick(); });
+            t.appendChild(act);
+        }
         if (typeof opts.onClick === 'function') {
             t.classList.add('is-clickable');
             t.addEventListener('click', function () { dispose(); opts.onClick(); });

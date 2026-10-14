@@ -158,9 +158,44 @@
     }
   });
   const stepsDone = new WeakSet();
+  /** 垃圾桶「掀蓋」（2026-10-14 user：一筆畫出來的垃圾桶怪怪的，要開垃圾桶蓋的感覺）：
+      蓋子（Lucide trash-2 的 M3 6h18 那條＋上面的提把）包成一組，以左端 (3,6) 當鉸鏈往上掀開、停一下、
+      落下時多壓過頭一點再彈回；蓋上那一瞬間整個桶子往下沉 1px，像東西丟進去。找不到蓋子（圖示改版）就照舊一筆畫。 */
+  function lidOpen(svg) {
+    const parts = [...svg.querySelectorAll('path')].filter((p) => /^M3 6h18|^M8 6V4/.test(p.getAttribute('d') || ''));
+    if (parts.length !== 2) return false;
+    keep(svg);
+    if (reduced()) return true;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    parts[0].before(g);
+    g.append(...parts);
+    g.style.transformBox = 'view-box';
+    g.style.transformOrigin = '3px 6px';
+    svg.style.overflow = 'visible'; // 掀開時蓋子尖端會超出 24×24 的框，不能被切掉
+    // 角度 16°（user 2026-10-14：30° 看起來像開到 90 度太超過——蓋子跟桶子一樣寬，翹起來的那端很明顯）
+    const timing = { duration: 820, delay: 260, easing: 'linear' };
+    g.animate([
+      { transform: 'rotate(0)', easing: 'cubic-bezier(.2, .8, .3, 1)' },
+      { transform: 'rotate(-16deg)', offset: 0.3 },
+      { transform: 'rotate(-16deg)', offset: 0.5, easing: 'cubic-bezier(.6, 0, .9, .6)' },
+      { transform: 'rotate(3deg)', offset: 0.72, easing: 'ease-out' },
+      { transform: 'rotate(0)' },
+    ], timing);
+    svg.animate([
+      { transform: 'none' },
+      { transform: 'none', offset: 0.7 },
+      { transform: 'translateY(1px)', offset: 0.76 },
+      { transform: 'none' },
+    ], timing);
+    return true;
+  }
   function drawNew(svg) {
     if (drawn.has(svg)) return;
-    if (svg.closest('.b-toast-icon')) { window.drawIcon(svg, { delay: 180, duration: 500 }); return; }
+    if (svg.closest('.b-toast-icon')) {
+      if (svg.classList.contains('lucide-trash-2') && lidOpen(svg)) return;
+      window.drawIcon(svg, { delay: 180, duration: 500 });
+      return;
+    }
     if (svg.closest('.b-empty-icon') && svg.closest('.b-empty')) {
       keep(svg);
       if (svg.getClientRects().length) drawEmpty(svg);
