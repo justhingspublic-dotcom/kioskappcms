@@ -20,6 +20,7 @@ const log = require('./log');
 const health = require('./health');
 const audit = require('./audit');
 const events = require('./events');
+const notify = require('./notify');
 const screenModels = require('./screen-models');
 const { createDeviceKeys } = require('./device-keys');
 
@@ -130,11 +131,14 @@ const deviceDbWriteAt = new Map(); // 'ok:'|'bad:' + deviceId -> 上次寫 DB �
 const DEVICE_DB_WRITE_MS = 60_000;
 function noteDevice(deviceId, req, keyOk) {
   const now = Date.now();
-  if (keyOk) deviceLastSeen.set(deviceId, now);
+  if (keyOk) { deviceLastSeen.set(deviceId, now); noteDeviceOnline(deviceId); }
   const k = (keyOk ? 'ok:' : 'bad:') + deviceId;
   if (now - (deviceDbWriteAt.get(k) || 0) < DEVICE_DB_WRITE_MS) return;
   deviceDbWriteAt.set(k, now);
-  if (!keyOk) log.warn('device', '機器帶的金鑰不符', { device: deviceId, ip: req.ip });
+  if (!keyOk) {
+    log.warn('device', '機器帶的金鑰不符', { device: deviceId, ip: req.ip });
+    noteKeyMismatch(deviceId).catch(() => {});
+  }
   const q = db.getPool().request().input('id', db.sql.NVarChar(64), deviceId);
   const p = keyOk
     ? q.input('url', db.sql.NVarChar(256), String(req.get('X-Device-Server') || '').slice(0, 256) || null)
@@ -450,8 +454,9 @@ app.put('/api/devices/:deviceId/owner', requireAdmin, async (req, res) => {
 // ---- 刪除機器（限管理員）----
 // 刪掉設定列並記進 KioskDeviceRemoved；叫醒掛在 /wait 的機器，它下一個請求就會收到 410 而自己清空連線設定。
 // 專屬金鑰（KioskDeviceKey）刻意留著：機器要能用它連上來才收得到 410；同一台重新配對時會換一把新的。
-/** 從後台移除一台機器（後台刪除、機器自己中斷連線共用）：刪設定列、記進 KioskDeviceRemoved、叫醒它的 /wait。回傳原本的名稱。 */
-async function removeDevice(deviceId) {
+/** 從後台移除一台機器（後台刪除、機器自己中斷連線共用）：刪設定列、記進 KioskDeviceRemoved、叫醒它的 /wait。回傳原本的名稱。
+ *  by＝誰移除的（{ kind: 'device' } 或 { kind: 'user', username }），開著的機器總覽據此跳通知（2026-10-14）。 */
+async function removeDevice(deviceId, by) {
   const named = (await db.getPool().request().input('id', db.sql.NVarChar(64), deviceId)
     .query('SELECT DeviceName FROM dbo.KioskConfig WHERE DeviceId = @id')).recordset[0];
   await db.getPool().request()
@@ -460,12 +465,18 @@ async function removeDevice(deviceId) {
             IF NOT EXISTS (SELECT 1 FROM dbo.KioskDeviceRemoved WHERE DeviceId = @id)
               INSERT INTO dbo.KioskDeviceRemoved (DeviceId) VALUES (@id);`);
   deviceLastSeen.delete(deviceId);
-  notifyWaiters(deviceId, 0);
+  devicesOnline.delete(deviceId);
+  offlineState.delete(deviceId);
+  offlineNotified.delete(deviceId);
+  deviceInfoCache.map.delete(deviceId);
+  // 本來就不在清單裡（重複送的中斷連線）不發通知
+  const ev = named && by ? await deviceEvent(by.kind === 'device' ? 'left' : 'deleted', deviceId, named.DeviceName, by) : null;
+  notifyWaiters(deviceId, 0, ev); // 也會通知機器總覽（bumpDevices）
   return named?.DeviceName || null;
 }
 
 app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
-  const name = await removeDevice(req.params.deviceId);
+  const name = await removeDevice(req.params.deviceId, { kind: 'user', username: req.user.username });
   const delName = name || req.params.deviceId;
   audit.record(req, { action: 'device.delete', targetType: 'device', targetId: req.params.deviceId, targetName: delName, summary: `刪除機器「${delName}」${name ? `（${req.params.deviceId}）` : ''}` });
   res.json({ ok: true });
@@ -475,7 +486,7 @@ app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
 // 跟後台刪除同一套；機器那邊已經先清掉自己的連線設定，不會再來拿 410。
 app.post('/api/devices/:deviceId/disconnect', async (req, res) => {
   if (!isDevice(req)) return res.status(401).json({ error: '金鑰不正確。' });
-  const name = (await removeDevice(req.params.deviceId)) || req.params.deviceId;
+  const name = (await removeDevice(req.params.deviceId, { kind: 'device' })) || req.params.deviceId;
   audit.record(req, { action: 'device.disconnect', targetType: 'device', targetId: req.params.deviceId, targetName: name, summary: `機器「${name}」在機器上中斷連線，已從後台移除` });
   log.info('device', '機器自己中斷連線，已從後台移除', { device: req.params.deviceId, rid: req.id });
   res.json({ ok: true });
@@ -560,7 +571,9 @@ app.get('/api/config/:deviceId/version', async (req, res) => {
 const WAIT_HOLD_MS = 25_000;
 const waiters = new Map(); // deviceId -> Set<{res, timer}>
 
-function notifyWaiters(deviceId, version) {
+function notifyWaiters(deviceId, version, ev) {
+  deviceInfoCache.at = 0;
+  bumpDevices(ev); // 設定版本變了（發布、更名、機器推內容、被移除）＝機器總覽要更新
   const set = waiters.get(deviceId);
   if (!set) return;
   waiters.delete(deviceId);
@@ -576,6 +589,154 @@ function wakeAllWaiters() {
     for (const w of set) { clearTimeout(w.timer); try { w.res.json({ version: w.since, themeColor: siteThemeColor }); } catch { /* gone */ } }
   }
 }
+
+// ---- 機器清單變動通知（2026-10-14）：後台機器總覽掛在 /api/devices/wait，清單一有變就立刻叫醒 ----
+// 「有變」＝新增（配對）、移除（後台刪除／機器自己中斷連線）、設定版本變了、在線↔離線。只回一個遞增的版次號，
+// 網頁收到再自己打 GET /api/devices（user 2026-10-14：手機取消配對後，後台清單要手動重新整理才消失）。
+const DEVICES_HOLD_MS = 25_000;
+const DEVICE_ONLINE_MS = 60_000; // 同 public/app.js statusCell：60 秒內有露面＝在線
+let devicesRev = 1;
+const devicesWaiters = new Set(); // { res, timer, since }
+const devicesOnline = new Set();  // 目前算在線的機器（判斷在線↔離線有沒有變）
+// 清單事件（2026-10-14）：機器加入／中斷連線／被刪除，帶「誰做的」，網頁據此跳 toast（之後的通知中心也用這個格式）。
+// 只留記憶體最近 50 筆：網頁回來時拿「它上次看到的版次之後」的那幾筆；伺服器重啟就清空（重啟前的事不補跳）。
+const devicesEvents = []; // { rev, type: 'joined'|'left'|'deleted', deviceId, name, by: { kind, username?, displayName? }, at }
+const eventsSince = (rev) => (rev > 0 ? devicesEvents.filter((e) => e.rev > rev) : []);
+function bumpDevices(ev) {
+  devicesRev++;
+  if (ev) {
+    devicesEvents.push({ ...ev, rev: devicesRev, at: new Date().toISOString() });
+    if (devicesEvents.length > 50) devicesEvents.shift();
+  }
+  for (const w of devicesWaiters) { clearTimeout(w.timer); try { w.res.json({ rev: devicesRev, events: eventsSince(w.since), notifRev }); } catch { /* gone */ } }
+  devicesWaiters.clear();
+}
+/** 組一筆清單事件；by.kind＝user 時補上顯示名稱（session 裡只有帳號）。 */
+async function deviceEvent(type, deviceId, name, by) {
+  let displayName = '';
+  if (by.kind === 'user' && by.username) {
+    try {
+      const r = await db.getPool().request().input('u', db.sql.NVarChar(64), by.username)
+        .query('SELECT DisplayName FROM dbo.KioskUser WHERE Username = @u');
+      displayName = r.recordset[0]?.DisplayName || '';
+    } catch { /* 查不到就只顯示帳號 */ }
+  }
+  return { type, deviceId, name: name || deviceId, by: { kind: by.kind, username: by.username || '', displayName } };
+}
+/** 機器露面：本來不在線（剛連上、伺服器剛重啟）就通知一次。 */
+function noteDeviceOnline(deviceId) {
+  if (devicesOnline.has(deviceId)) return;
+  devicesOnline.add(deviceId);
+  bumpDevices();
+  offlineState.delete(deviceId);
+  if (offlineNotified.delete(deviceId)) {
+    notify.add({ kind: 'device', type: 'online', deviceId, text: `「${deviceNameOf(deviceId)}」已恢復連線` });
+  }
+}
+
+// ---- 鈴鐺通知：機器狀態（2026-10-14）----
+// 離線：超過 10 分鐘沒露面才通知，休眠時段內不算（休眠時段結束後還沒回來，再從那時起算 10 分鐘），每次離線只通知一次；
+// 之後回來＝「恢復連線」。只看伺服器這次啟動後見過的機器（啟動時另外載入 1 小時內露面過的），很久以前就離線的不補發。
+// 已通知離線的機器記在 DB 最後一筆狀態通知，重啟後照樣能補「恢復連線」。
+const OFFLINE_NOTIFY_MS = 10 * 60_000;
+let notifRev = 1;
+notify.setOnAdded(() => { notifRev++; bumpDevices(); });
+const offlineState = new Map();   // deviceId -> { outsideFrom, sleptLast }
+const offlineNotified = new Set();
+let deviceInfoCache = { at: 0, map: new Map() }; // deviceId -> { name, sleep }，5 分鐘重讀；發布時清掉
+async function loadDeviceInfo(force) {
+  if (!force && Date.now() - deviceInfoCache.at < 5 * 60_000) return;
+  const r = await db.getPool().request().query('SELECT DeviceId, DeviceName, ConfigJson FROM dbo.KioskConfig');
+  const map = new Map();
+  for (const row of r.recordset) {
+    let sleep = null;
+    try { sleep = JSON.parse(row.ConfigJson || '{}').sleep || null; } catch { /* 壞 JSON＝不休眠 */ }
+    map.set(row.DeviceId, { name: row.DeviceName || row.DeviceId, sleep });
+  }
+  deviceInfoCache = { at: Date.now(), map };
+}
+const deviceNameOf = (id) => deviceInfoCache.map.get(id)?.name || id;
+/** 台灣時間的星期（1＝週一…7＝週日，同 App／後台的休眠設定）與當天分鐘數。 */
+function taipeiClock(d = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Taipei', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d).map((p) => [p.type, p.value]));
+  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(parts.weekday) + 1;
+  return { wd, m: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+/** 現在是否在這台的休眠時段內（開始晚於結束＝跨午夜，結束在隔天）。 */
+function inSleep(sleep, { wd, m }) {
+  if (!sleep || !sleep.enabled || !Array.isArray(sleep.periods)) return false;
+  const prev = wd === 1 ? 7 : wd - 1;
+  return sleep.periods.some((p) => (p.start < p.end
+    ? p.day === wd && m >= p.start && m < p.end
+    : (p.day === wd && m >= p.start) || (p.day === prev && m < p.end)));
+}
+setInterval(async () => {
+  if (!db.isReady()) return;
+  try { await loadDeviceInfo(); } catch { return; }
+  const now = Date.now();
+  const clock = taipeiClock();
+  for (const [id, at] of deviceLastSeen) {
+    if (now - at < DEVICE_ONLINE_MS) { offlineState.delete(id); continue; }
+    const info = deviceInfoCache.map.get(id);
+    if (!info) continue;              // 已從清單移除
+    const st = offlineState.get(id) || { outsideFrom: 0, sleptLast: false };
+    if (inSleep(info.sleep, clock)) { st.outsideFrom = 0; st.sleptLast = true; }
+    else {
+      if (!st.outsideFrom) st.outsideFrom = st.sleptLast ? now : at;
+      st.sleptLast = false;
+      if (!offlineNotified.has(id) && now - st.outsideFrom >= OFFLINE_NOTIFY_MS) {
+        offlineNotified.add(id);
+        notify.add({ kind: 'device', type: 'offline', deviceId: id, text: `「${info.name}」已離線超過 10 分鐘` });
+      }
+    }
+    offlineState.set(id, st);
+  }
+}, 60_000).unref();
+/** 金鑰不符：同一台 24 小時內只通知一次；不在清單上的編號不通知。 */
+async function noteKeyMismatch(deviceId) {
+  if (!db.isReady()) return;
+  await loadDeviceInfo();
+  if (!deviceInfoCache.map.has(deviceId)) return;
+  if (await notify.recentlyNotified('keyMismatch', deviceId)) return;
+  notify.add({ kind: 'device', type: 'keyMismatch', deviceId, text: `「${deviceNameOf(deviceId)}」的連線金鑰不正確，請到機器上重新配對` });
+}
+/** 伺服器剛啟動：載入「已通知離線、還沒恢復」的機器，以及 1 小時內露面過的機器（離線偵測接得上）。 */
+async function restoreDeviceStatus() {
+  await loadDeviceInfo(true);
+  for (const [id, type] of await notify.lastStatusByDevice()) if (type === 'offline') offlineNotified.add(id);
+  const r = await db.getPool().request().query(
+    'SELECT DeviceId, LastSeenAt FROM dbo.KioskConfig WHERE LastSeenAt >= DATEADD(hour, -1, SYSUTCDATETIME())');
+  for (const row of r.recordset) if (!deviceLastSeen.has(row.DeviceId)) deviceLastSeen.set(row.DeviceId, new Date(row.LastSeenAt).getTime());
+}
+// 離線沒有事件可接（機器只是不再來）：每 5 秒看一次誰剛超過 60 秒沒露面
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const id of devicesOnline) {
+    const at = deviceLastSeen.get(id);
+    if (!at || now - at >= DEVICE_ONLINE_MS) { devicesOnline.delete(id); changed = true; }
+  }
+  if (changed) bumpDevices();
+}, 5000).unref();
+
+// ---- 鈴鐺通知（2026-10-14，src/notify.js）：清單＋這個帳號讀到哪裡；打開鈴鐺＝全部已讀 ----
+app.get('/api/notifications', requireUser, async (req, res) => {
+  res.json(await notify.list(req.user.username));
+});
+app.post('/api/notifications/read', requireUser, async (req, res) => {
+  res.json({ readAt: await notify.markRead(req.user.username) });
+});
+
+app.get('/api/devices/wait', requireUser, (req, res) => {
+  const since = Number(req.query.rev) || 0;
+  if (since !== devicesRev) return res.json({ rev: devicesRev, events: since < devicesRev ? eventsSince(since) : [], notifRev });
+  const w = { res, since };
+  w.timer = setTimeout(() => { devicesWaiters.delete(w); try { res.json({ rev: devicesRev, events: [], notifRev }); } catch { /* gone */ } }, DEVICES_HOLD_MS);
+  devicesWaiters.add(w);
+  req.on('close', () => { clearTimeout(w.timer); devicesWaiters.delete(w); });
+});
 
 app.get('/api/config/:deviceId/wait', async (req, res) => {
   if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
@@ -1092,7 +1253,7 @@ app.use('/admin', express.static(PUBLIC_DIR, { maxAge: '1h' }));
 // AI 智能客服代理（2026-09-10，網頁播放器用）：路由在 src/assist.js，只收機器金鑰
 require('./assist')(app, { db, log, isDevice });
 // 配對碼（2026-10-13）：新機器在 App 上顯示 6 位數，後台「新增機器」輸入就加入，路由在 src/pairing.js
-require('./pairing')(app, { db, log, audit, deviceKeys, requireUser });
+require('./pairing')(app, { db, log, audit, deviceKeys, requireUser, onDevicesChanged: async (type, deviceId, name, by) => bumpDevices(await deviceEvent(type, deviceId, name, by)) });
 
 // API 找不到路由：回 JSON，不要 Express 預設的 HTML 頁（網頁 api() 讀 .error 才有東西可顯示；2026-09-15）
 app.use('/api', (req, res) => res.status(404).json({ error: '找不到這個項目。', requestId: req.id }));
@@ -1265,7 +1426,9 @@ if (process.env.KIOSK_CHILD === '1') {
       log.info('db', '資料庫連線成功');
       await audit.prune();
       await events.prune();
-      setInterval(() => { audit.prune(); events.prune(); pruneSessions(); }, 24 * 60 * 60 * 1000).unref();
+      await notify.prune();
+      await restoreDeviceStatus().catch((e) => log.warn('notify', `機器狀態載入失敗：${e.message}`));
+      setInterval(() => { audit.prune(); events.prune(); notify.prune(); pruneSessions(); }, 24 * 60 * 60 * 1000).unref();
       return;
     } catch (e) {
       log.error('db', `資料庫連線失敗，15 秒後重試：${e.message}`);

@@ -11,8 +11,13 @@ let state = null;         // { version, config: { pages:[...], activePage } }
 let pageIndex = 0;
 let selected = null;      // { bi, path }：path＝從區塊根往下的 'a'/'b' 字串（''＝根）；編輯器裡一頁只有一個區塊，bi 一律 0
 let dirty = false;
+/** 小 icon（Lucide x／plus 同款路徑）：動態產生的按鈕直接塞 SVG，不必每次重跑 lucide.createIcons。 */
+const SVG_ICON = (d) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const SVG_X = SVG_ICON('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
+const SVG_PLUS = SVG_ICON('<path d="M5 12h14"/><path d="M12 5v14"/>');
 let activePageTouched = false; // 只有按過「在機器上展示此頁」才隨儲存送出 activePage
 let meIsAdmin = false;
+let meUsername = '';
 let wsMode = 'device';    // 工作區 modal 模式：'device'＝編輯某台機器；'shared'＝編輯共用版面
 let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡哪一個版面（id）
 
@@ -117,6 +122,7 @@ function logout() {
   if (token) fetch(BASE + '/api/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + token } }).catch(() => {});
   token = '';
   sessionStorage.removeItem('token');
+  notifData = { items: [], readAt: null }; paintNotifBadge(); setNotifPanel(false);
   // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
   state = null; deviceId = ''; selected = null; setDirty(false);
   shared = null; sharedLayoutId = 0; setSharedDirty(false); clearTimeout(sharedSaveTimer);
@@ -249,6 +255,8 @@ async function refreshMe() {
   $('whoamiMenu').textContent = shown;
   $('whoamiSub').textContent = `${me.username}・${me.isAdmin ? '管理員' : '一般帳號'}`;
   meIsAdmin = !!me.isAdmin;
+  meUsername = me.username; // 機器事件通知：自己做的事不跳 toast
+  loadNotifs();
   $('usersNav').classList.toggle('hidden', !meIsAdmin);
   $('themeBtn').hidden = !meIsAdmin; // 主題色：管理員限定
 }
@@ -580,7 +588,22 @@ async function savePublish(opts = {}) {
 }
 $('saveBtn').addEventListener('click', () => saveConfig());
 
-function setDirty(v) { dirty = v; $('saveBtn').disabled = !v; }
+/** 未發布提示（2026-10-14 精修）：工作區底部欄儲存鈕左邊「● 尚有修改未發布」。由 JS 建（index.html 是伺服器快取的範本，改它要重啟）。 */
+function wsDirtyNote() {
+  let n = $('wsDirtyNote');
+  const foot = $('wsFooter');
+  if (!n && foot) {
+    n = document.createElement('span');
+    n.id = 'wsDirtyNote'; n.className = 'ws-dirty-note'; n.setAttribute('aria-live', 'polite');
+    foot.prepend(n);
+  }
+  return n;
+}
+function setDirty(v) {
+  dirty = v; $('saveBtn').disabled = !v;
+  const note = wsDirtyNote();
+  if (note) { note.textContent = v ? (wsMode === 'shared' ? '尚有修改未儲存' : '尚有修改未發布') : ''; note.classList.toggle('is-on', !!v); }
+}
 function setStatus(msg, isErr) {
   if (window.BToast) (isErr ? BToast.danger : BToast.success)(msg);
 }
@@ -2424,14 +2447,14 @@ function thumbList(cell, cellPx) {
         t.appendChild(ph);
       }
       const del = document.createElement('button');
-      del.textContent = '✕';
+      del.innerHTML = SVG_X; del.title = '移除這張'; del.setAttribute('aria-label', '移除這張圖片'); // 線條 icon 取代 ✕ 字元（2026-10-14 精修）
       del.onclick = () => { cell.bgImgs.splice(i, 1); setDirty(true); renderCanvas(); redraw(); };
       t.appendChild(del);
       box.appendChild(t);
     });
     if ((cell.bgImgs || []).length < MAX_IMAGES) {
       const add = document.createElement('button');
-      add.className = 'add-thumb'; add.textContent = '＋'; add.title = '上傳圖片';
+      add.className = 'add-thumb'; add.innerHTML = SVG_PLUS; add.title = '上傳圖片'; add.setAttribute('aria-label', '上傳圖片');
       add.onclick = () => pickAndUpload('image/*', (url) => {
         (cell.bgImgs = cell.bgImgs || []).push(url);
         setDirty(true); renderCanvas(); redraw();
@@ -2929,7 +2952,7 @@ function sleepCard(ctx) {
         ? `${minToTime(period.start)}～${minToTime(period.end)}${period.start >= period.end ? '（跨午夜）' : ''}`
         : '不休眠';
       const edit = document.createElement('button');
-      edit.className = 'b-btn b-btn-xs';
+      edit.className = 'b-btn b-btn-text b-btn-xs'; // 文字鈕（2026-10-14 精修：原灰底小框鈕是全站唯一，7 顆一排很重）
       edit.textContent = '編輯';
       edit.onclick = () => editSleepDay(ctx, day, label);
       row.append(name, sum, edit);
@@ -3164,7 +3187,6 @@ async function renderSharedLayoutView() {
   for (const layout of shared.layouts) {
     const tr = document.createElement('tr');
     tr.className = 'device-row';
-    const updated = layout.updatedAt ? new Date(layout.updatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
     // 縮圖獨立欄（無標題、欄內置中）＋名稱獨立欄：與機器總覽同款（2026-09-07 指示）
     const thumbTd = document.createElement('td');
     thumbTd.className = 'device-thumb-col';
@@ -3176,7 +3198,8 @@ async function renderSharedLayoutView() {
     nameTd.className = 'b-th';
     nameTd.textContent = layout.name || '未命名版面';
     tr.appendChild(nameTd);
-    tr.insertAdjacentHTML('beforeend', `<td>${esc(layout.createdBy || '—')}</td><td class="num">${updated}</td>`);
+    tr.insertAdjacentHTML('beforeend', `<td class="device-id-dim">${esc(layout.createdBy || '—')}</td>`);
+    tr.appendChild(timeTd(layout.updatedAt));
 
     const opTd = document.createElement('td');
     opTd.className = 'device-ops';
@@ -3186,10 +3209,11 @@ async function renderSharedLayoutView() {
       opTd.appendChild(b);
       return b;
     };
-    if (meIsAdmin) mkBtn('b-btn', '編輯', () => enterSharedLayoutEditor(layout));
-    mkBtn('b-btn b-btn-primary', '加入機器', () => applySharedLayout(layout));
+    // 全站表格操作＝文字鈕（2026-10-14 精修：原本外框鈕＋每列一顆實心「加入機器」，三列就三顆實心並排，跟機器總覽／帳號管理不一致）
+    if (meIsAdmin) mkBtn('b-btn b-btn-text', '編輯', () => enterSharedLayoutEditor(layout));
+    mkBtn('b-btn b-btn-text', '加入機器', () => applySharedLayout(layout));
     if (meIsAdmin) {
-      mkBtn('b-btn', '更名', () => renameSharedLayout(layout));
+      mkBtn('b-btn b-btn-text', '更名', () => renameSharedLayout(layout));
       mkBtn('b-btn b-btn-text b-btn-text-danger', '刪除', () => deleteSharedLayout(layout));
     }
     tr.appendChild(opTd);
@@ -3641,20 +3665,21 @@ const THEME_SWATCHES = ['FFE07800', 'FF0051A8', 'FF00606D', 'FF2E6F40', 'FF4C5D0
 /** 上線狀態文字：機器每 ~25 秒會回來掛長輪詢，60 秒內有露面就當在線。 */
 function statusCell(d) {
   // tiri 收件列表同款：狀態＝b-badge 帶小圓點（在線綠 / 離線灰），離線附「多久沒回報」
+  // 離線／尚未回報加 is-off（2026-10-14 精修）：灰點灰字，不要跟綠色「在線」一樣搶眼（原本黑點黑字）
   const td = document.createElement('td');
   const badge = document.createElement('span');
   const dot = document.createElement('span');
   dot.className = 'dot';
   badge.appendChild(dot);
   if (d.LastSeenAgoSec == null) {
-    badge.className = 'b-badge neutral';
+    badge.className = 'b-badge neutral is-off';
     badge.append('尚未回報');
     badge.title = '伺服器啟動後這台機器還沒連線過';
   } else if (d.LastSeenAgoSec < 60) {
     badge.className = 'b-badge ok';
     badge.append('在線');
   } else {
-    badge.className = 'b-badge neutral';
+    badge.className = 'b-badge neutral is-off';
     badge.append(`離線 ${agoText(d.LastSeenAgoSec)}`);
   }
   td.appendChild(badge);
@@ -3734,6 +3759,29 @@ function screenInchText(d) {
 function screenResText(scr) {
   return scr && scr.w > 0 && scr.h > 0 ? `${scr.w} × ${scr.h}` : '—';
 }
+/** 列表的時間欄（2026-10-14 精修）：近的寫「12 分鐘前／今天 13:41／昨天 13:41」，今年寫「10/5 13:41」，更早才寫年份；
+ *  完整時間放 title（滑上去看）。 */
+function relTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso), now = new Date(), sec = (now - t) / 1000;
+  const hm = `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`;
+  const day0 = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day0(now) - day0(t)) / 864e5);
+  if (sec >= 0 && sec < 60) return '剛剛';
+  if (sec >= 0 && sec < 3600) return `${Math.floor(sec / 60)} 分鐘前`;
+  if (days === 0) return `今天 ${hm}`;
+  if (days === 1) return `昨天 ${hm}`;
+  if (t.getFullYear() === now.getFullYear()) return `${t.getMonth() + 1}/${t.getDate()} ${hm}`;
+  return `${t.getFullYear()}/${t.getMonth() + 1}/${t.getDate()}`;
+}
+/** 時間欄 td：顯示 relTime、完整時間放 title；class 預設＝等寬數字＋次要灰字。 */
+function timeTd(iso, cls = 'num device-id-dim') {
+  const td = document.createElement('td');
+  td.className = cls;
+  td.textContent = relTime(iso);
+  if (iso) td.title = new Date(iso).toLocaleString('zh-TW', { hour12: false });
+  return td;
+}
 function agoText(sec) {
   if (sec < 90) return `${Math.round(sec)} 秒`;
   const m = sec / 60;
@@ -3750,8 +3798,300 @@ $('devicesReloadBtn').addEventListener('click', async () => {
   try { await renderDevicesView(); } finally { setTimeout(() => b.classList.remove('is-busy'), 400); }
 });
 
-async function renderDevicesView() {
+// ---------- 機器清單自動更新（2026-10-14 user 選定）：每 30 秒抓一次，標題旁「更新於 剛剛 ⟳」----------
+// 只在機器總覽看得到、分頁在前景、沒有開著對話框或縮圖預覽時抓；畫面上要顯示的東西沒變就不重畫（縮圖輪播不會被打斷）。
+// 抓失敗不跳錯，「更新於」的時間會停住變成「3 分鐘前」，看得出來斷線了。
+let devicesFetchedAt = 0;
+let devicesSig = '';
+function devicesStampText() {
+  if (!devicesFetchedAt) return '';
+  const sec = (Date.now() - devicesFetchedAt) / 1000;
+  return sec < 60 ? '剛剛' : `${agoText(sec)}前`;
+}
+function updateDevicesStamp() {
+  const el = $('devicesUpdatedAt');
+  if (el) el.textContent = devicesStampText();
+}
+function devicesAutoRefreshOk() {
+  if (!token || document.hidden || $('devicesView').classList.contains('hidden')) return false;
+  if (thumbPreview || document.querySelector('.b-modal-overlay.is-visible')) return false;
+  return true;
+}
+let devicesStale = false; // 伺服器說清單變了、但當下開著對話框沒抓：等能抓時（5 秒一輪）補抓
+function refreshDevicesIfDue() {
+  if (!devicesAutoRefreshOk()) return;
+  if (!devicesStale && Date.now() - devicesFetchedAt < 30000) return;
+  devicesStale = false;
+  renderDevicesView({ quiet: true }).catch(() => { devicesStale = true; });
+}
+setInterval(() => { updateDevicesStamp(); refreshDevicesIfDue(); }, 5000);
+// 從別的分頁切回來：超過 30 秒沒更新、或期間清單有變就馬上抓一次
+document.addEventListener('visibilitychange', refreshDevicesIfDue);
+
+// 即時更新（2026-10-14）：掛在伺服器 /api/devices/wait，機器新增、移除（含手機取消配對）、發布、上線／離線時立刻回，
+// 收到就重抓清單。30 秒定時更新照留當備援；連不上（斷線、伺服器重啟）就 5 秒後再掛。
+let devicesRev = 0;
+
+/** 機器事件 toast（2026-10-14）：別人做的「機器加入／中斷連線／被刪除」跳 toast，點了回機器總覽；自己做的不跳（自己的操作本來就有提示）。
+ *  同一種事件一次來 3 筆以上（多半是切到別的分頁回來）合併成一則。之後的鈴鐺通知中心沿用同一份事件格式（server.js devicesEvents）。 */
+const DEVICE_EVENT_TEXT = {
+  left: {
+    icon: 'unplug', type: 'info',
+    one: (e) => [`「${e.name}」已中斷連線。`, '現場解除了與本站的連線，已從清單移除。'],
+    many: (n, names) => [`有 ${n} 台機器中斷連線。`, `${names}已從清單移除。`],
+  },
+  deleted: {
+    icon: 'trash-2', type: 'info',
+    one: (e) => [`「${e.name}」已被刪除。`, `${whoText(e)}從後台刪除了這台機器。`],
+    many: (n, names) => [`有 ${n} 台機器被刪除。`, `${names}已從清單移除。`],
+  },
+  joined: {
+    icon: 'monitor-check', type: 'success',
+    one: (e) => [`「${e.name}」已加入。`, `${whoText(e)}用配對碼新增了這台機器。`],
+    many: (n, names) => [`有 ${n} 台機器加入。`, `${names}已出現在清單中。`],
+  },
+};
+const whoText = (e) => (e.by && (e.by.displayName || e.by.username)) || '其他帳號';
+function showDeviceEvents(events) {
+  const mine = (e) => e.by && e.by.kind === 'user' && e.by.username === meUsername;
+  const byType = {};
+  for (const e of events) if (DEVICE_EVENT_TEXT[e.type] && !mine(e)) (byType[e.type] = byType[e.type] || []).push(e);
+  const goDevices = () => switchView('devices');
+  for (const [type, list] of Object.entries(byType)) {
+    const t = DEVICE_EVENT_TEXT[type];
+    const opts = { icon: t.icon, duration: 7000, onClick: goDevices };
+    if (list.length >= 3) {
+      const names = list.slice(0, 3).map((e) => `「${e.name}」`).join('') + (list.length > 3 ? '等' : '');
+      const [title, desc] = t.many(list.length, names);
+      BToast.show(title, t.type, { ...opts, desc });
+    } else {
+      for (const e of list) { const [title, desc] = t.one(e); BToast.show(title, t.type, { ...opts, desc }); }
+    }
+  }
+}
+
+(async function watchDevices() {
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (;;) {
+    if (!token || document.hidden) { await pause(5000); continue; }
+    try {
+      const res = await fetch(BASE + `/api/devices/wait?rev=${devicesRev}`, {
+        headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(40000),
+      });
+      if (!res.ok) { await pause(5000); continue; }
+      const { rev, events, notifRev } = await res.json();
+      if (notifRev && notifRev !== notifRevSeen) { notifRevSeen = notifRev; loadNotifs(); }
+      if (rev !== devicesRev) {
+        const first = devicesRev === 0; // 第一次只是拿目前版次，不必重抓
+        devicesRev = rev;
+        if (!first) { devicesStale = true; refreshDevicesIfDue(); showDeviceEvents(events || []); }
+      }
+    } catch { await pause(5000); }
+  }
+})();
+
+// ---------- 通知鈴鐺（2026-10-14）：頂欄「下載 App」右邊；資料＝GET /api/notifications（src/notify.js）----------
+// 機器類（加入、中斷連線、刪除、離線超過 10 分鐘、恢復連線、金鑰不符）大家都看；內容類（發布、切換、共用版面／設定）只看別人做的。
+// 打開鈴鐺＝全部已讀（每個帳號各自記）；面板開著時，打開前就未讀的那幾則照樣標小圓點，看得出哪些是新的。
+// 同一批動作（批量展示、加到多台、套用設定到多台）合成一則。點一則：有那台機器就跳到機器總覽並讓那一列閃一下；
+// 機器已不在清單就只關掉面板；共用版面／共用設定跳到那一頁。
+let notifData = { items: [], readAt: null };
+let notifRevSeen = 0;
+let notifShownReadAt = null;
+let knownDeviceIds = new Set();
+const NOTIF_STYLE = {
+  joined: ['monitor-check', 'ok'], online: ['wifi', 'ok'],
+  left: ['unplug', ''], deleted: ['trash-2', ''],
+  offline: ['wifi-off', 'warn'], keyMismatch: ['key-round', 'warn'],
+  renamed: ['pencil-line', 'brand'], published: ['monitor-up', 'brand'], switchPage: ['presentation', 'brand'],
+  appendLayout: ['copy-plus', 'brand'], showLayout: ['layers', 'brand'], applySettings: ['sliders-horizontal', 'brand'],
+  sharedLayout: ['layout-template', 'brand'], sharedSettings: ['settings-2', 'brand'],
+};
+const notifMine = (n) => n.Kind === 'content' && n.ActorUsername === meUsername;
+/** 同一個 GroupKey、時間相鄰（3 分鐘內）的合成一則；回傳 [{ at, type, text, deviceId, count }]（新到舊）。 */
+function groupNotifs(items) {
+  const out = [];
+  for (const n of items) {
+    if (notifMine(n)) continue;
+    const last = out[out.length - 1];
+    if (last && n.GroupKey && last.groupKey === n.GroupKey && new Date(last.oldest) - new Date(n.At) < 3 * 60_000) {
+      last.count++; last.oldest = n.At; last.deviceId = null;
+      continue;
+    }
+    out.push({ at: n.At, oldest: n.At, type: n.Type, text: n.Text, deviceId: n.DeviceId, groupKey: n.GroupKey, actor: n.ActorName, count: 1 });
+  }
+  for (const g of out) {
+    if (g.count < 2) continue;
+    const layout = (g.groupKey.match(/^[a-z]+:[^:]*:(.*)$/) || [])[1] || '';
+    if (g.type === 'showLayout') g.text = `${g.actor}讓 ${g.count} 台機器展示版面「${layout}」`;
+    else if (g.type === 'appendLayout') g.text = `${g.actor}把版面「${layout}」加到 ${g.count} 台機器`;
+    else if (g.type === 'applySettings') g.text = `${g.actor}把共用機器設定套用到 ${g.count} 台機器`;
+  }
+  return out;
+}
+const notifTime = (iso) => new Date(iso).getTime();
+function unreadNotifCount() {
+  const r = notifData.readAt ? notifTime(notifData.readAt) : 0;
+  return groupNotifs(notifData.items).filter((g) => notifTime(g.at) > r).length;
+}
+/** 未讀數（2026-10-14 user：顯示數字，變多時數字要滾動更新）：
+ *  0→有＝紅點彈出；數字變了＝舊數字往上滑走、新數字從下面滑上來（變少反過來），像里程表；歸零（打開鈴鐺）＝縮小消失。
+ *  超過 9 顯示 9+（9+ 之間不滾）。動畫用 Web Animations；系統設定減少動態時直接換。 */
+let notifBadgeShown = 0;
+const NB_EASE = 'cubic-bezier(.22, 1, .36, 1)';
+function paintNotifBadge() {
+  const n = unreadNotifCount();
+  const b = $('notifBadge');
+  const label = (x) => (x > 9 ? '9+' : String(x));
+  const prev = notifBadgeShown;
+  notifBadgeShown = n;
+  $('notifBtn').setAttribute('aria-label', n ? `通知（${n} 則未讀）` : '通知');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!n) {
+    if (b.hidden) return;
+    if (calm) { b.hidden = true; return; }
+    b.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(.3)', opacity: 0 }], { duration: 160, easing: 'ease-in' })
+      .finished.then(() => { if (!notifBadgeShown) b.hidden = true; }).catch(() => {});
+    return;
+  }
+  if (b.hidden || !prev) {
+    b.hidden = false;
+    b.innerHTML = `<span class="nb-num">${label(n)}</span>`;
+    b.getAnimations().forEach((a) => a.cancel());
+    if (!calm) {
+      b.animate([{ transform: 'scale(.3)', opacity: 0 }, { transform: 'scale(1.18)', opacity: 1, offset: 0.6 }, { transform: 'scale(1)', opacity: 1 }],
+        { duration: 320, easing: NB_EASE });
+    }
+    return;
+  }
+  if (label(prev) === label(n)) return;
+  // 連續變動：只留最後一個數字當「舊的」，其他正在滑走的直接拿掉
+  const nums = [...b.querySelectorAll('.nb-num')];
+  nums.slice(0, -1).forEach((x) => x.remove());
+  const old = nums[nums.length - 1];
+  const nu = document.createElement('span');
+  nu.className = 'nb-num';
+  nu.textContent = label(n);
+  b.appendChild(nu);
+  if (calm || !old) { old?.remove(); return; }
+  const dir = n > prev ? 1 : -1; // 變多：往上滾；變少：往下滾
+  old.animate([{ transform: 'translateY(0)', opacity: 1 }, { transform: `translateY(${-110 * dir}%)`, opacity: 0 }],
+    { duration: 280, easing: NB_EASE, fill: 'forwards' }).finished.then(() => old.remove()).catch(() => {});
+  nu.animate([{ transform: `translateY(${110 * dir}%)`, opacity: 0 }, { transform: 'translateY(0)', opacity: 1 }],
+    { duration: 280, easing: NB_EASE });
+  // 變多時紅點本身也輕輕跳一下
+  if (dir > 0) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }], { duration: 300, easing: 'ease-out' });
+}
+async function loadNotifs() {
+  if (!token) return;
+  try { notifData = await api('GET', '/api/notifications'); } catch { return; }
+  paintNotifBadge();
+  if (!$('notifPanel').hidden) renderNotifPanel();
+}
+function renderNotifPanel() {
+  const list = $('notifList');
+  const groups = groupNotifs(notifData.items);
+  list.innerHTML = '';
+  if (!groups.length) {
+    list.innerHTML = '<div class="notif-empty"><span class="notif-empty-ic"><i data-lucide="bell-off"></i></span>' +
+      '<p class="notif-empty-title">目前沒有通知</p><p class="notif-empty-sub">機器加入、中斷連線或內容有更新時，會顯示在這裡。</p></div>';
+    if (window.lucide) lucide.createIcons({ nodes: [list] });
+    return;
+  }
+  const readAt = notifShownReadAt ? notifTime(notifShownReadAt) : 0;
+  const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+  let section = '';
+  for (const g of groups) {
+    const sec = notifTime(g.at) >= today0.getTime() ? '今天' : '更早';
+    if (sec !== section) {
+      section = sec;
+      const h = document.createElement('div');
+      h.className = 'notif-section';
+      h.textContent = sec;
+      list.appendChild(h);
+    }
+    const [icon, tone] = NOTIF_STYLE[g.type] || ['bell', ''];
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'notif-item' + (notifTime(g.at) > readAt ? ' is-unread' : '');
+    item.innerHTML = `<span class="notif-ic${tone ? ' is-' + tone : ''}"><i data-lucide="${icon}"></i></span>` +
+      '<span class="notif-body"><span class="notif-text"></span><span class="notif-time"></span></span><span class="notif-dot" aria-hidden="true"></span>';
+    item.querySelector('.notif-text').textContent = g.text + '。';
+    const time = item.querySelector('.notif-time');
+    time.textContent = relTime(g.at);
+    time.dataset.at = g.at;
+    time.title = new Date(g.at).toLocaleString('zh-TW', { hour12: false });
+    item.onclick = () => openNotifTarget(g);
+    list.appendChild(item);
+  }
+  const foot = document.createElement('p');
+  foot.className = 'notif-foot';
+  foot.textContent = '只保留最近 30 天的通知。';
+  list.appendChild(foot);
+  if (window.lucide) lucide.createIcons({ nodes: [list] });
+}
+function openNotifTarget(g) {
+  setNotifPanel(false);
+  if (g.type === 'sharedLayout') return switchView('sharedLayout');
+  if (g.type === 'sharedSettings') return switchView('sharedSettings');
+  if (!g.deviceId || !knownDeviceIds.has(g.deviceId)) {
+    if (g.count > 1) switchView('devices'); // 一批機器：回清單就好
+    return;
+  }
+  switchView('devices');
+  // 清單是非同步畫的：等那一列出現再閃（最多 3 秒）
+  const t0 = Date.now();
+  (function flash() {
+    const tr = [...document.querySelectorAll('#deviceTable tbody tr')].find((r) => r.dataset.deviceId === g.deviceId);
+    if (!tr) { if (Date.now() - t0 < 3000) setTimeout(flash, 100); return; }
+    tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    tr.classList.remove('is-flash'); void tr.offsetWidth; tr.classList.add('is-flash');
+  })();
+}
+let notifLeaveTimer = null;
+function setNotifPanel(open) {
+  const panel = $('notifPanel');
+  if (open === !panel.hidden) return;
+  clearTimeout(notifLeaveTimer);
+  if (open) {
+    notifShownReadAt = notifData.readAt;
+    renderNotifPanel();
+    panel.hidden = false;
+    panel.classList.remove('hdr-user-leave-active');
+    panel.classList.add('hdr-user-enter-active');
+    // 打開＝全部已讀：紅點馬上消失，伺服器那邊記時間
+    if (unreadNotifCount()) {
+      notifData.readAt = new Date().toISOString();
+      paintNotifBadge();
+      api('POST', '/api/notifications/read').then((r) => { if (r && r.readAt) notifData.readAt = r.readAt; }).catch(() => {});
+    }
+  } else {
+    panel.classList.remove('hdr-user-enter-active');
+    panel.classList.add('hdr-user-leave-active');
+    notifLeaveTimer = setTimeout(() => { panel.hidden = true; panel.classList.remove('hdr-user-leave-active'); }, 140);
+  }
+  $('notifBtn').setAttribute('aria-expanded', String(open));
+}
+$('notifBtn').addEventListener('click', () => setNotifPanel($('notifPanel').hidden));
+document.addEventListener('click', (e) => { if (!e.target.closest('.header-notif-wrap')) setNotifPanel(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setNotifPanel(false); });
+// 時間文字（12 分鐘前）跟著走
+setInterval(() => { if (!$('notifPanel').hidden) $('notifList').querySelectorAll('.notif-time').forEach((t) => { t.textContent = relTime(t.dataset.at); }); }, 60_000);
+
+/** opts.quiet＝自動更新：內容沒變就只更新「更新於」。 */
+async function renderDevicesView(opts = {}) {
   const devices = await api('GET', '/api/devices');
+  knownDeviceIds = new Set(devices.map((d) => d.DeviceId));
+  devicesFetchedAt = Date.now();
+  updateDevicesStamp();
+  // 簽章＝畫面上實際顯示的內容（露面秒數換成狀態文字、更新時間換成相對時間），每 30 秒都會變的秒數不算
+  const sig = JSON.stringify(devices.map((d) => ({
+    ...d,
+    LastSeenAgoSec: d.LastSeenAgoSec == null ? null : d.LastSeenAgoSec < 60 ? 'on' : agoText(d.LastSeenAgoSec),
+    UpdatedAt: relTime(d.UpdatedAt),
+  })));
+  if (opts.quiet && sig === devicesSig) return;
+  devicesSig = sig;
 
   const tb = $('deviceTable').querySelector('tbody');
   clearListThumbs(); // 舊縮圖的輪播計時器
@@ -3771,7 +4111,7 @@ async function renderDevicesView() {
   for (const d of devices) {
     const tr = document.createElement('tr');
     tr.className = 'device-row';
-    const updated = d.UpdatedAt ? new Date(d.UpdatedAt).toLocaleString('zh-TW', { hour12: false }) : '';
+    tr.dataset.deviceId = d.DeviceId; // 鈴鐺點通知時找這一列來閃
     // 縮圖欄（無標題、欄內置中）＝該機「目前展示頁」結構縮圖（沿用版面清單的 sharedLayoutThumb）；
     // 名稱獨立一欄（2026-09-07 指示：不同螢幕比例的縮圖寬度不一，同格會把名稱推歪）
     const thumbTd = document.createElement('td');
@@ -3784,11 +4124,12 @@ async function renderDevicesView() {
     nameTd.className = 'b-th';
     nameTd.textContent = d.DeviceName || d.DeviceId;
     tr.appendChild(nameTd);
+    // 只有編號用等寬字（2026-10-14 精修）：吋數、解析度是「數字＋中文」，等寬字配中文會鬆散，改一般字＋等寬數字
     tr.insertAdjacentHTML('beforeend',
       `<td class="device-id-dim device-mono">${esc(d.DeviceId)}</td>` +
-      `<td class="device-id-dim device-mono">${screenInchText(d)}</td>` +
-      `<td class="device-id-dim device-mono">${screenResText(d.Screen)}</td>` +
-      `<td class="num device-id-dim">${updated}</td>`);
+      `<td class="num device-id-dim">${screenInchText(d)}</td>` +
+      `<td class="num device-id-dim">${screenResText(d.Screen)}</td>`);
+    tr.appendChild(timeTd(d.UpdatedAt));
     tr.appendChild(statusCell(d));
     // 「版本」「屬於（帳號分配）」欄先不放（2026-09-03 指示）；
     // 分配 API（PUT /api/devices/:id/owner）與後端過濾邏輯保留，之後要加回來只補 UI
@@ -4218,7 +4559,6 @@ function showLayoutWizardDialog(devices, layouts) {
     let plans = null;           // Map(layout → plan)
     let pickedLayout = null;
     let step = 0;
-    const fmtTime = (t) => (t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '');
 
     function renderStep1() {
       step = 1; steps.set(1);
@@ -4251,7 +4591,7 @@ function showLayoutWizardDialog(devices, layouts) {
         tbody.appendChild(pickTableRow(c, [
           tdText(d.DeviceName || d.DeviceId, 'b-th'),
           tdText(d.DeviceId, 'device-id-dim device-mono'),
-          tdText(fmtTime(d.UpdatedAt), 'num device-id-dim'),
+          timeTd(d.UpdatedAt),
           statusCell(d),
         ], false, () => { if (c.checked) selected.add(d); else selected.delete(d); syncAll(); }));
       }
@@ -4294,8 +4634,8 @@ function showLayoutWizardDialog(devices, layouts) {
         tbody.appendChild(pickTableRow(r, [
           thumbTd,
           tdText(layout.name || '未命名版面', 'b-th layout-pick-name'),
-          tdText(layout.createdBy || '—'),
-          tdText(fmtTime(layout.updatedAt), 'num'),
+          tdText(layout.createdBy || '—', 'device-id-dim'),
+          timeTd(layout.updatedAt),
           noteTd,
         ], disabled, () => { if (r.checked) { pickedLayout = layout; next.disabled = false; } }));
       }

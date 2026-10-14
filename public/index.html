@@ -101,6 +101,19 @@
           <svg class="app-download-symbol" viewBox="0 -960 960 960" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M280-40q-33 0-56.5-23.5T200-120v-720q0-33 23.5-56.5T280-920h400q33 0 56.5 23.5T760-840v124q18 7 29 22t11 34v80q0 19-11 34t-29 22v404q0 33-23.5 56.5T680-40H280Zm0-80h400v-720H280v720Zm0 0v-720 720Zm200-200 160-160-56-56-64 62v-166h-80v166l-64-62-56 56 160 160Z"/></svg>
           <span>下載 App</span>
         </button>
+        <!-- 通知鈴鐺（2026-10-14 user：放「下載 App」右邊、中間分隔線）：有未讀＝鈴鐺右上角紅色數字（>9 顯示 9+，數字變動時滾動）；打開＝全部已讀。
+             面板內容由 app.js renderNotifPanel 畫；資料 GET /api/notifications（src/notify.js） -->
+        <span class="header-sep" aria-hidden="true"></span>
+        <div class="header-notif-wrap">
+          <button type="button" class="header-icon-btn header-notif-btn" id="notifBtn" aria-label="通知" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="bell"></i>
+            <span class="notif-badge" id="notifBadge" hidden></span>
+          </button>
+          <div class="notif-panel" id="notifPanel" role="dialog" aria-label="通知" hidden>
+            <div class="notif-head">通知</div>
+            <div class="notif-list" id="notifList"></div>
+          </div>
+        </div>
         <div class="header-user-wrap">
           <button type="button" class="header-user-btn" aria-expanded="false" aria-haspopup="menu">
             <span class="header-user-avatar" aria-hidden="true"><i data-lucide="user-round"></i></span>
@@ -210,13 +223,14 @@
               </div>
             </div>
           </div>
-          <!-- 重整（2026-09-07 指示）：只放 icon，灰底方圓角，同工作區頁籤列的重新載入鈕 -->
           <div class="page-actions">
+            <!-- 清單自動更新（2026-10-14）：每 30 秒自己抓，這裡顯示多久前更新；整顆可點＝立即重新整理（id 沿用，morph-icons 的轉一圈照舊）。
+                 位置＝按鈕群最左（user 2026-10-14：貼在標題旁像標題的一部分）；不放 title，瀏覽器原生提示框會蓋到標題 -->
+            <button id="devicesReloadBtn" class="refresh-stamp" type="button" aria-label="立即重新整理機器清單">更新於 <span id="devicesUpdatedAt"></span><i data-lucide="refresh-cw"></i></button>
             <!-- 批量調整展示畫面（2026-09-09）：精靈式 modal＝勾機器 → 選共用版面 → 完成，讓這幾台一起切過去 -->
             <!-- 新增機器（2026-10-13）：輸入機器畫面上的配對碼 → 取名，伺服器發這台專屬的連線金鑰 -->
             <button id="addDeviceBtn" class="b-btn" type="button">新增機器</button>
             <button id="showLayoutBtn" class="b-btn b-btn-primary" type="button">批量調整展示畫面</button>
-            <button id="devicesReloadBtn" class="icon-btn" type="button" title="重新整理" aria-label="重新整理機器清單"><i data-lucide="refresh-cw"></i></button>
           </div>
         </div>
         <!-- kit 規範：.b-tbl-scroll 自己就是卡框（邊框/圓角/陰影），不再包 b-card（避免框中框雙邊線） -->
@@ -322,7 +336,8 @@
             </div>
           </div>
           <div class="page-actions">
-            <button id="addUserBtn" class="b-btn b-btn-primary"><i data-lucide="plus"></i>新增帳號</button>
+            <!-- 頁首按鈕不帶 ＋ 號（2026-10-14 user 指示，全站新增鈕一致） -->
+            <button id="addUserBtn" class="b-btn b-btn-primary">新增帳號</button>
           </div>
         </div>
         <div class="b-tbl-scroll">
@@ -518,6 +533,7 @@
                 <div class="gd-row"><b>主題色</b><span>限管理員。後台與展示機 App 共用同一個顏色，選好按<span class="gd-ui">儲存</span>才生效，機器幾秒內跟著換。</span></div>
                 <div class="gd-row"><b>開啟展示頁</b><span>用瀏覽器開這個站台的展示畫面，當成一面螢幕用。</span></div>
                 <div class="gd-row"><b>下載 App</b><span>取得最新版的 Android 展示機 App，附這一版的更新內容。已經裝好的機器不必用這裡，在機器上<span class="gd-ui">設定</span>＞<span class="gd-ui">軟體更新</span>就能更新。</span></div>
+                <div class="gd-row"><b>通知</b><span>「下載 App」右邊的鈴鐺。機器加入、中斷連線、被刪除、離線超過 10 分鐘（休眠時段不算）、恢復連線、連線金鑰不正確，以及其他帳號發布內容、切換畫面、修改共用版面或共用設定時，會出現在這裡；有未讀時鈴鐺上會出現紅色的未讀數量，打開就算全部已讀。點一則會跳到那台機器。只保留最近 30 天。</span></div>
               </div>
               <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>左側選單可以收合；各頁標題旁的問號有該頁的簡要說明。</span></div>
             </section>
@@ -532,7 +548,7 @@
                 <div class="gd-row"><b>更名</b><span>按<span class="gd-ui">更名</span>直接修改機器名稱，會同步回機器。</span></div>
                 <div class="gd-row"><b>內容管理</b><span>按<span class="gd-ui">內容管理</span>進入該機器的工作區，編排版面與修改設定。</span></div>
                 <div class="gd-row"><b>批量調整展示畫面</b><span>右上角的按鈕：先勾要調整的機器，再挑一個共用版面，這幾台就會一起切到那個版面並進入展示模式。還沒有那個版面的機器，會先把版面接在現有頁面後面再切過去。</span></div>
-                <div class="gd-row"><b>重新整理</b><span>右上角的重新整理鈕會立即更新清單；機器發布新版時清單也會自動更新。</span></div>
+                <div class="gd-row"><b>自動更新</b><span>清單每 30 秒會自動更新，右上角的「更新於」顯示最後一次更新的時間；點它可以立即更新。</span></div>
                 <div class="gd-row"><b>刪除機器</b><span>在工作區「機器設定」頁籤最下方的 Danger Zone，限管理員。</span></div>
               </div>
               <div class="gd-shot-row">

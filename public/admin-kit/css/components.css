@@ -542,6 +542,14 @@ body.b-modal-lock { overflow: hidden; }
 .b-toast-success .b-toast-icon { color: var(--fg-success, #047857); }
 .b-toast-danger  .b-toast-icon { color: var(--fg-danger, #C30F16); }
 .b-toast-warning .b-toast-icon { color: #F97316; }   /* 亮橘（--fg-warning 偏深褐，toast 用亮橘較清楚） */
+.b-toast-info    .b-toast-icon { color: var(--fg-brand, var(--brand)); }
+/* 兩行版（opts.desc，2026-10-14）：第一行＝標題（原字重），第二行＝說明小一號、一般字重、次要灰；icon 對齊第一行 */
+.b-toast:has(.b-toast-msg.has-desc) { align-items: flex-start; }
+.b-toast:has(.b-toast-msg.has-desc) .b-toast-icon { margin-top: 1px; }
+.b-toast-desc { display: block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--text-body-subtle); }
+/* 可點（opts.onClick）：吃得到滑鼠、手指游標、滑鼠停著暫停倒數（不會讀到一半滑走） */
+.b-toast.is-clickable { pointer-events: auto; cursor: pointer; }
+.b-toast.is-clickable:hover { animation-play-state: paused; border-color: var(--border-default-medium, var(--border-default)); }
 @media (prefers-reduced-motion: reduce) {
   .b-toast { animation: b-toast-fade 4.4s ease both; }
   @keyframes b-toast-fade { 0%{opacity:0} 8%{opacity:1} 90%{opacity:1} 100%{opacity:0} }

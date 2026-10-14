@@ -46,7 +46,10 @@ function record(req, ev) {
     .input('rid', db.sql.NVarChar(16), req.id || null)
     .query(`INSERT INTO dbo.KioskAuditLog (ActorType, ActorId, ActorName, Action, TargetType, TargetId, TargetName, Summary, DetailJson, Ip, RequestId)
             VALUES (@atype, @aid, @aname, @action, @ttype, @tid, @tname, @summary, @detail, @ip, @rid)`)
-    .then(() => { log.debug('audit', ev.summary, { action: ev.action, actor: a.name || a.type, rid: req.id }); })
+    .then(() => {
+      log.debug('audit', ev.summary, { action: ev.action, actor: a.name || a.type, rid: req.id });
+      require('./notify').fromAudit(a, ev).catch(() => {}); // 白名單內的動作轉成鈴鐺通知（2026-10-14）
+    })
     .catch((e) => { log.warn('audit', `操作紀錄寫入失敗：${e.message}`, { action: ev.action, rid: req.id }); });
   return p;
 }

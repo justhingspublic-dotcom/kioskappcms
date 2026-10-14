@@ -155,10 +155,12 @@ html:root[data-color-mode="dark"] {
 .login-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 /* 橫式客戶 CI（卓也小屋 250×89 藍色 logo）：寬 200、依原比例撐高；深色模式墊一塊白底才看得清藍色 */
 .login-mark.wide { width: 200px; height: auto; aspect-ratio: 250 / 89; border-radius: var(--radius-md); }
-[data-color-mode="dark"] .login-mark.wide { background: #fff; padding: 8px 12px; box-sizing: content-box; }
+[data-color-mode="dark"] .login-mark.wide { background: #fff; padding: 14px 20px; box-sizing: content-box; border-radius: 14px; }
 /* 方形客戶 CI（揚昇 300×300，白底盾徽）：96px 方框；深色模式同樣墊白底 */
 .login-mark.square { width: 96px; height: 96px; border-radius: var(--radius-md); }
-[data-color-mode="dark"] .login-mark.square { background: #fff; padding: 6px; box-sizing: content-box; }
+[data-color-mode="dark"] .login-mark.square { background: #fff; padding: 10px; border-radius: 18px; box-sizing: content-box; }
+/* 深色白底板（2026-10-14 精修）：原本白框貼著 logo 像截圖貼上去；留白加寬、圓角放大、外圍一圈淡光＋落影＝刻意的 logo 底板 */
+[data-color-mode="dark"] .login-mark:is(.wide, .square) { box-shadow: 0 0 0 1px rgb(255 255 255 / .1), 0 10px 28px -10px rgb(0 0 0 / .6); margin-bottom: 20px; }
 .login-title { margin: 5px 0 0; color: var(--text-heading); font-size: 1.55rem; font-weight: 600; line-height: 1.25; }
 .login-sub { margin: 8px 0 0; color: var(--text-body-subtle); font-size: 14px; }
 .login-card .b-input { margin-top: 6px; width: 100%; }
@@ -277,6 +279,10 @@ html:root[data-color-mode="dark"] {
 }
 .page-tabs .tab button :where(i, svg) { width: 13px; height: 13px; }
 .page-tabs .tab button:hover { opacity: 1; }
+/* 精修（2026-10-14）：鉛筆／叉叉只在目前頁籤出現（同瀏覽器分頁：先點選再改名／刪除）；
+   其他頁籤只有名稱、左右內距對稱（只把 icon 變透明的話，文字右邊會空一截） */
+.page-tabs .tab:not(.active) { padding-right: 14px; }
+.page-tabs .tab:not(.active) button { display: none; }
 /* 左右捲動箭頭：只在頁籤溢出時出現（滑鼠使用者用；觸控板可直接橫滑、滾輪也轉成橫捲） */
 .page-tabs-arrow {
   flex: none; display: none; align-items: center; justify-content: center;
@@ -659,16 +665,28 @@ html:root[data-color-mode="dark"] {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 11px; color: var(--text-body-subtle); text-align: center; padding: 4px;
 }
+/* 移除鈕（2026-10-14 精修）：原本黑色方塊＋✕ 字元 → 圓形半透明毛玻璃＋線條 icon；有滑鼠的裝置滑上縮圖才出現 */
 .thumb button {
-  position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.65); color: #fff;
-  border: 0; border-radius: 6px; padding: 1px 7px; font-size: 12px; cursor: pointer;
+  position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgb(0 0 0 / .5); color: #fff; border: 0; border-radius: 50%; cursor: pointer;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: opacity .15s, background-color .15s;
+}
+.thumb button svg { width: 13px; height: 13px; }
+.thumb button:hover { background: rgb(0 0 0 / .72); }
+@media (hover: hover) {
+  .thumb button { opacity: 0; }
+  .thumb:hover button, .thumb button:focus-visible { opacity: 1; }
 }
 .add-thumb {
   width: 84px; height: 84px; border-radius: var(--radius-md);
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--border-default-medium); background: var(--neutral-primary-soft);
-  color: var(--text-body-subtle); font-size: 26px; cursor: pointer;
+  color: var(--text-body-subtle); cursor: pointer;
   transition: color .15s, border-color .15s;
 }
+.add-thumb svg { width: 22px; height: 22px; }
 .add-thumb:hover { color: var(--fg-brand); border-color: var(--border-brand-subtle); }
 
 /* ── 表格頁小配件 ── */
@@ -679,6 +697,16 @@ html:root[data-color-mode="dark"] {
    面板規格全沿用 kit .b-pop-panel（tiri b_admin.css 同款），只改錨定方向：
    標題在頁面左側 → 面板向右開（left:0），transform-origin 跟著換角。 ── */
 .page-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 機器總覽右上「更新於 剛剛 ⟳」（2026-10-14）：在按鈕群最左，清單自動更新的時間；整顆可點＝立即重新整理。灰字無底，滑上去字變深 */
+.refresh-stamp {
+  margin-right: 4px; padding: 4px 8px; border: 0; border-radius: var(--radius-full); background: none;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--text-body-subtle); font-variant-numeric: tabular-nums;
+  transition: color .15s;
+}
+.refresh-stamp :where(i, svg) { width: 13px; height: 13px; }
+.refresh-stamp:hover { color: var(--text-heading); } /* hover 不加底色（2026-10-14 user：跟旁邊按鈕不協調），只把字變深 */
+.refresh-stamp:has(#devicesUpdatedAt:empty) { visibility: hidden; } /* 第一次載入完之前不顯示「更新於 」半句 */
 /* 收起時 overflow:clip：藏著的說明面板（絕對定位、只是透明）不再把 modal 內容區撐出捲動；
    開啟時放開、收起時延遲到淡出動畫跑完才夾回（allow-discrete 讓 overflow 也能延遲切換） */
 .page-help { display: inline-flex; overflow: clip; transition: overflow 0s .18s; transition-behavior: allow-discrete; }
@@ -728,7 +756,15 @@ html:root[data-color-mode="dark"] {
 @media (max-width: 520px) { .adduser-grid { grid-template-columns: 1fr; } }
 #addUserModal .b-modal-head { border-bottom: 0; padding-bottom: 4px; }
 #addUserModal .b-modal-foot { border-top: 0; padding-top: 0; }
-.device-id-dim { color: var(--text-body-subtle); }
+/* 次要灰字：要壓過 kit 的 .b-tbl tbody td（文字＝標題色），否則表格裡的編號／時間一直是深色（2026-10-14 修） */
+.device-id-dim, .b-tbl tbody td.device-id-dim { color: var(--text-body-subtle); }
+/* 等寬字只給編號（機器總覽、批量精靈都用；原本限定 .device-row，批量精靈的編號就變回一般字） */
+.device-mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size: 13px; letter-spacing: .01em; }
+/* 離線／尚未回報：灰點灰字（2026-10-14 精修），在線的綠色才是視覺重點 */
+.b-badge.neutral.is-off { background: transparent; color: var(--text-body-subtle); }
+.b-badge.neutral.is-off .dot { background: var(--text-body-subtle); opacity: .7; }
+/* 操作欄縮到剛好放得下按鈕，多出來的寬度分給資料欄（原本狀態跟操作中間空一大段） */
+.b-tbl td.device-ops { width: 1%; }
 /* 機器總覽狀態欄第二行：連線設定檢查（金鑰不符／連到別的伺服器／連線設定正確） */
 /* 連線設定狀態（2026-09-08 改）：狀態 badge 右邊一顆 16px icon，不同狀態不同 icon 與色；
    hover 出現說明面板＝標題旁問號的 .b-pop-panel 同款（user 指示），JS 掛在 body、fixed 定位（不被表格捲動容器裁掉），
@@ -738,7 +774,8 @@ html:root[data-color-mode="dark"] {
   width: 20px; height: 20px; margin-left: 6px; vertical-align: middle; border-radius: 50%;
 }
 .device-row .conn-icon :where(i, .lucide, svg) { width: 16px; height: 16px; }
-.device-row .conn-icon.ok { color: var(--fg-success-strong); }
+/* 設定正確＝淡灰勾（2026-10-14 精修）：沒問題的不用搶眼，黃／紅警告才需要被看見 */
+.device-row .conn-icon.ok { color: var(--text-body-subtle); opacity: .75; }
 .device-row .conn-icon.warning { color: var(--fg-warning); }
 .device-row .conn-icon.danger { color: var(--fg-danger); }
 .b-tip {
@@ -789,8 +826,10 @@ html:root[data-color-mode="dark"] {
 .settings-fields input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .settings-fields input[type=time].b-input.sleep-time { width: 112px; flex: none; }
 .settings-card .card-title-wrap { display: flex; align-items: center; gap: 4px; }
+/* 動作列緊接在欄位下面（2026-10-14 精修）：原本 margin-top:auto 貼卡底，卡片被旁邊較高的卡撐高時，
+   「測試連線」離輸入框隔一大段；改成空白留在卡片最下面 */
 .settings-foot {
-  margin-top: auto; padding: 6px 20px 18px;
+  margin-top: 0; padding: 6px 20px 18px;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
 }
 .settings-foot .b-btn { flex: none; margin-left: auto; } /* 只有動作鈕時也靠右 */
@@ -870,8 +909,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 /* 縮圖欄：固定寬（最寬縮圖 100px＋左右 padding）、縮圖置中；名稱欄緊接在後 */
 #deviceTable .device-thumb-col, #sharedLayoutTable .device-thumb-col { width: 116px; padding-right: 0; text-align: center; }
 #deviceTable td.device-thumb-col .layout-thumb, #sharedLayoutTable td.device-thumb-col .layout-thumb { display: inline-flex; vertical-align: middle; }
-/* 編號欄：等寬字＋次要字色，讓名稱成為列的主角 */
-.device-row .device-mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace); font-size: 13px; letter-spacing: .01em; }
+/* 編號欄：等寬字＋次要字色，讓名稱成為列的主角（規則已移到上方 .device-mono，全站共用） */
 /* 空狀態（全站表格通用，2026-09-09 指示）：只要 tbody 裡放的是 .b-empty，就不留光禿表頭，
    內滾容器改成吃滿剩餘高度、表格撐滿容器、td 靠 vertical-align:middle 把空狀態置中（tiri inbox 同作法）。
    純 CSS :has 判定，不用每張表各自 toggle class（#deviceTable 的 is-empty 留作相容）。 */
@@ -885,7 +923,9 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
    標題列＝左標題＋副標、右步驟進度條；第 1 步機器表、第 2 步版面表（都是 kit .b-tbl，無操作區） */
 .b-modal.is-batch {
   width: min(1040px, calc(100vw - 48px)); max-width: none;
-  height: min(680px, calc(100vh - 48px)); max-height: none;
+  /* 高度跟內容走、上限 680（2026-10-14 精修：機器少時原本固定 680 下面一大片空白）；
+     下限 460＝兩步驟（機器表／帶縮圖的版面表）在機器、版面不多時差不多高，換步驟不會明顯跳 */
+  height: auto; min-height: min(460px, calc(100vh - 48px)); max-height: min(680px, calc(100vh - 48px));
   display: flex; flex-direction: column; overflow: hidden; /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
 }
 .b-modal.is-batch .b-modal-head { flex: none; }
@@ -1051,6 +1091,16 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .ws-footer .b-btn:disabled {
   background: transparent; border-color: transparent;
   color: var(--text-body-subtle); opacity: 1;
+}
+/* 未發布提示（2026-10-14 精修）：儲存鈕左邊一行小字＋主題色圓點，有修改才淡入 */
+.ws-dirty-note {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--text-body-subtle);
+  opacity: 0; transition: opacity .2s;
+}
+.ws-dirty-note.is-on { opacity: 1; }
+.ws-dirty-note.is-on::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand);
 }
 #wsModal.is-visible { opacity: 1; animation: ws-overlay-in .15s ease-out both; }
 /* ⚠ box 動畫不填 fill（tiri brand.css 同款裁決）：both 會殘留 transform，
@@ -1526,3 +1576,79 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--pair-amber) 14%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) { .pair-dlg .otp.is-exists .otp-box { animation: none; } }
+
+/* ══════════════════ 通知鈴鐺（2026-10-14，頂欄「下載 App」右邊） ══════════════════
+   面板外框／開收動畫同帳號下拉（.header-user-menu、hdr-user-enter/leave-active）。
+   ⚠ .header-right 會把裡面所有 button 的 background／padding 歸零，面板裡的按鈕都要用 .header-right 前綴蓋回來。 */
+.header-notif-wrap { position: relative; display: inline-flex; }
+.header-right .header-notif-btn { position: relative; }
+/* 未讀數（2026-10-14 user：顯示數字、變多時滾動）：紅色膠囊，白邊把它從鈴鐺上切開；
+   數字疊在同一格（grid 1/1），換數字時新舊兩個同時在、各自滑動，overflow 把滑出去的部分切掉 */
+.notif-badge {
+  position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
+  display: grid; overflow: hidden;
+  border-radius: 999px; background: var(--danger, #DC2626); color: #fff;
+  font-size: 10.5px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--neutral-primary-soft);
+  pointer-events: none;
+}
+.notif-badge .nb-num { grid-area: 1 / 1; }
+.notif-badge[hidden] { display: none; }
+.notif-panel {
+  position: absolute; top: calc(100% + 8px); right: -8px; z-index: 1100;
+  width: 380px; max-height: min(560px, calc(100vh - 96px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  box-shadow: var(--float-shadow); transform-origin: top right;
+  font-size: 14px; color: var(--text-body);
+}
+.notif-panel[hidden] { display: none; }
+.notif-head { padding: 14px 18px 12px; font-size: 15px; font-weight: 600; color: var(--text-heading); border-bottom: 1px solid var(--border-default); }
+.notif-list { overflow-y: auto; padding: 4px 6px 6px; overscroll-behavior: contain; }
+.notif-section { padding: 12px 10px 4px; font-size: 12px; font-weight: 500; color: var(--text-body-subtle); }
+.header-right .notif-item {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 10px;
+  border-radius: 8px; text-align: left; color: var(--text-body); transition: background .15s;
+}
+.header-right .notif-item:hover { background: var(--neutral-secondary-medium); color: var(--text-body); }
+.notif-ic {
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--neutral-secondary-medium); color: var(--text-body-subtle);
+}
+.notif-ic :where(i, svg) { width: 16px; height: 16px; }
+.notif-ic.is-ok { background: var(--success-soft); color: var(--fg-success-strong); }
+.notif-ic.is-warn { background: var(--warning-soft); color: var(--fg-warning); }
+.notif-ic.is-brand { background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--fg-brand); }
+.notif-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 1px; }
+.notif-text { font-size: 13.5px; line-height: 1.5; color: var(--text-heading); overflow-wrap: anywhere; }
+.notif-time { font-size: 12px; color: var(--text-body-subtle); font-variant-numeric: tabular-nums; }
+.notif-dot { flex: none; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--brand); visibility: hidden; }
+.notif-item.is-unread .notif-dot { visibility: visible; }
+.notif-foot { margin: 6px 0 4px; font-size: 12px; color: var(--text-body-subtle); text-align: center; }
+.notif-empty { padding: 40px 24px 36px; text-align: center; }
+.notif-empty-ic {
+  display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-bottom: 12px;
+  border-radius: 50%; background: var(--neutral-secondary-medium); color: var(--text-body-subtle);
+}
+.notif-empty-ic :where(i, svg) { width: 20px; height: 20px; }
+.notif-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-heading); }
+.notif-empty-sub { margin: 6px 0 0; font-size: 13px; line-height: 1.6; color: var(--text-body-subtle); }
+/* 手機：面板貼齊左右邊 */
+@media (max-width: 520px) {
+  .notif-panel { position: fixed; top: 60px; left: 8px; right: 8px; width: auto; }
+}
+/* 點通知跳回機器總覽：那一列淡淡閃一下（蓋過列不可點的 hover 透明規則：動畫優先於一般宣告） */
+#deviceTable tbody tr.is-flash td { animation: notif-row-flash 1.8s ease-out; }
+@keyframes notif-row-flash {
+  0%, 35% { background: color-mix(in srgb, var(--brand) 12%, transparent); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { #deviceTable tbody tr.is-flash td { animation: none; } }
+/* 圓形元素排除 squircle（kit 全站 corner-shape: squircle，50% 圓角會被壓成方圓形；見 shell.css 排除清單）：
+   鈴鐺紅點、通知圓點與圖示底、縮圖移除鈕、未發布圓點（2026-10-14） */
+@supports (corner-shape: squircle) {
+  .notif-badge, .notif-dot, .notif-ic, .notif-empty-ic, .thumb button, .ws-dirty-note::before { corner-shape: round; }
+}
+/* 中文斷行：避免最後一行只剩一個字（「移／除。」） */
+.notif-text, .b-toast-desc { text-wrap: pretty; }

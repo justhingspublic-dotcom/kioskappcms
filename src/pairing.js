@@ -25,7 +25,7 @@ const WAIT_HOLD_MS = 25_000;
 const MAX_ACTIVE = 200;
 const MAX_ACTIVE_PER_IP = 10;
 
-module.exports = function mountPairing(app, { db, log, audit, deviceKeys, requireUser }) {
+module.exports = function mountPairing(app, { db, log, audit, deviceKeys, requireUser, onDevicesChanged = async () => {} }) {
   const pairs = new Map(); // pairId -> { code, suggestedId, model, existing, currentSite, ip, expiresAt, claiming, result, doneAt, waiters:Set }
   const codes = new Map(); // code -> pairId（只放還能輸入的）
 
@@ -192,6 +192,8 @@ module.exports = function mountPairing(app, { db, log, audit, deviceKeys, requir
                   INSERT INTO dbo.KioskConfig (DeviceId, Version, ConfigJson, DeviceName) VALUES (@id, 0, @json, @name);
                 DELETE FROM dbo.KioskDeviceRemoved WHERE DeviceId = @id;`);
       settle(p, { status: 'done', deviceId, deviceName: name, deviceKey });
+      // 開著的機器總覽立刻出現這台，別的帳號那邊跳「已加入」通知（server.js /api/devices/wait）
+      onDevicesChanged('joined', deviceId, name, { kind: 'user', username: req.user.username }).catch(() => {});
       audit.record(req, { action: 'device.pair', targetType: 'device', targetId: deviceId, targetName: name, summary: `用配對碼新增機器「${name}」（${deviceId}）` });
       log.info('pair', '配對完成', { device: deviceId, user: req.user.username, rid: req.id });
       res.json({ deviceId, deviceName: name });

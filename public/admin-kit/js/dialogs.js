@@ -23,7 +23,7 @@
 
     /* ───────────────────────── toast ───────────────────────── */
 
-    var TOAST_ICON = { success: 'circle-check', danger: 'circle-x', warning: 'triangle-alert' };
+    var TOAST_ICON = { success: 'circle-check', danger: 'circle-x', warning: 'triangle-alert', info: 'info' };
 
     function paintIcons() {
         if (window.renderLucideIcons) window.renderLucideIcons();
@@ -44,7 +44,10 @@
         return wrap;
     }
 
-    function showToast(message, type) {
+    /* opts（2026-10-14，JustDisplay 機器事件通知）：icon＝換圖示、desc＝第二行說明、onClick＝整則可點（點了關掉）、
+       duration＝停留毫秒（預設 4400）。滑鼠停在可點的 toast 上會暫停倒數。回傳 toast 元素。 */
+    function showToast(message, type, opts) {
+        opts = opts || {};
         if (!TOAST_ICON[type]) type = 'success';
         var wrap = ensureToastWrap();
         var t = document.createElement('div');
@@ -53,11 +56,19 @@
         var ic = document.createElement('span');
         ic.className = 'b-toast-icon';
         ic.setAttribute('aria-hidden', 'true');
-        ic.innerHTML = '<i data-lucide="' + TOAST_ICON[type] + '"></i>';
+        ic.innerHTML = '<i data-lucide="' + (opts.icon || TOAST_ICON[type]) + '"></i>';
 
         var msg = document.createElement('span');
         msg.className = 'b-toast-msg';
         msg.textContent = message == null ? '' : String(message);
+        if (opts.desc) {
+            msg.classList.add('has-desc');
+            var d = document.createElement('span');
+            d.className = 'b-toast-desc';
+            d.textContent = String(opts.desc);
+            msg.appendChild(d);
+        }
+        if (opts.duration > 0) t.style.animationDuration = opts.duration + 'ms';
 
         t.appendChild(ic);
         t.appendChild(msg);
@@ -70,14 +81,23 @@
             if (!wrap.children.length) wrap.remove();
         }
         t.addEventListener('animationend', dispose);
-        setTimeout(dispose, 6000);   /* 後備:動畫被停用時仍會移除 */
+        if (typeof opts.onClick === 'function') {
+            t.classList.add('is-clickable');
+            t.addEventListener('click', function () { dispose(); opts.onClick(); });
+        }
+        /* 後備:動畫被停用時仍會移除；滑鼠停著（暫停中）就晚點再看 */
+        (function fallback(ms) {
+            setTimeout(function () { if (t.matches(':hover')) fallback(1000); else dispose(); }, ms);
+        })((opts.duration > 0 ? opts.duration : 4400) + 1600);
+        return t;
     }
 
     window.BToast = {
         show: showToast,
         success: function (m) { showToast(m, 'success'); },
         danger: function (m) { showToast(m, 'danger'); },
-        warning: function (m) { showToast(m, 'warning'); }
+        warning: function (m) { showToast(m, 'warning'); },
+        info: function (m) { showToast(m, 'info'); }
     };
 
     /* ──────────────────────── dialog ───────────────────────── */

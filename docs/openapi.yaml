@@ -43,6 +43,8 @@ tags:
     description: 配對碼加入新機器、舊機器用共用金鑰換專屬金鑰（2026-10-13）
   - name: 機器事件
     description: App 在機器上記的事件（啟動、閃退、同步失敗／恢復、切頁、休眠、喚醒）批次上傳與查詢；保留 90 天
+  - name: 通知
+    description: 頂欄鈴鐺（2026-10-14）：挑過的白話通知（機器加入／中斷連線／刪除／離線／恢復／金鑰不符、內容發布與共用設定變更），保留 30 天
 
 components:
   securitySchemes:
@@ -704,6 +706,89 @@ paths:
                 items: { $ref: '#/components/schemas/Device' }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "503": { $ref: '#/components/responses/DbNotReady' }
+
+  /api/devices/wait:
+    get:
+      tags: [機器]
+      summary: 機器清單變動長輪詢（後台機器總覽）
+      description: |
+        帶上次拿到的版次 `rev`；版次不同立刻回，相同就掛著，清單有變（機器加入、移除、設定版本變、在線↔離線、有新通知）立刻回，最多 25 秒。
+        `events`＝這段期間的機器加入／中斷連線／被刪除（含誰做的，網頁據此跳 toast；只留記憶體最近 50 筆，`rev=0` 時不回）。
+        `notifRev`＝通知版次，變了就重抓 `GET /api/notifications`。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: rev, in: query, schema: { type: integer }, description: 上次拿到的版次；第一次給 0 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rev: { type: integer }
+                  notifRev: { type: integer }
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        rev: { type: integer }
+                        type: { type: string, enum: [joined, left, deleted] }
+                        deviceId: { type: string }
+                        name: { type: string }
+                        at: { type: string, format: date-time }
+                        by:
+                          type: object
+                          properties:
+                            kind: { type: string, enum: [device, user] }
+                            username: { type: string }
+                            displayName: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /api/notifications:
+    get:
+      tags: [通知]
+      summary: 鈴鐺通知清單
+      description: 最近 30 天、最新 100 筆，加上這個帳號讀到哪裡（`readAt`）。內容類（Kind=content）網頁只顯示別人做的；同一個 GroupKey 時間相鄰的網頁合成一則。
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  readAt: { type: string, format: date-time, nullable: true }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        Id: { type: string }
+                        At: { type: string, format: date-time }
+                        Kind: { type: string, enum: [device, content] }
+                        Type: { type: string, description: joined／left／deleted／offline／online／keyMismatch／renamed／published／switchPage／appendLayout／showLayout／applySettings／sharedLayout／sharedSettings }
+                        DeviceId: { type: string, nullable: true }
+                        Text: { type: string, description: 白話一句（不含句號） }
+                        ActorUsername: { type: string, nullable: true }
+                        ActorName: { type: string, nullable: true }
+                        GroupKey: { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /api/notifications/read:
+    post:
+      tags: [通知]
+      summary: 全部標為已讀（打開鈴鐺時呼叫）
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: object, properties: { readAt: { type: string, format: date-time } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
 
   /api/devices/{deviceId}/owner:
     parameters: [{ $ref: '#/components/parameters/deviceId' }]

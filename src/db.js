@@ -140,6 +140,29 @@ async function init() {
       ExpiresAt DATETIME2    NOT NULL,
       CreatedAt DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
     );
+    -- 通知中心（2026-10-14，頂欄鈴鐺，src/notify.js）：挑過的白話通知，保留 30 天。Kind＝device（機器類）／content（內容類）；
+    -- MergeKey＝10 分鐘內同一件事只留一筆；GroupKey＝網頁把同一批（批量展示）合成一則。
+    IF OBJECT_ID('dbo.KioskNotification') IS NULL
+    CREATE TABLE dbo.KioskNotification (
+      Id            BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+      At            DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
+      Kind          NVARCHAR(16)  NOT NULL,
+      Type          NVARCHAR(48)  NOT NULL,
+      DeviceId      NVARCHAR(64)  NULL,
+      Text          NVARCHAR(400) NOT NULL,
+      ActorUsername NVARCHAR(64)  NULL,
+      ActorName     NVARCHAR(128) NULL,
+      MergeKey      NVARCHAR(200) NULL,
+      GroupKey      NVARCHAR(200) NULL
+    );
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_KioskNotification_At')
+      CREATE INDEX IX_KioskNotification_At ON dbo.KioskNotification (At);
+    -- 每個帳號讀到哪裡（打開鈴鐺＝全部已讀）
+    IF OBJECT_ID('dbo.KioskNotifyRead') IS NULL
+    CREATE TABLE dbo.KioskNotifyRead (
+      Username NVARCHAR(64) NOT NULL PRIMARY KEY,
+      ReadAt   DATETIME2    NOT NULL
+    );
     -- 每台機器專屬的連線金鑰（2026-10-13，src/device-keys.js）：只存 SHA-256。Confirmed＝機器已經用專屬金鑰連上過，
     -- 從此共用金鑰（.env DEVICE_KEY）不能再代表這台。Source＝pair（配對碼加入）／exchange（舊機器用共用金鑰換來的）。
     IF OBJECT_ID('dbo.KioskDeviceKey') IS NULL
