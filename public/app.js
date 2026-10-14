@@ -155,9 +155,11 @@ $('loginForm').addEventListener('submit', async (e) => {
     sessionStorage.setItem('token', token);
     await minCrawl();
     btn.classList.add('is-success');                    // 疊在 is-loading 之上補滿（tiri 同款）
+    window.morphIcon?.(btn, 'circle-check');            // 登入圖示同時變成打勾（morph-icons.js）
     await new Promise((res) => setTimeout(res, 350));   // 等填滿（.3s）再切主畫面
     await enterMain();
     btn.classList.remove('is-loading', 'is-success');   // 還原，登出再進來是乾淨狀態
+    window.morphIcon?.(btn, 'log-in');
     label.textContent = '登入';
     BToast.success('登入成功。');                         // tiri：登入後右下角 flash「登入成功」
   } catch (e) {
@@ -174,6 +176,7 @@ $('loginPwEye').addEventListener('click', () => {
   i.type = show ? 'text' : 'password';
   eye.setAttribute('aria-pressed', show ? 'true' : 'false');
   eye.setAttribute('aria-label', show ? '隱藏密碼' : '顯示密碼');
+  if (window.morphIcon?.(eye, show ? 'eye-off' : 'eye')) return; // 圖示變形（morph-icons.js）；還不能變形才硬換
   eye.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}" aria-hidden="true"></i>`;
   if (window.lucide) lucide.createIcons({ nodes: [eye] });
 });
@@ -260,13 +263,13 @@ async function loadConnInfo() {
   } catch { card.hidden = true; $('connMini').hidden = true; return; }   // 拿不到就整張不顯示，不擋登入流程
   PARK_API = String(connInfo.parkApi || '').trim();
   $('connPlay').textContent = playUrl(true);
-  $('connPlay').title = playUrl(false);
-  // 頂欄「開啟展示頁」：新分頁開播放頁，網址帶金鑰（user 2026-09-10 指示），第一次只要填名字（有預設機器名就直接展示）
-  if (connInfo.serverUrl && connInfo.deviceKey) { $('playLink').href = playUrl(false); $('playLink').hidden = false; }
   // 站台有預設螢幕（.env PLAY_DEFAULT_DEVICE）：開了就直接展示、不用填名字
   if (connInfo.playDefaultDevice) {
     $('connPlayNaming').textContent = '此場域已設定預設螢幕，開啟後會直接開始展示，所有螢幕顯示相同畫面。若要讓這面螢幕成為獨立的一台，請在畫面左上角連續點按五下並輸入名稱。';
   }
+  $('connPlay').title = playUrl(false);
+  // 頂欄「開啟展示頁」：新分頁開播放頁，網址帶金鑰（user 2026-09-10 指示），第一次只要填名字（有預設機器名就直接展示）
+  if (connInfo.serverUrl && connInfo.deviceKey) { $('playLink').href = playUrl(false); $('playLink').hidden = false; }
   card.hidden = false;
   $('connMini').hidden = false;
 }
@@ -961,18 +964,22 @@ $('showPageBtn').addEventListener('click', async () => {
   const name = page().name || `頁面 ${pageIndex + 1}`;
   const doneMsg = `「${curDevName()}」正在切換到「${name}」。`;
   btn.disabled = true;
+  let ok = false;
   try {
     if (dirty) {
       state.config.activePage = pageIndex;
       activePageTouched = true;
       await savePublish({ doneMsg }); // 失敗時它自己會 toast 並把 dirty 留著
+      ok = !dirty;
     } else {
       await api('PUT', `/api/config/${encodeURIComponent(deviceId)}`, { config: { activePage: pageIndex }, reason: 'switchPage' });
       state.config.activePage = pageIndex;
       setStatus(doneMsg);
+      ok = true;
     }
   } catch (e) { setStatus(`無法切換「${curDevName()}」的展示頁。${e.message}`, true); }
   finally { btn.disabled = false; updateShowPageBtn(); }
+  if (ok) window.morphFlash?.(btn, 'monitor-check'); // 螢幕裡的播放鈕變成打勾，一會兒變回來（morph-icons.js）
 });
 
 // ---------- 畫布 ----------
@@ -2767,6 +2774,7 @@ function pwInput(value, placeholder, onChange) {
   eye.onclick = () => {
     const show = i.type === 'password';
     i.type = show ? 'text' : 'password';
+    if (window.morphIcon?.(eye, show ? 'eye-off' : 'eye')) return;
     eye.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}"></i>`;
     if (window.lucide) lucide.createIcons();
   };
@@ -3938,7 +3946,14 @@ function pairDialog() {
         { duration: 240, easing: ease }).finished.catch(() => {})));
       modal.style.overflow = '';
     }
+    /** 正在新增 → 已新增（user 2026-10-14：同一個畫面，不換頁）：圖示由 show 接著轉圈收成打勾，這裡只讓換掉的字（與「知道了」鈕）淡入 */
+    function settle(update) {
+      update();
+      if (!modal.animate) return;
+      [title, descEl, foot].forEach((el) => { if (!el.hidden) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' }); });
+    }
     function show(next, t, d) {
+      const prev = phase;
       phase = next;
       title.textContent = t;
       descEl.textContent = d;
@@ -3946,8 +3961,10 @@ function pairDialog() {
       descEl.classList.remove('is-exists');
       const ic = { busy: 'loader-circle', done: 'circle-check', slow: 'circle-check' }[next];
       icon.hidden = !ic;
+      // 正在新增 → 已新增：轉圈最後一圈閉合再畫出勾（morph-icons.js；要在換 class 之前叫，才記得到轉圈的角度與顏色）；其他照舊換圖
+      const closing = prev === 'busy' && ic === 'circle-check' && window.closeSpinner?.(icon);
       icon.className = 'b-alert-icon pair-dlg-icon is-' + next;
-      icon.innerHTML = ic ? `<i data-lucide="${ic}"${next === 'busy' ? ' class="b-spin"' : ''}></i>` : '';
+      if (!closing) icon.innerHTML = ic ? `<i data-lucide="${ic}"${next === 'busy' ? ' class="b-spin"' : ''}></i>` : '';
       otp.hidden = next !== 'code';
       nameInput.hidden = !(next === 'name' || next === 'error');
       foot.hidden = next === 'busy' || next === 'done';
@@ -4011,10 +4028,10 @@ function pairDialog() {
         online = !!(d && d.LastSeenAgoSec != null && d.LastSeenAgoSec < 30);
       }
       if (online) {
-        await transition(() => show('done', `已新增「${res.deviceName}」`, '機器已經連上，可以開始管理內容了。'));
-        setTimeout(() => close(true), 1400);
+        settle(() => show('done', `已新增「${res.deviceName}」`, '機器已經連上，可以開始管理內容了。'));
+        setTimeout(() => close(true), 1900); // 轉圈收成打勾約 1 秒，畫完再看一下才關
       } else {
-        await transition(() => show('slow', `已新增「${res.deviceName}」`, '機器還沒連上。請確認機器開著而且有網路，連上後清單會顯示「在線」。'));
+        settle(() => show('slow', `已新增「${res.deviceName}」`, '機器還沒連上。請確認機器開著而且有網路，連上後清單會顯示「在線」。'));
       }
     }
     const canDismiss = () => phase === 'code' || phase === 'name' || phase === 'error';

@@ -242,8 +242,7 @@ html:root[data-color-mode="dark"] {
 }
 .icon-btn :where(i, svg) { width: 18px; height: 18px; }
 .icon-btn:hover { background: var(--neutral-quaternary); color: var(--text-heading); }
-.icon-btn.is-busy :where(i, svg) { animation: icon-spin .7s linear infinite; }
-@keyframes icon-spin { to { transform: rotate(360deg); } }
+/* 重新整理鈕按下轉一圈改由 morph-icons.js 統一（2026-10-14 user：對齊工作區「重新載入」），.is-busy 只剩防連按 */
 .page-tabs-reload:hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
 .page-tabs {
   display: flex; flex-wrap: nowrap; gap: 8px; align-items: center;
@@ -1080,6 +1079,29 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 }
 .copy-item:hover { background: var(--neutral-secondary-soft); }
 .copy-item input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+/* 會畫出勾的勾選框（2026-10-14 user：批量調整的打勾也要動起來）：批量調整選機器、加到其他機器。外觀照原生
+   （主題色底、白勾、小圓角方框），勾下去時勾從左往右畫出來（clip-path 由左展開）；原生 checkbox 的勾做不了動畫，
+   所以 appearance:none 自己畫。部分選取（全選框）＝白色短橫線。減少動態效果時直接出現。 */
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox] {
+  --pick-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  --pick-dash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
+  -webkit-appearance: none; appearance: none; position: relative; flex: none;
+  width: 16px; height: 16px; margin: 0; border-radius: 4px; vertical-align: middle; cursor: pointer;
+  border: 1.5px solid var(--border-default-strong); background: var(--neutral-primary-soft);
+  transition: background-color .15s ease, border-color .15s ease;
+}
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:hover:not(:disabled) { border-color: var(--accent); }
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:is(:checked, :indeterminate) { background: var(--accent); border-color: var(--accent); }
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]::after {
+  content: ''; position: absolute; inset: 0; background: #fff; opacity: 0;
+  -webkit-mask: var(--pick-check) center / 12px no-repeat; mask: var(--pick-check) center / 12px no-repeat;
+}
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:checked::after { opacity: 1; animation: pick-check-draw .3s cubic-bezier(.33, 1, .68, 1) both; }
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:indeterminate::after { opacity: 1; -webkit-mask-image: var(--pick-dash); mask-image: var(--pick-dash); }
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--brand-medium); }
+:is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:disabled { cursor: not-allowed; }
+@keyframes pick-check-draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+@media (prefers-reduced-motion: reduce) { :is(.b-modal.is-batch .pick-col, .copy-item) input[type=checkbox]:checked::after { animation: none; } }
 .copy-warn { margin-left: auto; font-size: 12px; color: var(--fg-warning, #b26a00); flex: none; }
 
 /* RWD */

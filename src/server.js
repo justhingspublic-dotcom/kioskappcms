@@ -1036,7 +1036,7 @@ app.get('/admin', (req, res, next) => (req.path === '/admin' ? res.redirect(301,
 // 伺服器磁碟一忙，一次頁面請求就把整個程序卡住幾秒到幾分鐘（同時段連 DB 握手都被拖到逾時）。改成啟動時讀一次進記憶體，
 // 之後每 5 秒在背景用非同步 stat 看檔案有沒有變、有變才重讀——改 index.html 一樣不用重啟，請求路徑上不再碰磁碟。
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const ADMIN_ASSETS = ['app.js', 'app-update.js', 'app-update.css', 'tw-locations.js', 'theme-color.js', 'style.css', 'admin-kit/css/tokens.css', 'admin-kit/css/shell.css', 'admin-kit/css/components.css', 'admin-kit/js/kit.js', 'admin-kit/js/dropdown.js', 'admin-kit/js/dialogs.js'];
+const ADMIN_ASSETS = ['app.js', 'app-update.js', 'app-update.css', 'tw-locations.js', 'theme-color.js', 'style.css', 'admin-kit/css/tokens.css', 'admin-kit/css/shell.css', 'admin-kit/css/components.css', 'admin-kit/js/kit.js', 'admin-kit/js/dropdown.js', 'admin-kit/js/dialogs.js', 'morph-icons.js'];
 const PLAY_ASSETS = ['play.js', 'play.css', 'assist.js', 'assist.css', 'park-metrics.js'];
 const templates = {
   admin: { file: path.join(PUBLIC_DIR, 'index.html'), assets: ADMIN_ASSETS, html: '', stamp: '0', sig: '' },
