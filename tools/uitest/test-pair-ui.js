@@ -2,7 +2,8 @@
    可整組貼上「482 913」）→ 顯示機型、取名 → 新增 → 原地「正在新增」（轉圈）→ 機器連上後「已新增」（打勾）→ 自己關 →
    清單已經有這台而且在線 → 金鑰是配對發的專屬金鑰。
    CODE 不給＝自己用 API 開一組假的配對（只驗後台畫面；沒有真機器連上，最後會停在「機器還沒連上」）。
-   模擬機器時再多驗兩種（2026-10-13）：這台按「重新配對」又輸入到同一個場域 →「這台機器已在清單中」、機器收到 already；
+   模擬機器時再多驗兩種（2026-10-13）：這台按「重新配對」又輸入到同一個場域 → 停在號碼這一步、琥珀字「此機器已在清單中」、
+   格子琥珀框淡淡亮一次不搖晃（2026-10-14 改，原本是另一個畫面），機器收到 already；
    機器連在別的場域 → 取名那一步提醒「新增後將從該場域移除」。每一步對話框高度都不變。
    用法：BASE=http://localhost:3177 CODE=016849 NAME=測試手機（配對） node test-pair-ui.js */
 const puppeteer = require('puppeteer-core');
@@ -178,23 +179,51 @@ async function enterCode(page, code, title) {
 
   if (sim.deviceKey) {
     // 這台按「重新配對」，又輸入到同一個場域（機器帶目前的編號＋金鑰）
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]); // 無頭 Chrome 預設減少動態，要看呼吸光
+    const H = { Authorization: 'Bearer ' + (await page.evaluate(() => sessionStorage.getItem('token'))) };
+    const countDevices = async () => (await (await fetch(BASE + '/api/devices', { headers: H })).json()).length;
+    const before = await countDevices();
     const r2 = await startPair({ current: sim.deviceId }, sim.deviceKey);
     const waited = fetch(`${BASE}/api/pair/${r2.pairId}/wait`).then((x) => x.json()).catch(() => null);
-    const h0 = await enterCode(page, r2.code, '這台機器已在清單中');
+    await page.click('#addDeviceBtn');
+    await page.waitForSelector(DLG, { timeout: 5000 });
+    await sleep(300);
+    const h0 = await dlgHeight(page);
+    await page.keyboard.type(r2.code);
+    await page.click(`${DLG} .b-alert-foot button:last-child`);
+    await page.waitForFunction(() => document.querySelector('.pair-dlg .b-alert-desc')?.classList.contains('is-exists'), { timeout: 5000 }).catch(() => {});
+    await sleep(1000); // 呼吸光最亮的時候拍（2 秒呼吸一次，約 1 秒最亮）
+    await page.screenshot({ path: path.join(OUT, '7-exists.png') });
     s = await state(page);
     const h1 = await dlgHeight(page);
-    const cancelHidden = await page.$eval(`${DLG} .b-alert-foot button:first-child`, (b) => b.hidden);
-    await page.screenshot({ path: path.join(OUT, '7-exists.png') });
-    check('同一場域再輸入一次：顯示「已在清單中」與清單上的名稱，只有「知道了」',
-      s.title === '這台機器已在清單中' && s.desc.includes(`「${NAME}」`) && !s.nameShown && !s.otpShown && s.ok === '知道了' && cancelHidden, JSON.stringify(s));
-    check('「已在清單中」對話框高度跟輸入配對碼時一樣', h0 === h1, `${h0} → ${h1}`);
+    const look = await page.$eval(DLG, (m) => {
+      const box = getComputedStyle(m.querySelector('.otp-box'));
+      return {
+        descColor: getComputedStyle(m.querySelector('.b-alert-desc')).color, border: box.borderTopColor,
+        anim: box.animationName, times: box.animationIterationCount, otpExists: m.querySelector('.otp').classList.contains('is-exists'),
+        cancelShown: !m.querySelector('.b-alert-foot button:first-child').hidden,
+      };
+    });
+    check('同一場域再輸入一次：停在號碼這一步，說明改成「已在清單中」與清單上的名稱',
+      s.title === '新增機器' && s.otpShown && !s.nameShown && s.desc.includes('已在清單中') && s.desc.includes(`「${NAME}」`) && s.ok === '下一步' && look.cancelShown, JSON.stringify(s));
+    check('琥珀字、琥珀框、格子淡淡亮一次、不搖晃（不是紅色錯誤）',
+      look.otpExists && !s.otpError && !s.descError && look.descColor === 'rgb(199, 124, 0)' && look.border === 'rgb(245, 160, 15)' && look.anim === 'otp-breathe' && look.times === '1', JSON.stringify(look));
+    check('對話框高度不變', h0 === h1, `${h0} → ${h1}`);
     const w2 = await waited;
     check('機器那邊收到「已經在這裡」（already）', w2 && w2.status === 'already', JSON.stringify(w2));
-    await page.click(`${DLG} .b-alert-foot button:last-child`);
+    await sleep(1500);
+    await page.click(`${DLG} .b-alert-foot button:last-child`); // 沒改號碼再按一次下一步
+    await sleep(400);
+    s = await state(page);
+    check('沒改號碼再按下一步：還是「已在清單中」（不會變成找不到）', s.desc.includes('已在清單中') && !s.descError, s.desc);
+    await page.keyboard.press('Backspace');
+    s = await state(page);
+    check('改號碼時橘色說明收回', !s.desc.includes('已在清單中') && /6 位數配對碼/.test(s.desc), s.desc);
+    await page.click(`${DLG} .b-alert-foot button:first-child`); // 取消
     await page.waitForFunction(() => !document.querySelector('.pair-dlg'), { timeout: 3000 }).catch(() => {});
-    const H = { Authorization: 'Bearer ' + (await page.evaluate(() => sessionStorage.getItem('token'))) };
-    const same = (await (await fetch(BASE + '/api/devices', { headers: H })).json()).filter((x) => x.DeviceId.startsWith(sim.deviceId));
-    check('清單沒有多一台', same.length === 1, same.map((x) => x.DeviceId).join(','));
+    await sleep(300);
+    const after = await countDevices();
+    check('清單沒有多一台', after === before, `${before} → ${after}`);
 
     // 機器連在別的場域：取名時提醒
     const r3 = await startPair({ currentSite: '揚昇高爾夫球場' });

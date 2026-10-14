@@ -1464,11 +1464,16 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .header-right a.header-play-link:hover { text-decoration: none; }
 
 /* 新增機器第二步（2026-10-13 配對碼）：正在新增＝主題色轉圈、已新增＝綠勾；錯誤說明紅字 */
-.pair-dlg-icon.is-busy, .pair-dlg-icon.is-exists { color: var(--fg-brand); } /* 已在清單中＝主題色資訊圖示（不是錯誤） */
+.pair-dlg-icon.is-busy { color: var(--fg-brand); }
 .pair-dlg-icon.is-done, .pair-dlg-icon.is-slow { color: var(--fg-success); }
 .pair-dlg-icon.is-done :where(.lucide, svg), .pair-dlg-icon.is-slow :where(.lucide, svg) { animation: pair-pop .32s cubic-bezier(.22, 1, .36, 1); }
 @keyframes pair-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
 .pair-dlg .b-alert-desc.is-error { color: var(--fg-danger); }
+/* 這台已在清單中（2026-10-14 user）：跟打錯號碼同一個位置，但用偏黃的琥珀橘（不是錯誤，是提醒；kit 的 warning 橘太偏紅）。
+   kit 沒有這個色，在對話框範圍內補 light／dark 兩值：框線＋光暈用 --pair-amber，說明字用稍深的 --pair-amber-text（白底才讀得清楚） */
+.pair-dlg { --pair-amber: #F5A00F; --pair-amber-text: #C77C00; }
+:root[data-color-mode="dark"] .pair-dlg { --pair-amber: #F5B031; --pair-amber-text: #F7BE4F; }
+.pair-dlg .b-alert-desc.is-exists { color: var(--pair-amber-text); }
 /* 配對碼 6 格（像驗證碼）：前三後三中間多空一點，對得上機器畫面上的「482 913」；外觀沿用 .b-input 的底色、邊框與聚焦 */
 .pair-dlg .otp { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
 /* 對話框裡各段（圖示、6 格、名稱框、按鈕列、取消鈕）用 hidden 切換；kit 的 .b-input／.b-alert-foot 有寫 display，要蓋過去 */
@@ -1490,3 +1495,12 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .pair-dlg .otp.is-error .otp-box { border-color: var(--border-danger); }
 .pair-dlg .otp.is-error { animation: otp-shake .36s ease; }
 @keyframes otp-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+/* 已在清單中：琥珀框、格子淡淡的光慢慢亮起再慢慢退（呼吸一次），不搖晃（user 2026-10-14：含蓄、優雅一點，慢、淡，
+   不要一按就亮）；框線也慢慢轉成琥珀色。減少動態效果時只留琥珀框 */
+.pair-dlg .otp.is-exists .otp-box { border-color: var(--pair-amber); transition: border-color .6s ease; animation: otp-breathe 2s ease-in-out 1; }
+.pair-dlg .otp.is-exists .otp-box:focus { box-shadow: 0 0 0 1px var(--pair-amber); }
+@keyframes otp-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pair-amber) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--pair-amber) 14%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .pair-dlg .otp.is-exists .otp-box { animation: none; } }
