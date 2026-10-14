@@ -145,38 +145,25 @@
           <i data-lucide="users"></i><span class="menu-text">帳號管理</span>
         </button>
       </div>
-      <!-- 機器連線資訊（2026-09-07 指示）：所有登入者可看、位址與金鑰唯讀、各自可複製；
-           說明走標題旁問號（page-help 同款，向上開）；側欄收合時縮成一個連線 icon（對齊下方伸縮鈕），點開 flyout -->
+      <!-- 網頁螢幕（原「機器連線資訊」，2026-09-07 起）：所有登入者可看、展示頁網址唯讀可複製。
+           2026-10-14 user：App 改用配對碼後只剩網頁螢幕用得到，拿掉伺服器位址與連線金鑰兩列（網址本身已帶金鑰），說明改 Apple 中性口吻。
+           說明走標題旁問號（page-help 同款，向上開）；側欄收合時縮成一個 icon（對齊下方伸縮鈕），點開 flyout -->
       <div class="sidebar-conn-wrap">
         <div class="sidebar-conn" id="connCard" hidden>
           <div class="conn-head">
-            <span class="conn-title">機器連線資訊</span>
+            <span class="conn-title">網頁螢幕</span>
             <div class="b-pop page-help conn-help">
               <button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>
               <div class="b-pop-panel page-help-panel">
-                <p>Android 展示機不用抄這裡：在機器的「雲端同步」按「連線到後台」，再到機器總覽按「新增機器」輸入配對碼就好。</p>
-                <p>這裡的連線金鑰是共用的那一把，給網頁螢幕的播放頁網址用。只能在伺服器端設定，這裡僅供查看與複製。</p>
-                <p>沒有 App 的機器（例如 Windows 電腦）用瀏覽器開「播放頁網址」就是一台機器，會出現在機器總覽。所有螢幕開同一個網址；第一次開啟時螢幕上會請你填那面螢幕的名字（伺服器有設預設機器名就不用填，所有螢幕同一個畫面），之後那台機器會記住。要改名，在畫面左上角連點五下。</p>
+                <p>在要當作螢幕的電腦上，用瀏覽器開啟展示頁網址，這面螢幕就會加入「機器總覽」。所有螢幕都使用同一個網址。</p>
+                <p id="connPlayNaming">第一次開啟時，請輸入這面螢幕的名稱，之後會自動記住。若要更改名稱，請在畫面左上角連續點按五下。</p>
+                <p>Android 展示機不需要這個網址，請使用配對碼連線：在機器管理頁點一下右上角的連線圖示，再到「機器總覽」選擇「新增機器」。</p>
               </div>
             </div>
           </div>
+          <!-- 網頁播放器（2026-09-10）：Windows 機器用瀏覽器開這個網址就是一台機器；第一次開啟時在螢幕上填名字 -->
           <div class="conn-item">
-            <span class="conn-label">伺服器位址</span>
-            <div class="conn-value-row">
-              <div class="conn-value" id="connUrl"></div>
-              <button type="button" class="b-btn b-btn-text conn-copy" data-copy="url">複製</button>
-            </div>
-          </div>
-          <div class="conn-item">
-            <span class="conn-label">連線金鑰</span>
-            <div class="conn-value-row">
-              <div class="conn-value" id="connKey"></div>
-              <button type="button" class="b-btn b-btn-text conn-copy" data-copy="key">複製</button>
-            </div>
-          </div>
-          <!-- 網頁播放器（2026-09-10）：Windows 機器用瀏覽器開這個網址就是一台機器；複製後把「機器名」改成那面螢幕的名字 -->
-          <div class="conn-item">
-            <span class="conn-label">播放頁網址</span>
+            <span class="conn-label">展示頁網址</span>
             <div class="conn-value-row">
               <div class="conn-value" id="connPlay"></div>
               <button type="button" class="b-btn b-btn-text conn-copy" data-copy="play">複製</button>
@@ -184,8 +171,8 @@
           </div>
         </div>
         <div class="sidebar-conn-mini" id="connMini" hidden>
-          <button type="button" class="conn-mini-btn" id="connMiniBtn" title="機器連線資訊" aria-label="機器連線資訊" aria-haspopup="true" aria-expanded="false">
-            <i data-lucide="cable"></i>
+          <button type="button" class="conn-mini-btn" id="connMiniBtn" title="網頁螢幕" aria-label="網頁螢幕" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="monitor-play"></i>
           </button>
         </div>
       </div>
@@ -683,7 +670,7 @@
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="monitor-play" aria-hidden="true"></i></span><h4>網頁螢幕</h4></div>
               <p class="gd-lead">沒有 Android 展示機也可以：用瀏覽器全螢幕開展示頁，任何電腦或播放盒接的螢幕都能當展示機。版面與設定的做法跟一般機器完全一樣。</p>
               <ol class="gd-steps">
-                <li>在要當螢幕的電腦上，開側欄<span class="gd-ui">機器連線資訊</span>裡的<span class="gd-ui">展示頁網址</span>（自己的電腦按頂欄<span class="gd-ui">開啟展示頁</span>也是同一個網址）。</li>
+                <li>在要當螢幕的電腦上，開側欄<span class="gd-ui">網頁螢幕</span>裡的<span class="gd-ui">展示頁網址</span>（自己的電腦按頂欄<span class="gd-ui">開啟展示頁</span>也是同一個網址）。</li>
                 <li>第一次開會先問這面螢幕的名字，填好就開始展示；站台有預設名稱時會直接展示。</li>
                 <li>回到<span class="gd-ui">機器總覽</span>，這面螢幕會跟其他機器一起出現，點<span class="gd-ui">內容管理</span>編排版面。</li>
                 <li>瀏覽器按 F11 全螢幕。要開機就自動播放，把這個網址設成瀏覽器的啟動頁。</li>

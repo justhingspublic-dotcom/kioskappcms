@@ -1,4 +1,4 @@
-/* 快照：側欄底部「機器連線資訊」卡片（light/dark、問號說明、收合 icon＋flyout、複製 toast）。
+/* 快照：側欄底部「網頁螢幕」卡片（原「機器連線資訊」）（light/dark、問號說明、收合 icon＋flyout、複製 toast）。
    用法：BASE=http://localhost:3177 node shot-conn.js */
 const puppeteer = require('puppeteer-core');
 const path = require('path');
@@ -21,8 +21,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 15000 });
   await page.evaluate(() => localStorage.removeItem('adminSidebarCollapsed'));
-  await page.type('#username', 'admin');
-  await page.type('#password', 'kiosk#2026');
+  await page.type('#username', process.env.USER_NAME || 'joyeadmin');
+  await page.type('#password', process.env.PASS || 'joye#2026');
   await page.click('.btn-login');
   await page.waitForSelector('#connCard:not([hidden])', { visible: true, timeout: 10000 });
   await sleep(500);
@@ -47,7 +47,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(300);
 
   // 複製金鑰 → toast
-  await page.click('#connCard .conn-copy[data-copy="key"]');
+  await page.click('#connCard .conn-copy[data-copy="play"]');
   await sleep(400);
   const toast = await page.evaluate(() => (document.querySelector('.b-toast, [class*="toast"]') || {}).textContent || '');
   console.log('toast:', toast.trim());
@@ -70,7 +70,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(400);
   const fly = await page.evaluate(() => { const f = document.querySelector('.conn-flyout'); if (!f) return null; const r = f.getBoundingClientRect(); const b = document.getElementById('connMiniBtn').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), btnBottom: Math.round(b.bottom), left: Math.round(r.left) }; });
   console.log('flyout:', fly);
-  await page.click('.conn-flyout .conn-copy[data-copy="url"]');
+  await page.click('.conn-flyout .conn-copy[data-copy="play"]');
   await sleep(300);
   console.log('flyout copy toast:', await page.evaluate(() => (document.querySelector('.b-toast, [class*="toast"]') || {}).textContent || ''));
   await page.screenshot({ path: path.join(OUT, 'collapsed-flyout-dark.png'), clip: { x: 0, y: 560, width: 420, height: 340 } });

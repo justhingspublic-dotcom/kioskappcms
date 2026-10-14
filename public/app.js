@@ -250,8 +250,8 @@ async function refreshMe() {
   $('themeBtn').hidden = !meIsAdmin; // 主題色：管理員限定
 }
 
-// ---------- 側欄底部「機器連線資訊」卡片 ----------
-// 位址與金鑰都唯讀（金鑰是全機共用一把、只活在伺服器 .env；網頁上改會讓所有機器同時斷線，故不開放）。
+// ---------- 側欄底部「網頁螢幕」卡片（原「機器連線資訊」）----------
+// 只剩展示頁網址（2026-10-14 user：App 改用配對碼，伺服器位址與連線金鑰沒人要抄了；網址本身帶共用金鑰，金鑰只活在伺服器 .env）。
 let connInfo = null;
 async function loadConnInfo() {
   const card = $('connCard');
@@ -259,13 +259,14 @@ async function loadConnInfo() {
     connInfo = await api('GET', '/api/connection-info');
   } catch { card.hidden = true; $('connMini').hidden = true; return; }   // 拿不到就整張不顯示，不擋登入流程
   PARK_API = String(connInfo.parkApi || '').trim();
-  $('connUrl').textContent = connInfo.serverUrl || '—';
-  $('connUrl').title = connInfo.serverUrl || '';
-  $('connKey').textContent = connInfo.deviceKey ? maskKey(connInfo.deviceKey) : '（伺服器尚未設定）';
   $('connPlay').textContent = playUrl(true);
   $('connPlay').title = playUrl(false);
   // 頂欄「開啟展示頁」：新分頁開播放頁，網址帶金鑰（user 2026-09-10 指示），第一次只要填名字（有預設機器名就直接展示）
   if (connInfo.serverUrl && connInfo.deviceKey) { $('playLink').href = playUrl(false); $('playLink').hidden = false; }
+  // 站台有預設螢幕（.env PLAY_DEFAULT_DEVICE）：開了就直接展示、不用填名字
+  if (connInfo.playDefaultDevice) {
+    $('connPlayNaming').textContent = '此場域已設定預設螢幕，開啟後會直接開始展示，所有螢幕顯示相同畫面。若要讓這面螢幕成為獨立的一台，請在畫面左上角連續點按五下並輸入名稱。';
+  }
   card.hidden = false;
   $('connMini').hidden = false;
 }
@@ -320,10 +321,7 @@ function openConnFlyout(btn) {
     '<div class="conn-item"><span class="conn-label">' + label + '</span><div class="conn-value-row">' +
     '<div class="conn-value">' + esc(value || '—') + '</div>' +
     '<button type="button" class="b-btn b-btn-text conn-copy" data-copy="' + key + '">複製</button></div></div>';
-  f.innerHTML = '<div class="cms-flyout-title">機器連線資訊</div>' +
-    item('伺服器位址', connInfo.serverUrl, 'url') +
-    item('連線金鑰', connInfo.deviceKey ? maskKey(connInfo.deviceKey) : '（伺服器尚未設定）', 'key') +
-    item('播放頁網址', playUrl(true), 'play');
+  f.innerHTML = '<div class="cms-flyout-title">網頁螢幕</div>' + item('展示頁網址', playUrl(true), 'play');
   f.classList.add('flyout-enter-active', 'flyout-enter-from');
   document.body.appendChild(f);
   placeConnFlyout(f, btn);
@@ -341,11 +339,10 @@ window.addEventListener('resize', () => { if (connFlyout) placeConnFlyout(connFl
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('.conn-copy');
   if (!b || !connInfo) return;
-  const what = b.dataset.copy;
-  const text = what === 'url' ? connInfo.serverUrl : what === 'play' ? (connInfo.serverUrl && connInfo.deviceKey ? playUrl(false) : '') : connInfo.deviceKey;
+  const text = connInfo.serverUrl && connInfo.deviceKey ? playUrl(false) : '';
   if (!text) return BToast.danger('目前沒有可複製的內容。');
   const ok = await copyText(text);
-  if (ok) BToast.success(what === 'url' ? '已複製伺服器位址。' : what === 'play' ? '已複製播放頁網址。' : '已複製連線金鑰。');
+  if (ok) BToast.success('已複製展示頁網址。');
   else BToast.danger('無法複製。請直接選取文字後手動複製。');
 });
 
