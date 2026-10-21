@@ -10,6 +10,7 @@ let wsDevName = ''; // 進工作區時機器列表上的名稱（config 沒帶 d
 let state = null;         // { version, config: { pages:[...], activePage } }
 let pageIndex = 0;
 let selected = null;      // { bi, path }：path＝從區塊根往下的 'a'/'b' 字串（''＝根）；編輯器裡一頁只有一個區塊，bi 一律 0
+let subStack = [];        // 正在編輯的子頁：從主頁一路點進來的格子 path（每一層相對於上一層的樹）；[]＝在主頁
 let dirty = false;
 /** 小 icon（Lucide x／plus 同款路徑）：動態產生的按鈕直接塞 SVG，不必每次重跑 lucide.createIcons。 */
 const SVG_ICON = (d) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -25,10 +26,23 @@ const MAX_PAGES = 8, MAX_IMAGES = 12;
 // 排版更自由（2026-10-12）：每一格都能再切；一頁最多 12 格，切完（含同排平均）任一格窄於畫面寬 12%／矮於畫面高 6% 就不給切
 const MAX_CELLS = 12, MIN_SPLIT_W = 0.12, MIN_SPLIT_H = 0.06;
 const CONTENT_NAMES = { None: '無', Marquee: '跑馬燈', Weather: '天氣', Text: '文字', Web: '網頁', Video: '影片', ParkInfo: '園區資訊' };
-// 測站功能（2026-09-10 user 指示）：站台沒設園區測站 API 就整組藏起來——內容「園區資訊」、天氣來源「園區測站」、
-// 點擊動作「園區資訊」都不出現（既有格子已經選了的話仍保留，才不會一開就變成別的東西）。
-const parkEnabled = () => !!PARK_API;
-let PARK_API = ''; // 這個站台的園區測站 API（伺服器 .env PARK_API_URL，由 /api/connection-info 帶回；空＝不預填，2026-09-10 user 指示揚昇不要預填卓也的）
+// 這個場域的園區測站資料來源（2026-10-20 起＝後台「共用設定 › 園區測站」設定的 parkInfo.api，由 /api/connection-info 帶回、
+// 存檔後就地更新）；空＝這個場域沒有測站。格子一律照它（格子裡的 wStUrl 只是抄給舊版 App 用的，這裡不再拿來備援）
+let PARK_API = '';
+/** 園區測站現在能不能用（2026-10-20 user）：沒設資料來源或連不上＝內容「園區資訊」、天氣來源「園區測站」、
+ *  點擊動作「園區資訊」照樣列出但變灰不能選；已經選了的格子設定保留、那一塊變灰，下拉選單上掛狀態小標（不寫長說明）。
+ *  { ok, short }；測站還在讀＝先當可用，免得一閃一閃。 */
+function parkAvail() {
+  if (!PARK_API) return { ok: false, short: '未設定' };
+  const snap = getStations(PARK_API);
+  if (!snap) return { ok: true };
+  if (snap.error) return { ok: false, short: '連線失敗' };
+  if (!snap.stations.length) return { ok: false, short: '沒有測站' };
+  return { ok: true };
+}
+const parkAvailKey = () => { const a = parkAvail(); return a.ok ? 'ok' : a.short; };
+/** 展示機上實際的可點提示：場域清掉了測站資料來源，「園區資訊」這一格不能點、也不顯示提示（play.js／App 同規則） */
+const liveHintOf = (cell) => (cell.tap === 'OpenParkInfo' && !PARK_API ? 'None' : hintOf(cell));
 const BG_SWATCHES = ['FF263238','FF37474F','FF1B5E20','FF2E6A43','FF0D47A1','FF4A148C','FFB71C1C','FFF57F17','FF00838F','FF5D4037','FF000000','FFFFFFFF'].map(h => parseInt(h, 16));
 const TXT_SWATCHES = ['FFFFFFFF','FF000000','FFFFEB3B','FFFF9800','FFFF5252','FF69F0AE','FF40C4FF','FFE040FB','FFFFC107','FF80CBC4'].map(h => parseInt(h, 16));
 // App AccentSwatches 同一組（客服聊天頁主題色；null = 預設綠）
@@ -47,8 +61,13 @@ const DEFAULT_CELL = () => ({
 const PARK_FX = [['None', '無'], ['Sweep', '光帶掃過'], ['Breathe', '呼吸縮放'], ['BorderRun', '邊框跑光'], ['ArrowNudge', '箭頭點動'], ['Pulse', '底色脈衝'], ['Shake', '週期抖動']];
 // App ParkLayout：園區資訊標題與按鈕的排法（Auto = 寬不到高兩倍就直排）
 const PARK_LAYOUT = [['Auto', '自動'], ['Horizontal', '橫排'], ['Vertical', '直排']];
-// 園區地圖上的測站點（App ParkPresets.Joye／play.js PARK_PRESET 同一份）：點擊動作「園區資訊」的「目前位置」從這裡挑
-const PARK_NODES = [['D1', '遊園入口'], ['D2', '廣場中庭'], ['D3', '不差的花園'], ['D4', '藍染長廊'], ['D5', '卓也書園子']];
+/** 園區地圖上的測站（後台「共用設定 › 園區測站」放上地圖的站，2026-10-20）：點擊動作「園區資訊」的「目前位置」從這裡挑。[[代號, 名稱]] */
+function parkMapNodes() {
+  const st = (shared && shared.parkInfo && shared.parkInfo.stations) || {};
+  return Object.entries(st).filter(([, e]) => e && e.x != null && e.y != null)
+    .map(([id, e]) => [id, e.name || ''])
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh-Hant', { numeric: true }));
+}
 // 可點提示樣式（user 2026-09-10 定案：靜的多、動的只有一個）：角落徽章＝右上角小小「輕觸」記號；按鈕＝格內一顆按鈕（動態一頁只留一格）
 const TAP_HINT = [['None', '無'], ['Badge', '角落徽章'], ['Glow', '閃爍'], ['Button', '按鈕']];
 // 沒點擊動作＝無；有設就照設的；沒設＝園區資訊走按鈕（沿用舊版面），其他一律無（user：預設無、自己選）（play.js／App effectiveTapHint 同一套）
@@ -82,21 +101,21 @@ const mediaSrc = (uri) => (typeof uri === 'string' && uri.startsWith('/files/') 
 // ---------- API ----------
 // 錯誤文字口吻（2026-09-07 指示＝Apple 中性口吻）：句號結尾、不用驚嘆號、不責怪使用者、不出現技術字眼；
 // api() 只丟「原因句」（請檢查…／請稍後再試…），toast 由呼叫端補主詞「無法○○。」再接原因。
-const NET_ERROR = '目前無法連接伺服器。請檢查網路連線後再試一次。';
+const NET_ERROR = '目前無法連接伺服器，請檢查網路連線後再試一次。';
 const GENERIC_ERROR = '請稍後再試一次。';
 // 請求逾時（2026-09-15）：以前 fetch 沒有時限，伺服器卡住時登入鈕會轉 2 分鐘等 IIS 放棄再顯示錯的文案。
 // 一般 API 20 秒、上傳檔案 2 分鐘（大圖慢網路）。
 const API_TIMEOUT_MS = 20_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
-const TIMEOUT_ERROR = '伺服器沒有在時限內回應。請稍後再試一次。';
+const TIMEOUT_ERROR = '伺服器未在時限內回應，請稍後再試一次。';
 const isTimeout = (e) => e && (e.name === 'TimeoutError' || e.name === 'AbortError');
 function reasonFor(status, serverMsg) {
   if (serverMsg) return serverMsg;
   switch (status) {
-    case 403: return '你沒有權限進行這項操作。';
+    case 403: return '此帳號沒有權限執行這項操作。';
     case 404: return '找不到這個項目。';
     case 413: return '檔案太大，無法上傳。';
-    default: return status >= 500 ? '伺服器暫時無法處理這項要求。請稍後再試一次。' : GENERIC_ERROR;
+    default: return status >= 500 ? '伺服器暫時無法處理這項要求，請稍後再試一次。' : GENERIC_ERROR;
   }
 }
 async function api(method, url, body, isForm) {
@@ -109,7 +128,7 @@ async function api(method, url, body, isForm) {
       signal: AbortSignal.timeout(isForm ? UPLOAD_TIMEOUT_MS : API_TIMEOUT_MS),
     });
   } catch (e) { throw new Error(isTimeout(e) ? TIMEOUT_ERROR : NET_ERROR); }
-  if (res.status === 401) { logout(); throw new Error('登入已過期。請重新登入。'); }
+  if (res.status === 401) { logout(); throw new Error('登入已過期，請重新登入。'); }
   if (!res.ok) throw new Error(reasonFor(res.status, (await res.json().catch(() => ({}))).error));
   return res.json();
 }
@@ -124,8 +143,9 @@ function logout() {
   sessionStorage.removeItem('token');
   notifData = { items: [], readAt: null }; paintNotifBadge(); setNotifPanel(false);
   // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
-  state = null; deviceId = ''; selected = null; setDirty(false);
+  state = null; deviceId = ''; selected = null; subStack = []; setDirty(false);
   shared = null; sharedLayoutId = 0; setSharedDirty(false); clearTimeout(sharedSaveTimer);
+  parkDraft = null; parkUploading = 0; parkPlacing = false; parkPlaceSnap = null; parkMapSwap = null; parkApiDraft = null; parkApiTest = null; parkStations = null;
   agentCache = { key: '', list: null, loading: false, error: '' };
   const m = $('wsModal');
   m.classList.remove('is-visible', 'is-closing', 'is-shared-mode');
@@ -153,7 +173,7 @@ $('loginForm').addEventListener('submit', async (e) => {
       body: JSON.stringify({ username: $('username').value, password: $('password').value }),
       signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-    } catch (e) { await minCrawl(); throw new Error(isTimeout(e) ? '無法登入。伺服器沒有在時限內回應，請稍後再試一次。' : '無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
+    } catch (e) { await minCrawl(); throw new Error(isTimeout(e) ? '無法登入。伺服器未在時限內回應，請稍後再試一次。' : '無法登入。目前無法連接伺服器，請檢查網路連線後再試一次。'); }
     // 5xx／代理逾時（IIS 502 回的是 HTML，沒有 .error）不能說成「帳號或密碼不正確」（2026-09-15）
     if (r.status >= 500) { await minCrawl(); throw new Error('無法登入。伺服器暫時無法處理，請稍後再試一次。'); }
     if (!r.ok) { await minCrawl(); throw new Error((await r.json().catch(() => ({}))).error || '帳號或密碼不正確。'); }
@@ -219,7 +239,8 @@ function placeModalHelp(h) {
   const btn = h.querySelector('.page-help-btn'), panel = h.querySelector('.b-pop-panel');
   if (!btn || !panel) return;
   const r = btn.getBoundingClientRect(), w = panel.offsetWidth, ph = panel.offsetHeight;
-  const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left));
+  // .is-end＝按鈕在標題列右邊（資料來源的連線狀態）：面板右緣對齊按鈕，往左展開
+  const x = Math.max(8, Math.min(window.innerWidth - w - 8, h.classList.contains('is-end') ? r.right - w : r.left));
   let y = r.bottom + 8, up = false;
   if (y + ph > window.innerHeight - 8) { y = r.top - ph - 8; up = true; }
   panel.style.left = x + 'px'; panel.style.top = y + 'px';
@@ -238,7 +259,7 @@ async function confirmDiscard() {
     title: '有尚未儲存的修改', desc: '捨棄這些修改嗎？', variant: 'danger', confirmText: '捨棄',
   });
 }
-window.addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
+window.addEventListener('beforeunload', (e) => { if (dirty || parkBusy() || parkApiChanged() || parkMapSwap) e.preventDefault(); });
 
 // ---------- 載入 / 儲存 ----------
 async function enterMain() {
@@ -246,6 +267,7 @@ async function enterMain() {
   await refreshMe();
   switchView(restoreView()); // 重新整理／重新登入回到原本那頁（網址 hash），沒有才回機器總覽
   loadConnInfo();
+  ensureSharedLoaded(); // 編輯格子時「目前位置」要列出園區地圖上的測站（共用設定 parkInfo）
 }
 // 右上角顯示「名稱」（沒設就退回帳號）；下拉副標＝帳號・權限（2026-09-07 指示）
 async function refreshMe() {
@@ -264,16 +286,26 @@ async function refreshMe() {
 // ---------- 側欄底部「網頁螢幕」卡片（原「機器連線資訊」）----------
 // 只剩展示頁網址（2026-10-14 user：App 改用配對碼，伺服器位址與連線金鑰沒人要抄了；網址本身帶共用金鑰，金鑰只活在伺服器 .env）。
 let connInfo = null;
+let connInfoDone = false; // 連線資訊抓過了（成功或失敗）：園區測站頁要等它才知道這個站台有沒有測站
 async function loadConnInfo() {
   const card = $('connCard');
   try {
     connInfo = await api('GET', '/api/connection-info');
-  } catch { card.hidden = true; $('connMini').hidden = true; return; }   // 拿不到就整張不顯示，不擋登入流程
+  } catch {
+    card.hidden = true; $('connMini').hidden = true;   // 拿不到就整張不顯示，不擋登入流程
+    connInfoDone = true;
+    if (!$('parkInfoView').classList.contains('hidden')) renderParkInfoView();
+    return;
+  }
   PARK_API = String(connInfo.parkApi || '').trim();
+  connInfoDone = true;
+  $('parkNav').classList.remove('hidden'); // 園區測站頁一律在（2026-10-20：新場域要從這裡設定資料來源與地圖）
+  // 重新整理時停在園區測站頁：頁面比連線資訊先畫，回來後重畫（不然會一直顯示「沒有園區測站」）
+  if (!$('parkInfoView').classList.contains('hidden')) renderParkInfoView();
   $('connPlay').textContent = playUrl(true);
   // 站台有預設螢幕（.env PLAY_DEFAULT_DEVICE）：開了就直接展示、不用填名字
   if (connInfo.playDefaultDevice) {
-    $('connPlayNaming').textContent = '此場域已設定預設螢幕，開啟後會直接開始展示，所有螢幕顯示相同畫面。若要讓這面螢幕成為獨立的一台，請在畫面左上角連續點按五下並輸入名稱。';
+    $('connPlayNaming').textContent = '此場域已設定預設螢幕，開啟後所有螢幕會直接展示相同畫面；若要將這面螢幕設為獨立的一台，請在畫面左上角連續點按五下並輸入名稱。';
   }
   $('connPlay').title = playUrl(false);
   // 頂欄「開啟展示頁」：新分頁開播放頁，網址帶金鑰（user 2026-09-10 指示），第一次只要填名字（有預設機器名就直接展示）
@@ -468,6 +500,7 @@ function resetSharedEditorState() {
   };
   pageIndex = 0;
   selected = null;
+  subStack = [];
   activePageTouched = false;
   setDirty(false);
   $('emptyState').classList.add('hidden');
@@ -518,7 +551,7 @@ async function saveSharedLayout() {
     layout.updatedAt = new Date().toISOString();
     await api('PUT', '/api/shared-settings', { settings: shared });
     setDirty(false);
-    setStatus(`已儲存「${layout.name || '未命名版面'}」。若要發布到機器，請使用「加入機器」。`);
+    setStatus(`已儲存「${layout.name || '未命名版面'}」，若要發布到機器，請使用「加入機器」。`);
     exitWorkspace(); // 儲存即完成 → 關閉編輯器回清單（2026-09-03 指示）；dirty 已清不會跳確認
   } catch (e) { setDirty(true); setStatus('無法儲存版面。' + e.message, true); }
 }
@@ -547,6 +580,7 @@ async function fetchConfig() {
   try {
     state = await api('GET', `/api/config/${encodeURIComponent(deviceId)}`);
     pageIndex = Math.min(state.config.activePage || 0, state.config.pages.length - 1);
+    subStack = [];
     selected = null;
     activePageTouched = false;
     setDirty(false);
@@ -586,7 +620,7 @@ async function savePublish(opts = {}) {
     state.version = r.version;
     activePageTouched = false;
     setDirty(false);
-    setStatus(opts.doneMsg || `已發布。「${curDevName()}」會在一分鐘內更新。`); // 不寫版號（2026-09-03 指示）
+    setStatus(opts.doneMsg || `已發布，「${curDevName()}」會在一分鐘內更新。`); // 不寫版號（2026-09-03 指示）
   } catch (e) { setDirty(true); setStatus(`無法發布到「${curDevName()}」。${e.message}`, true); }
 }
 $('saveBtn').addEventListener('click', () => saveConfig());
@@ -609,7 +643,7 @@ let undoSeq = 0;
 function withUndo(label, doDelete) {
   const snap = {
     pages: JSON.parse(JSON.stringify(state.config.pages)), activePage: state.config.activePage,
-    pageIndex, selected: selected ? { ...selected } : null, deviceId, wsMode, sharedLayoutId,
+    pageIndex, selected: selected ? { ...selected } : null, subStack: [...subStack], deviceId, wsMode, sharedLayoutId,
   };
   doDelete();
   const seq = undoSeq;
@@ -620,10 +654,11 @@ function withUndo(label, doDelete) {
       onClick: () => {
         const same = state && seq === undoSeq && deviceId === snap.deviceId && wsMode === snap.wsMode
           && sharedLayoutId === snap.sharedLayoutId && $('wsModal').classList.contains('is-visible');
-        if (!same) { BToast.warning('已經有其他修改，無法復原。'); return; }
+        if (!same) { BToast.warning('已有其他修改，無法復原。'); return; }
         state.config.pages = snap.pages;
         state.config.activePage = snap.activePage;
         pageIndex = snap.pageIndex;
+        subStack = snap.subStack;
         selected = snap.selected;
         setDirty(true); render();
       },
@@ -654,7 +689,98 @@ function esc(s) {
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 }
-const page = () => state.config.pages[pageIndex];
+const mainPage = () => state.config.pages[pageIndex];
+// 子頁（樹狀展示，2026-10-20 user）：格子點擊動作「進入子頁」，子頁存在那一格裡 cell.sub＝{ name, node }（node 同頁面的版面樹）。
+// 子頁跟著格子走：頁籤只放主頁，複製版面、展示到別台都會一起帶過去。主頁算第 1 層，最多 3 層。
+// 編輯器進到子頁時 page() 回傳一個「看起來像一頁」的檢視（blocks[0].node 直接讀寫那一格的 sub.node），
+// 分割、刪除、拖曳、面板這些以頁為單位的編輯不用改；頁層級的動作（頁籤、展示此頁、複製頁面）用 mainPage()。
+const MAX_DEPTH = 3;
+// 子頁的編輯體驗還在討論（user 2026-10-20）：先不讓新格子選「進入子頁」；已經設好的格子照常顯示、編輯，機器端照常播放
+const SUBPAGES_OFFERED = false;
+const subViews = new WeakMap();
+/** subStack 走得到的每一層格子（中途對不上＝之後的都不算）。 */
+function subTrail() {
+  const out = [];
+  let root = mainPage()?.blocks?.[0]?.node;
+  for (const p of subStack) {
+    const c = nodeAt(root, p);
+    if (!c || isSplit(c) || c.tap !== 'OpenSubPage' || !c.sub) break;
+    out.push(c);
+    root = c.sub.node;
+  }
+  return out;
+}
+function page() {
+  const pg = mainPage();
+  if (!pg || !subStack.length) return pg;
+  const trail = subTrail();
+  if (trail.length < subStack.length) subStack = subStack.slice(0, trail.length);
+  if (!trail.length) return pg;
+  const sub = trail[trail.length - 1].sub;
+  let v = subViews.get(sub);
+  if (!v) {
+    v = { id: pg.id, isSub: true, get name() { return sub.name || ''; }, get layout() { return sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk'; }, blocks: [{ id: 1, w: 1, get node() { return sub.node; }, set node(n) { sub.node = n; } }] };
+    subViews.set(sub, v);
+  }
+  return v;
+}
+const subLabel = (name) => (name || '').trim() || '子頁';
+/** 子頁有沒有東西（切過、或那一格不是空白格）：改掉「進入子頁」時有東西才需要能復原。 */
+const subHasContent = (sub) => !!sub && (isSplit(sub.node) || canonicalJson(sub.node) !== canonicalJson(DEFAULT_CELL()));
+/** 進到 path 那一格的子頁（選取清掉）；回到第 level 層（0＝主頁）時，選取停在剛剛點進去的那一格。 */
+function enterSub(path) { navAnimate('push', () => { subStack = [...subStack, path]; selected = null; render(); }); }
+function leaveSubTo(level) {
+  if (level >= subStack.length) return;
+  const back = subStack[level];
+  navAnimate('pop', () => { subStack = subStack.slice(0, level); selected = { bi: 0, path: back }; render(); });
+}
+/** 進出子頁的轉場（2026-10-20 user：不要直接切；同日再改成輪播式）：預覽畫布像輪播一樣兩頁一起移動——
+ *  進去＝原本那頁整頁往左滑出去、新的一層緊跟著從右邊滑進來；返回＝反過來。不淡出、不疊在一起。
+ *  apply() 改狀態並重畫，舊畫面先複製一份陪著滑走；標頭不跟著滑，名稱與路徑在 renderTrail 依 navDir 原地模糊溶接。
+ *  系統開了「減少動態效果」或畫布沒顯示就直接換。 */
+let navDir = null, navBusy = false;
+const NAV_EASE = 'cubic-bezier(.32, .72, 0, 1)', NAV_MS = 380; // 時間與曲線維持最初那版（user：只改成輪播式，其他不動）
+// 不卡的做法（2026-10-20 user 回報轉場卡）：重的工作都在動畫開始「之前」做完，滑動的那幾格主執行緒不排版、不重建——
+// ① 畫布字級量測（fitPreview）當下先量好，不留到動畫第一格；② 右側面板（重建最重）滑動時淡出、滑完才重建；
+// ③ 兩頁交給合成器（will-change），動畫從下一格乾淨地開始。
+function navAnimate(dir, apply) {
+  const canvas = $('canvas');
+  const frame = canvas && canvas.parentElement;
+  const panel = $('cellPanel');
+  const still = !frame || !canvas.offsetWidth || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ghost = still ? null : canvas.cloneNode(true);
+  navDir = still ? null : dir;
+  navBusy = !still;
+  try { apply(); } finally { navDir = null; navBusy = false; }
+  if (!ghost) { if (panel._navPending) { panel._navPending = false; renderPanel(); } return; }
+  if (canvas._fitRaf) { cancelAnimationFrame(canvas._fitRaf); canvas._fitRaf = 0; fitPreview(canvas); }
+  ghost.removeAttribute('id');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.classList.add('cv-nav-ghost');
+  frame.appendChild(ghost);
+  // 位移量：讓進來的那頁一開始剛好在底框外（畫布置中，左右各留一點底框），兩頁之間留一小段間隔
+  const step = (frame.clientWidth + canvas.offsetWidth) / 2 + 8;
+  const sign = dir === 'push' ? 1 : -1;
+  canvas.style.willChange = ghost.style.willChange = 'transform';
+  canvas.style.transform = `translateX(${sign * step}px)`; // 先停在起點，下一格才開始動（這一格只把畫面交出去）
+  panel.inert = true;
+  panel.classList.add('is-nav');
+  requestAnimationFrame(() => {
+    canvas.style.transform = '';
+    const opts = { duration: NAV_MS, easing: NAV_EASE };
+    ghost.animate([{ transform: 'none' }, { transform: `translateX(${-sign * step}px)` }], { ...opts, fill: 'forwards' }).onfinish = () => ghost.remove();
+    canvas.animate([{ transform: `translateX(${sign * step}px)` }, { transform: 'none' }], opts).onfinish = () => {
+      canvas.style.willChange = '';
+      panel.inert = false;
+      panel.classList.remove('is-nav');
+      if (panel._navPending) { panel._navPending = false; renderPanel(); }
+    };
+  });
+}
+// 子頁頂欄（2026-10-20 user 選 A：同園區資訊頂欄）的放大倍數與高度，同播放頁：KIOSK＝寬度係數（820 為準、最多 1080/820）× 1.6，手機模式＝1；
+// 頂欄 64px × 倍數 × K（K＝螢幕寬÷1080，至少 1）
+const subBarTb = (SW, layout) => (layout === 'Mobile' ? 1 : Math.min(1080 / 820, Math.max(1, SW / 820)) * 1.6);
+const subBarPx = (SW, layout) => Math.round(64 * subBarTb(SW, layout) * Math.max(1, SW / 1080));
 const colorCss = (n) => '#' + (Number(n ?? 4280693304) >>> 0).toString(16).padStart(8, '0').slice(2);
 const isRemote = (uri) => /^https?:\/\//.test(uri) || uri.startsWith('/files/');
 
@@ -796,7 +922,7 @@ function equalizeRun(root, top, dir) {
 }
 const SPLIT_SIDES = ['top', 'right', 'bottom', 'left'];
 const SIDE_DIR = { top: 'Horizontal', bottom: 'Horizontal', left: 'Vertical', right: 'Vertical' };
-const SIDE_LABEL = { top: '在上方加一格', right: '在右邊加一格', bottom: '在下方加一格', left: '在左邊加一格' };
+const SIDE_LABEL = { top: '在上方新增一格', right: '在右邊新增一格', bottom: '在下方新增一格', left: '在左邊新增一格' };
 /** 分割：新的空白格加在 side 那一邊。這一排（同方向）原本就平均（±1%）才全部重新平均（兩欄再加一格＝三等分）；
  *  原本大小不一（例如舊版面上面很窄的跑馬燈）就只把這一格對半切，別的格子不動（2026-10-12：不然在大圖下面加一格，
  *  跑馬燈會跟著被拉成一樣高）。要全部拉平用「平均分配」。回傳 { root, fresh }。 */
@@ -883,7 +1009,8 @@ function splitChildPx(px, node, second) {
 function cellPixelSizeOf(sel) {
   const scr = state.config.screen;
   const SW = scr && scr.w > 0 ? scr.w : 1080;
-  const SH = scr && scr.h > 0 ? scr.h : 1920;
+  const SH0 = scr && scr.h > 0 ? scr.h : 1920;
+  const SH = page().isSub ? SH0 - subBarPx(SW, page().layout) : SH0; // 子頁：上面有一條頂欄
   const blocks = page().blocks;
   const total = blocks.reduce((s, b) => s + (b.w || 1), 0);
   let px = { w: SW, h: Math.round((SH * (blocks[sel.bi]?.w || 1)) / total) };
@@ -924,7 +1051,7 @@ function renderTabs() {
   const mkArrow = (dir) => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'page-tabs-arrow is-' + dir; b.tabIndex = -1;
-    b.title = dir === 'prev' ? '往左捲' : '往右捲';
+    b.title = dir === 'prev' ? '向左捲動' : '向右捲動';
     b.innerHTML = '<i data-lucide="chevron-' + (dir === 'prev' ? 'left' : 'right') + '"></i>';
     b.onclick = () => { track.scrollBy({ left: (dir === 'prev' ? -1 : 1) * Math.max(120, track.clientWidth * 0.6), behavior: 'smooth' }); };
     return b;
@@ -953,7 +1080,7 @@ function renderTabs() {
     ren.onclick = async (e) => {
       e.stopPropagation();
       const v = await BDialog.prompt({ title: '頁面名稱', value: p.name || '', placeholder: `頁面 ${i + 1}` });
-      if (v !== null && v !== undefined) { p.name = String(v).trim(); setDirty(true); renderTabs(); }
+      if (v !== null && v !== undefined) { p.name = String(v).trim(); setDirty(true); renderTabs(); renderTrail(); }
     };
     tab.appendChild(ren);
     if (state.config.pages.length > 1) {
@@ -965,12 +1092,12 @@ function renderTabs() {
           state.config.pages.splice(i, 1);
           if ((state.config.activePage || 0) >= state.config.pages.length) state.config.activePage = state.config.pages.length - 1;
           pageIndex = Math.min(pageIndex, state.config.pages.length - 1);
-          selected = null; setDirty(true); render();
+          selected = null; subStack = []; setDirty(true); render();
         });
       };
       tab.appendChild(del);
     }
-    tab.onclick = () => { pageIndex = i; selected = null; render(); };
+    tab.onclick = () => { pageIndex = i; selected = null; subStack = []; render(); }; // 子頁裡點主頁頁籤＝回到主頁
     track.appendChild(tab);
   });
   // 目前頁籤若被捲出視野就捲到看得見（只捲軌道本身）
@@ -987,13 +1114,89 @@ function renderTabs() {
       const nextId = Math.max(0, ...state.config.pages.map((p) => p.id || 0)) + 1;
       state.config.pages.push({ id: nextId, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] });
       pageIndex = state.config.pages.length - 1;
-      selected = null; setDirty(true); render();
+      selected = null; subStack = []; setDirty(true); render();
     };
     nav.appendChild(add);
   }
   if (window.lucide) lucide.createIcons({ nodes: [nav] });
   {
   }
+}
+
+/** 一頁裡有幾個子頁（往下每一層都算）。 */
+function countSubs(n) {
+  return leavesOf(n).reduce((t, l) => t + (l.cell.tap === 'OpenSubPage' && l.cell.sub ? 1 + countSubs(l.cell.sub.node) : 0), 0);
+}
+/** 畫布標頭（2026-10-20 user 選「畫框標頭」，同 App 頂欄）：跟預覽畫框黏成一張卡、一直都在。
+ *  左邊同一顆鈕：主頁＝⌂（不能按），進子頁就變形成 ←（回上一層，morph-icons.js）；
+ *  主頁＝主頁名稱／「主頁」＋「N 個子頁」；子頁＝子頁名稱、底下一行路徑（前面幾段可點回那一層）＋「第 N 層子頁」。
+ *  進出子頁時（navDir）標頭不動，名稱、路徑、小標籤原地模糊溶接。由 JS 建（index.html 是伺服器快取的範本）。 */
+function renderTrail() {
+  let head = $('pageHead');
+  if (!head) {
+    const frame = document.querySelector('#editor .canvas-frame');
+    if (!frame) return;
+    head = document.createElement('div');
+    head.id = 'pageHead'; head.className = 'page-head';
+    head.innerHTML = '<button type="button" class="ph-lead" data-icon="house"><i data-lucide="house"></i></button><div class="ph-stage"><div class="ph-body"></div></div>';
+    head.querySelector('.ph-lead').onclick = () => { if (subStack.length) leaveSubTo(subStack.length - 1); };
+    frame.before(head);
+    if (window.lucide) lucide.createIcons({ nodes: [head] });
+  }
+  head.hidden = !state || !mainPage();
+  if (head.hidden) return;
+  page(); // 先把對不上的層數修掉
+  const trail = subTrail();
+  const mainName = mainPage().name || `頁面 ${pageIndex + 1}`;
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  // 左邊那顆：⌂ ↔ ←（變形；變不了就硬換）
+  const lead = head.querySelector('.ph-lead');
+  const want = trail.length ? 'arrow-left' : 'house';
+  lead.disabled = !trail.length;
+  lead.title = trail.length ? '返回上一層' : '';
+  lead.setAttribute('aria-label', trail.length ? '返回上一層' : '主頁');
+  if (lead.dataset.icon !== want) {
+    if (!(window.morphIcon && window.morphIcon(lead, want))) { lead.innerHTML = `<i data-lucide="${want}"></i>`; if (window.lucide) lucide.createIcons({ nodes: [lead] }); }
+    lead.dataset.icon = want;
+  }
+
+  // 名稱、路徑、右邊的小標籤
+  const body = el('div', 'ph-body');
+  const text = el('div', 'ph-text');
+  const title = el('span', 'ph-title', trail.length ? subLabel(trail[trail.length - 1].sub.name) : mainName);
+  const sub = el('nav', 'ph-sub');
+  if (!trail.length) sub.textContent = '主頁';
+  else {
+    sub.setAttribute('aria-label', '子頁路徑');
+    const names = [mainName, ...trail.map((c) => subLabel(c.sub.name))];
+    names.forEach((name, i) => {
+      if (i) sub.appendChild(el('span', 'ph-sep', '›'));
+      if (i === names.length - 1) { const cur = el('span', '', name); cur.setAttribute('aria-current', 'page'); sub.appendChild(cur); return; }
+      const b = el('button', 'ph-link', name); b.type = 'button'; b.onclick = () => leaveSubTo(i);
+      sub.appendChild(b);
+    });
+  }
+  text.append(title, sub);
+  body.appendChild(text);
+  const n = trail.length ? 0 : countSubs(mainPage().blocks?.[0]?.node);
+  if (trail.length || n) {
+    const chip = el('span', 'ph-chip');
+    if (!trail.length) chip.innerHTML = '<span class="material-icons" aria-hidden="true">layers</span>';
+    chip.append(trail.length ? `第 ${trail.length} 層子頁` : `${n} 個子頁`);
+    body.appendChild(chip);
+  }
+  // 換字：進出子頁時標頭不移動（2026-10-20 user），舊字模糊淡掉、新字從模糊變清楚，兩層疊在同一格；平常重畫直接換
+  const stage = head.querySelector('.ph-stage');
+  const olds = [...stage.children];
+  stage.appendChild(body);
+  if (!navDir) { olds.forEach((o) => o.remove()); return; }
+  olds.forEach((o) => {
+    o.classList.add('is-leaving');
+    o.animate([{ filter: 'blur(0)', opacity: 1 }, { filter: 'blur(4px)', opacity: 0 }], { duration: 140, easing: 'ease-out', fill: 'forwards' }).onfinish = () => o.remove();
+  });
+  // 時間收短（user 2026-10-20：要俐落）：舊字 140ms 淡掉、新字 40ms 後 200ms 清楚，總共約 0.24 秒
+  body.animate([{ filter: 'blur(4px)', opacity: 0 }, { filter: 'blur(0)', opacity: 1 }], { duration: 200, delay: 40, easing: 'cubic-bezier(.2, 0, 0, 1)', fill: 'backwards' });
 }
 
 // 「在機器上展示此頁」（2026-09-08 指示回歸，改成 icon 鈕放在畫布下方「本機複製頁面」右邊）：
@@ -1011,9 +1214,9 @@ function updateShowPageBtn() {
   btn.setAttribute('aria-label', btn.title);
 }
 $('showPageBtn').addEventListener('click', async () => {
-  if (!state || !page() || wsMode === 'shared') return;
+  if (!state || !mainPage() || wsMode === 'shared') return;
   const btn = $('showPageBtn');
-  const name = page().name || `頁面 ${pageIndex + 1}`;
+  const name = mainPage().name || `頁面 ${pageIndex + 1}`;
   const doneMsg = `「${curDevName()}」正在切換到「${name}」。`;
   btn.disabled = true;
   let ok = false;
@@ -1040,8 +1243,11 @@ function renderCanvas() {
   previewTimers.forEach(clearInterval);
   previewTimers = [];
   normalizePage(page()); // 舊版面的多個大區塊先併成一個區塊（畫起來一樣），之後每一格都能再切
-  buildCanvas(canvas, page(), state.config.screen, { timers: previewTimers });
-  requestAnimationFrame(() => fitPreview(canvas));
+  renderTrail(); // 畫布標頭（名稱、路徑、子頁數）跟著畫布一起更新
+  const pg = page();
+  buildCanvas(canvas, pg, state.config.screen, { timers: previewTimers, subBar: pg && pg.isSub ? { name: subLabel(pg.name), layout: pg.layout } : null });
+  cancelAnimationFrame(canvas._fitRaf); // 連續重畫只量最後一次；轉場會直接拿來先量（navAnimate）
+  canvas._fitRaf = requestAnimationFrame(() => { canvas._fitRaf = 0; fitPreview(canvas); });
 }
 
 /** 選取格往 side 那一邊加一格（新格子＝空白格），同一排原本一樣大就自動平均；切完選新格子。 */
@@ -1049,7 +1255,7 @@ function splitSelectedCell(side) {
   const block = selected && page().blocks[selected.bi];
   if (!block) return;
   if (!splitSides(block.node, selected.path)[side]) {
-    return setStatus(leavesOf(block.node).length >= MAX_CELLS ? `無法再加格子。一頁最多 ${MAX_CELLS} 格。` : '無法往這一邊加格子。格子太小了。', true);
+    return setStatus(leavesOf(block.node).length >= MAX_CELLS ? `無法新增格子。一頁最多 ${MAX_CELLS} 格。` : '無法在這一側新增格子。這一格的空間不足。', true);
   }
   const { root, fresh } = splitTree(block.node, selected.path, side);
   block.node = root;
@@ -1107,6 +1313,21 @@ function buildCanvas(canvas, pg, screen, opts) {
   const blocks = pg.blocks || [];
   // 舊版面（多個大區塊）在縮圖裡不改資料：照同一套換算成一棵樹來畫
   const tree = blocks.length === 1 && blocks[0].node ? blocks[0].node : blocksToNode(blocks);
+  // 子頁：最上面是機器自動加的頂欄（返回／名稱／首頁），版面畫在它下面（opts.subBar＝子頁名稱）
+  let cellsH = SH;
+  if (opts.subBar != null) {
+    const barPx = subBarPx(SW, opts.subBar.layout);
+    cellsH = SH - barPx;
+    const bar = document.createElement('div');
+    bar.className = 'cv-subbar';
+    bar.style.height = pctOf(barPx / SH);
+    bar.dataset.tb = subBarTb(SW, opts.subBar.layout); // fitPreview 依畫布寬換算字級
+    bar.style.setProperty('--kfs', opts.subBar.layout === 'Mobile' ? '1' : '1.45'); // KIOSK 標題另外放大 1.45 倍（同 App）
+    bar.title = '子頁頂欄，機器上會自動顯示';
+    bar.innerHTML = '<span class="cvb-btn"><span class="material-icons" aria-hidden="true">arrow_back</span></span><span class="cv-subbar-title"></span><span class="cvb-btn"><span class="material-icons" aria-hidden="true">home</span></span>';
+    bar.querySelector('.cv-subbar-title').textContent = opts.subBar.name;
+    canvas.appendChild(bar);
+  }
   const root = document.createElement('div');
   root.className = 'cv-root';
   canvas.appendChild(root);
@@ -1122,7 +1343,7 @@ function buildCanvas(canvas, pg, screen, opts) {
       return;
     }
     cells.push({ el: cellDiv(n || DEFAULT_CELL(), { bi: 0, path }, px, opts), path });
-  })(tree, '', { w: SW, h: SH });
+  })(tree, '', { w: SW, h: cellsH });
   cells.forEach((c) => root.appendChild(c.el));
   dividers.forEach((d) => root.appendChild(d.el));
 
@@ -1156,7 +1377,7 @@ function buildCanvas(canvas, pg, screen, opts) {
         for (let i = 0; i < n; i++) {
           const box = document.createElement('div');
           box.className = 'cv-ghost is-even';
-          box.innerHTML = `<span>${v ? '一樣寬' : '一樣高'}</span>`; // 標籤放框的上緣，不跟格子原本的字疊在一起
+          box.innerHTML = `<span>${v ? '等寬' : '等高'}</span>`; // 標籤放框的上緣，不跟格子原本的字疊在一起
           root.appendChild(box);
           placeBox(box, v ? { x: R.x + (R.w * i) / n, y: R.y, w: R.w / n, h: R.h } : { x: R.x, y: R.y + (R.h * i) / n, w: R.w, h: R.h / n }, gap);
           evens.push(box);
@@ -1186,6 +1407,9 @@ function fitPreview(canvasEl) {
   // 動畫中量到的 rect 是縮小後的值，字級會被算成超小（2026-09-07 user 回報）
   const cw = canvas.offsetWidth;
   if (!cw) return;
+  // 子頁頂欄：標題 30px × 頂欄倍數（以 1080 寬為準）照畫布寬換算，太小看不清就至少 9px；圓鈕、間距用 em 跟著縮放
+  const subBar = canvas.querySelector('.cv-subbar');
+  if (subBar) subBar.style.fontSize = `${Math.max(9, (cw * 30 * Number(subBar.dataset.tb || 1)) / 1080)}px`;
   canvas.querySelectorAll('.cell').forEach((el) => {
     const h = el.offsetHeight, w = el.offsetWidth;
 
@@ -1416,6 +1640,9 @@ function stationInfo(s) {
 /** 天氣資料更新後重畫所有在畫的畫布：編輯器（有 state 時）＋縮圖預覽（開著時）。 */
 function onWeatherUpdated() {
   if (state && $('wsModal').classList.contains('is-visible')) renderCanvas();
+  // 測站讀完（或連不上）：格子面板的「園區測站／園區資訊」可不可用變了才重畫
+  const cp = $('cellPanel');
+  if (cp && cp._parkKey != null && cp.offsetParent !== null && cp._parkKey !== parkAvailKey()) renderPanel();
   if (thumbPreview) thumbPreview.rerender();
   // 列表縮圖（真實縮小版）也要跟著重畫
   clearListThumbs();
@@ -1430,6 +1657,7 @@ function autoTextColor(bg) {
 }
 
 let previewTimers = [];
+let lastCellClick = { key: '', t: 0 }; // 畫布上「點兩下進子頁」用
 
 function cellDiv(cell, sel, sizePx, opts) {
   opts = opts || {};
@@ -1551,6 +1779,7 @@ function cellDiv(cell, sel, sizePx, opts) {
     t.className = 'pv-text'; t.textContent = cell.text; t.style.color = fg;
     t.style.textShadow = glowCss();
     t.dataset.size = cell.txtSize || 100; // 字級 %（fitPreview 依畫面寬換算）
+    if (cell.txtPos && cell.txtPos !== 'Center') t.dataset.pos = cell.txtPos;
     el.appendChild(t);
   } else if (cell.content === 'Marquee' && cell.text) {
     const wrap = document.createElement('div');
@@ -1565,7 +1794,7 @@ function cellDiv(cell, sel, sizePx, opts) {
     const w = document.createElement('div');
     w.className = 'pv-weather2';
     const dyn = !!cell.wDynBg;
-    const stationMode = cell.wSrc === 'Station';
+    const stationMode = cell.wSrc === 'Station' && !!PARK_API; // 場域沒有測站資料來源＝展示機改顯示一般天氣，預覽照做
     const locationSet = !(cell.wAuto === false && !cell.wCounty);
     // 一般天氣：預報就是資料；園區測站：預報只拿來決定圖示與天空（感測器只有數字）
     const forecast = locationSet ? getWeather(cell) : null; // null = 抓取中，抓到後會自動重畫
@@ -1596,16 +1825,14 @@ function cellDiv(cell, sel, sizePx, opts) {
 
     if (!stationMode) {
       if (!locationSet) renderHint('尚未選擇天氣地區');
-      else if (!forecast) renderHint('取得天氣資料中…');
-      else if (forecast.error) renderHint('天氣資料暫時無法取得');
+      else if (!forecast) renderHint('正在取得天氣資料…');
+      else if (forecast.error) renderHint('暫時無法取得天氣資料');
       else renderBar(forecast);
-    } else if (!cell.wStUrl) {
-      renderHint('尚未填寫測站 API 網址');
     } else {
-      const snap = getStations(cell.wStUrl);
-      if (!snap) renderHint('取得測站資料中…');
-      else if (snap.error) renderHint('測站資料暫時無法取得');
-      else if (!snap.stations.length) renderHint('測站 API 沒有回傳任何測站');
+      const snap = getStations(PARK_API);
+      if (!snap) renderHint('正在取得測站資料…');
+      else if (snap.error) renderHint('暫時無法取得測站資料');
+      else if (!snap.stations.length) renderHint('測站資料來源中沒有任何測站');
       else {
         // 預覽不輪播：沒指定站就固定顯示第一站（機器上每 10 秒換一站）
         const s = cell.wStation ? snap.stations.find((x) => x.id === cell.wStation) : snap.stations[0];
@@ -1618,7 +1845,7 @@ function cellDiv(cell, sel, sizePx, opts) {
   } else if (cell.content === 'Video') {
     const v = document.createElement('div');
     v.className = 'pv-icon'; v.style.color = fg;
-    v.innerHTML = `<span class="material-icons">play_circle</span> ${cell.video ? '影片' : '尚未選影片'}`;
+    v.innerHTML = `<span class="material-icons">play_circle</span> ${cell.video ? '影片' : '尚未選擇影片'}`;
     el.appendChild(v);
   } else if (cell.content === 'Web') {
     const v = document.createElement('div');
@@ -1629,9 +1856,9 @@ function cellDiv(cell, sel, sizePx, opts) {
     el.appendChild(v);
   }
   // 園區資訊標題／按鈕式提示，版面規則與 App ParkCellOverlay 相同（直橫自動、字級以 28/40sp 為上限縮放）；角落徽章式提示
-  if (cell.content === 'ParkInfo' || hintOf(cell) === 'Button') renderParkOverlay(el, cell, sizePx, fg);
-  if (hintOf(cell) === 'Badge') renderHintBadge(el, cell, sizePx);
-  if (hintOf(cell) === 'Glow') { el.classList.add('hint-glow'); el.style.setProperty('--hint-color', colorCss(cell.tapHintColor ?? 0xFFFFFFFF)); }
+  if (cell.content === 'ParkInfo' || liveHintOf(cell) === 'Button') renderParkOverlay(el, cell, sizePx, fg);
+  if (liveHintOf(cell) === 'Badge') renderHintBadge(el, cell, sizePx);
+  if (liveHintOf(cell) === 'Glow') { el.classList.add('hint-glow'); el.style.setProperty('--hint-color', colorCss(cell.tapHintColor ?? 0xFFFFFFFF)); }
 
   if (opts.readonly) return el; // 唯讀預覽：沒有角標、不可點
 
@@ -1643,8 +1870,27 @@ function cellDiv(cell, sel, sizePx, opts) {
   badge.innerHTML = `<span>${typeLabel} · ${sizePx ? `${sizePx.w}×${sizePx.h}` : ''}</span>` +
     (cell.tap && cell.tap !== 'None' ? '<span class="material-icons">open_in_new</span>' : '');
   el.appendChild(badge);
+  // 有子頁的格子：左上角小圖示；點兩下直接進子頁
+  if (cell.tap === 'OpenSubPage' && cell.sub) {
+    const chip = document.createElement('div');
+    chip.className = 'pv-sub-chip';
+    chip.title = `這一格有子頁「${subLabel(cell.sub.name)}」，按兩下即可編輯`;
+    chip.innerHTML = '<span class="material-icons" aria-hidden="true">layers</span>';
+    el.appendChild(chip);
+  }
 
-  el.onclick = () => { if (el._dragged) { el._dragged = false; return; } selected = sel; renderCanvas(); renderPanel(); };
+  el.onclick = () => {
+    if (el._dragged) { el._dragged = false; return; }
+    // 點兩下有子頁的格子＝進子頁（第一下會重畫畫布，第二下落在新的格子元素上，瀏覽器的 dblclick 不會觸發，自己算）
+    const key = `${subStack.join('/')}|${sel.path}`, now = Date.now();
+    if (cell.tap === 'OpenSubPage' && cell.sub && lastCellClick.key === key && now - lastCellClick.t < 450) {
+      lastCellClick = { key: '', t: 0 };
+      enterSub(sel.path);
+      return;
+    }
+    lastCellClick = { key, t: now };
+    selected = sel; renderCanvas(); renderPanel();
+  };
   attachCellDrag(el, sel);
   return el;
 }
@@ -1806,6 +2052,8 @@ function splitDivider(canvas, tree, node, path) {
 // ---------- 右側單格設定面板 ----------
 function renderPanel() {
   const panel = $('cellPanel');
+  if (navBusy) { panel._navPending = true; return; }
+  panel._parkKey = parkAvailKey(); // 轉場中不重建（很重），滑完再建（navAnimate）
   // 重繪前先記住捲動位置：innerHTML 清空的瞬間內容高度歸零，面板（和 modal 內的 body）的 scrollTop
   // 被夾回 0，每改一個設定就跳回頂部（user 2026-09-09 回報 UX 很差）。重建完再把位置放回去。
   const scrollers = [panel, panel.closest('.b-modal-body')].filter(Boolean);
@@ -1832,7 +2080,7 @@ function renderPanel() {
       '<div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="mouse-pointer-click"></i></span>' +
       '<p class="b-empty-title">尚未選擇格子</p>' +
-      '<p class="b-empty-sub">點左邊預覽畫面上的任一格子，設定會顯示在這裡。</p>' +
+      '<p class="b-empty-sub">在左側預覽畫面中選擇任一格子，設定會顯示在這裡。</p>' +
       '</div>';
     if (window.lucide) lucide.createIcons();
     return;
@@ -1873,6 +2121,14 @@ function renderPanel() {
     return r;
   };
   const subRow = (label, ...ctrls) => { const r = insRow(label, ...ctrls); r.classList.add('sub'); return r; };
+  // 園區測站不能用（parkAvail）時：第 from 列之後整塊變灰、控件鎖住；設定照樣保留，原因＝下拉選單上的狀態小標（2026-10-20 user）
+  const greyFrom = (from) => {
+    [...body.children].slice(from).forEach((r) => { r.classList.add('is-unavail'); r.querySelectorAll('input, select, textarea, button').forEach((x) => { x.disabled = true; }); });
+  };
+  const pa = parkAvail();
+  // 不能用時選項照列：沒選的變灰不能選、選著的照常顯示，兩種都掛狀態小標（「連線失敗」等）
+  const parkOpt = (k, n, cur) => (pa.ok ? [k, n] : [k, n, !cur, pa.short]);
+  const parkBadge = () => Object.assign(document.createElement('span'), { className: 'b-dd-badge park-src-badge', textContent: pa.short }); // 同下拉選單的小標，靠最右邊
   // 區段標題（版面/背景/內容/點擊動作）＝小標＋hairline 分隔線（2026-09-03：user 嫌全部混在一起沒區隔）
   const sec = (title) => {
     const h = document.createElement('div');
@@ -1928,7 +2184,7 @@ function renderPanel() {
     cross.append(blank(), dirBtn('top'), blank(), dirBtn('left'), self, dirBtn('right'), blank(), dirBtn('bottom'), blank());
     const side = document.createElement('div');
     side.className = 'split-side';
-    const count = hint(`目前 ${total} 格（最多 ${MAX_CELLS} 格；太小的格子不能再切）`);
+    const count = hint(`目前 ${total} 格（最多 ${MAX_CELLS} 格，過小的格子無法再分割）`);
     count.classList.add('split-count');
     const acts = document.createElement('div');
     acts.className = 'split-acts';
@@ -1959,9 +2215,9 @@ function renderPanel() {
     });
     del.classList.add('b-btn-text', 'b-btn-text-danger');
     del.disabled = !sel.path;
-    del.title = sel.path ? '刪掉後，空出來的位置交給旁邊那一格' : '這一頁只剩一格，不能刪除';
+    del.title = sel.path ? '刪除後，空出的位置會併入相鄰的格子' : '這一頁只剩一格，無法刪除';
     acts.append(even, del);
-    side.append(hint('按哪一邊，新格子就加在哪一邊；滑上去會先在畫布上預覽。同一排原本一樣大時會自動平均。'), count, acts);
+    side.append(hint('新格子會加在所選的一側（指標移到按鈕上可先預覽），同一排原本等大時會自動平均分配。'), count, acts);
     wrap.append(cross, side);
     if (window.lucide) lucide.createIcons({ nodes: [cross] });
     // 能不能往哪邊切、要不要平均都跟著格子大小變：拖完分隔線只重算這幾顆鈕（整個面板重畫會閃一下）
@@ -1970,12 +2226,12 @@ function renderPanel() {
       const full = leavesOf(t).length >= MAX_CELLS;
       for (const s of SPLIT_SIDES) {
         dirBtns[s].disabled = !ok[s];
-        dirBtns[s].title = ok[s] ? SIDE_LABEL[s] : full ? `一頁最多 ${MAX_CELLS} 格` : '格子太小，不能再往這一邊切';
+        dirBtns[s].title = ok[s] ? SIDE_LABEL[s] : full ? `一頁最多 ${MAX_CELLS} 格` : '格子過小，無法再往這一側分割';
       }
       const evenNow = !run || runIsEqual(nodeAt(t, run.top), run.dir);
       even.disabled = evenNow;
-      even.title = !run ? '這一頁只有一格' : evenNow ? '同一排的格子已經一樣大'
-        : `把這一格所在的那一排（${run.dir === 'Vertical' ? '左右並排' : '上下相疊'}）調成一樣大`;
+      even.title = !run ? '這一頁只有一格' : evenNow ? '同一排的格子已經等大'
+        : `將這一格所在的那一排（${run.dir === 'Vertical' ? '左右並排' : '上下相疊'}）調整為等大`;
     };
     syncTools();
     panel._syncLayoutTools = syncTools;
@@ -1992,7 +2248,7 @@ function renderPanel() {
     sec('背景');
     insRow('類型', segRow(segs));
     if (isWeather && cell.wDynBg) {
-      subRow('', hint('依即時天氣顯示動畫天空（陽光、雲、雨絲…）；字色自動配置，深色天空白字、霧/雪黑字。'));
+      subRow('', hint('依即時天氣顯示動態天空（陽光、雲、雨絲…），文字顏色會自動調整，深色天空使用白字，霧、雪天使用黑字。'));
     } else if (cell.bg === 'Image') {
       subRow('圖片', thumbList(cell, cellPx));
     } else {
@@ -2013,7 +2269,7 @@ function renderPanel() {
           ['否', !cell.edgeFade, () => { cell.edgeFade = false; setDirty(true); refresh(); }],
           ['是', !!cell.edgeFade, () => { cell.edgeFade = true; setDirty(true); refresh(); }],
         ]));
-        subRow('', hint('圖片靠留白那側的邊緣漸淡，融進模糊背景。'));
+        subRow('', hint('圖片在留白側的邊緣會逐漸淡出，與模糊背景融合。'));
       }
       {
         // 模糊滑桿：與 App 同規則（0 = 不模糊；越模糊越暗，最暗 20% 黑）
@@ -2035,7 +2291,7 @@ function renderPanel() {
         const slider = document.createElement('div');
         slider.className = 'ins-range';
         slider.append(range, val);
-        const help = hint('提高模糊程度時，背景也會稍微變暗（最多 20%），讓文字更好讀。');
+        const help = hint('提高模糊程度時，背景也會稍微變暗（最多 20%），讓文字更易閱讀。');
         help.id = 'cell-bg-blur-hint';
         subRow('模糊', slider, help);
       }
@@ -2046,7 +2302,7 @@ function renderPanel() {
   {
     sec('內容');
     rowFull(selInput(
-      Object.entries(CONTENT_NAMES).filter(([k]) => k !== 'ParkInfo' || parkEnabled() || cell.content === 'ParkInfo'), cell.content || 'None',
+      Object.entries(CONTENT_NAMES).map(([k, n]) => (k === 'ParkInfo' ? parkOpt(k, n, cell.content === 'ParkInfo') : [k, n])), cell.content || 'None',
       (v) => { cell.content = v; setDirty(true); refresh(); },
     ));
     if (cell.content === 'Marquee' || cell.content === 'Text') {
@@ -2067,6 +2323,10 @@ function renderPanel() {
       range.addEventListener('input', () => { cell.txtSize = Number(range.value); val.textContent = `${range.value}%`; touch(); });
       subRow('字級', range, val);
     }
+    if (cell.content === 'Text') {
+      // 文字位置九宮格（2026-10-20 user：先做固定九宮格，不做自由拖拉）；沒設＝置中
+      subRow('位置', posGrid(cell.txtPos || 'Center', (v) => { cell.txtPos = v; touch(); }));
+    }
     if (cell.content === 'Marquee') {
       const range = document.createElement('input');
       range.type = 'range'; range.min = 50; range.max = 300; range.step = 10;
@@ -2078,28 +2338,22 @@ function renderPanel() {
     if (cell.content === 'Weather') {
       // 資料來源：一般天氣（Open-Meteo 預報）或園區測站（客戶自己的感測器 API，例如卓也小屋）
       const stationMode = cell.wSrc === 'Station';
-      if (parkEnabled() || stationMode) subRow('來源', segRow([
+      const srcRow = subRow('來源', segRow([
         ['一般天氣', !stationMode, () => { cell.wSrc = 'Standard'; setDirty(true); refresh(); }],
-        // 切到園區測站就先帶入站台的測站 API（joye＝卓也小屋），要接別的園區再改（user 2026-09-08）
-        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; if (!cell.wStUrl && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); }],
+        // 測站資料來源在「共用設定 › 園區測站」設一次（2026-10-20），格子只選要顯示哪一站
+        // 舊版 App（≤1.59）只認格子自己的網址：選的時候順手把場域的資料來源抄進格子（畫面上不顯示）
+        ['園區測站', stationMode, () => { cell.wSrc = 'Station'; if (PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); }, !pa.ok && !stationMode],
       ]));
+      if (!pa.ok) srcRow.querySelector('.ins-ctrl').appendChild(parkBadge());
       if (stationMode) {
-        // 舊設定或機器端建的格子可能沒填測站 API：一樣補上預設值，不讓畫面停在「尚未填寫」
-        if (!cell.wStUrl && PARK_API) { cell.wStUrl = PARK_API; setDirty(true); }
-        // 網址打到一半先等 0.6 秒再抓清單；抓到後 fillStationSelect 會補滿下拉
-        let urlTimer = null;
+        const from = body.children.length;
         const sel = selInput([], cell.wStation || '', (v) => { cell.wStation = v; sel.dataset.stationId = v; touch(); });
-        sel.dataset.stationUrl = cell.wStUrl || '';
+        sel.dataset.stationUrl = PARK_API;
         sel.dataset.stationId = cell.wStation || '';
         fillStationSelect(sel);
-        subRow('測站 API', txtInput(cell.wStUrl, 'https://…/api/telemetry/current', (v) => {
-          // 不走 touch()：每敲一鍵就重畫畫布會拿半截網址去打代理，等停手 0.6 秒再抓清單＋重畫
-          cell.wStUrl = v; sel.dataset.stationUrl = v.trim(); setDirty(true);
-          clearTimeout(urlTimer);
-          urlTimer = setTimeout(() => { fillStationSelect(sel); renderCanvas(); }, 600);
-        }, 'url'));
         subRow('測站', sel);
-        subRow('', hint('測站數值每 30 秒更新；輪播時機器每 10 秒換一站。測站只提供數字，晴雨圖示與動態天空仍依下方位置判斷。'));
+        subRow('', hint('測站數值每 30 秒更新，輪播時每 10 秒切換一站，晴雨圖示與動態天空則依下方位置判斷。'));
+        if (!pa.ok) greyFrom(from);
       }
       subRow(stationMode ? '圖示位置' : '位置', checkRow('自動偵測位置', cell.wAuto !== false, (v) => { cell.wAuto = v; setDirty(true); refresh(); }));
       if (cell.wAuto === false) {
@@ -2131,7 +2385,7 @@ function renderPanel() {
       })));
     }
     if (cell.content === 'ParkInfo') {
-      subRow('', hint('此格只顯示「園區資訊」標題；搭配點擊動作「園區資訊」讓遊客點進園區地圖看各測站即時數值。'));
+      subRow('', hint('此格只顯示「園區資訊」標題，搭配點擊動作「園區資訊」，訪客即可開啟園區地圖查看各測站的即時數值。'));
     }
     if (['Marquee', 'Text', 'Weather', 'ParkInfo'].includes(cell.content) && !(cell.content === 'Weather' && cell.wDynBg)) {
       subRow('文字顏色', swatchRow(TXT_SWATCHES, cell.txtColor, true, (v) => {
@@ -2149,7 +2403,7 @@ function renderPanel() {
         subRow('發光顏色', swatchRow(TXT_SWATCHES, cell.glowColor, true, (v) => {
           if (v === null) delete cell.glowColor; else cell.glowColor = v;
           touch(); renderPanel();
-        }, '跟文字色'));
+        }, '同文字色'));
       }
     }
   }
@@ -2157,11 +2411,41 @@ function renderPanel() {
   // ---- 點擊動作 ----
   {
     sec('點擊動作');
+    const level = subStack.length + 1; // 這一頁是第幾層（主頁＝1）
     rowFull(selInput(
-      [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊']].filter(([k]) => k !== 'OpenParkInfo' || parkEnabled() || cell.tap === 'OpenParkInfo'),
+      [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊'], ['OpenSubPage', '進入子頁']]
+        .map(([k, n]) => (k === 'OpenParkInfo' ? parkOpt(k, n, cell.tap === 'OpenParkInfo') : [k, n]))
+        .filter(([k]) => k !== 'OpenSubPage' || (SUBPAGES_OFFERED && level < MAX_DEPTH) || cell.tap === 'OpenSubPage'),
       cell.tap || 'None',
-      (v) => { cell.tap = v; if (v === 'OpenParkInfo' && !cell.wStUrl && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); },
+      (v) => {
+        const apply = () => {
+          // 子頁跟著「進入子頁」：選了才建（一格空白），改成別的動作就拿掉
+          if (v === 'OpenSubPage') { if (!cell.sub) cell.sub = { name: '', node: DEFAULT_CELL(), layout: 'Kiosk' }; } else delete cell.sub;
+          cell.tap = v; if (v === 'OpenParkInfo' && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); // 舊版 App（≤1.59）只認格子自己的網址
+        };
+        // 子頁裡已經有東西：直接拿掉、toast 可以復原（同刪格子）
+        if (cell.tap === 'OpenSubPage' && v !== 'OpenSubPage' && subHasContent(cell.sub)) withUndo(`已刪除子頁「${subLabel(cell.sub.name)}」。`, apply);
+        else apply();
+      },
     ));
+    const tapFrom = body.children.length;
+    if (cell.tap === 'OpenSubPage' && cell.sub) {
+      const subNameInput = txtInput(cell.sub.name, '子頁', (v) => { cell.sub.name = v; setDirty(true); renderTrail(); });
+      subNameInput.maxLength = 20; // 同 App（子頁頂欄的標題）
+      subRow('子頁名稱', subNameInput);
+      // 子頁版面（2026-10-20 user）：跟客服、園區資訊同一組選項，小螢幕用手機模式，頂欄與字不放大
+      subRow('子頁版面', selInput([['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']], cell.sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk', (v) => { cell.sub.layout = v; touch(); }));
+      subRow('', hint('預設為 KIOSK展示模式（頂欄與文字放大，適合大螢幕），小螢幕請選擇手機操作模式，維持一般大小。'));
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'b-btn b-btn-sm sub-enter-btn';
+      go.innerHTML = '<span>編輯子頁</span><span class="material-icons" aria-hidden="true">chevron_right</span>';
+      go.onclick = () => enterSub(sel.path);
+      subRow('', go);
+      // 主頁下面最多兩層子頁（2026-10-20 user）；文字不講「第幾層」免得跟主頁算在一起搞混
+      subRow('', hint(level === 1 ? '子頁是完整的版面，可像首頁一樣分格並放置圖片與文字，子頁中還能再加入一層子頁。'
+        : '這是第 1 層子頁，其中還能再加入一層子頁（最多兩層）。'));
+    }
     if (cell.tap === 'OpenWeb') {
       subRow('網址', txtInput(cell.tapUrl, '點擊開啟的網址', (v) => { cell.tapUrl = v; touch(); }, 'url'));
     }
@@ -2170,13 +2454,13 @@ function renderPanel() {
       const h = hintOf(cell);
       subRow('提示樣式', segRow(TAP_HINT.map(([k, n]) => [n, h === k, () => {
         cell.tapHint = k;
-        if (k === 'Button' && (cell.parkFx || 'Sweep') !== 'None') { const q = quietOtherFx(page(), cell); if (q) BToast.warning(`一頁只有一格會動，同頁另外 ${q} 格的按鈕動態已改成「無」。`); }
+        if (k === 'Button' && (cell.parkFx || 'Sweep') !== 'None') { const q = quietOtherFx(page(), cell); if (q) BToast.warning(`每頁只有一格能使用動態效果，同頁另外 ${q} 格的按鈕動態已改為「無」。`); }
         setDirty(true); refresh();
       }])));
-      subRow('', hint(h === 'Badge' ? '右上角一個小小的「輕觸」記號，不會動、不遮內容太多，適合大格子。'
-        : h === 'Glow' ? '格子內側一圈邊框每 3 秒閃一次，不放任何東西在內容上；同頁多格閃爍會同一個節奏。'
-        : h === 'Button' ? '格子裡放一顆按鈕，按鈕文字可改；會動的效果一頁只留給一格。'
-        : '這格不顯示可點提示。'));
+      subRow('', hint(h === 'Badge' ? '在右上角顯示小型的「輕觸」標記，靜態且不太遮擋內容，適合較大的格子。'
+        : h === 'Glow' ? '格子內側邊框每 3 秒閃爍一次，不會遮擋內容，同頁多個格子會以相同節奏閃爍。'
+        : h === 'Button' ? '在格子中顯示一個按鈕，可自訂按鈕文字，每頁只有一格能使用動態效果。'
+        : '這一格不顯示可點提示。'));
       if (h === 'Glow') {
         subRow('閃爍顏色', swatchRow(TXT_SWATCHES, cell.tapHintColor, true, (v) => {
           if (v === null) delete cell.tapHintColor; else cell.tapHintColor = v;
@@ -2185,42 +2469,35 @@ function renderPanel() {
       }
       if (h === 'Button') {
         subRow('排版', selInput(PARK_LAYOUT, cell.parkLayout || 'Auto', (v) => { cell.parkLayout = v; touch(); }));
-        subRow('', hint('自動＝寬度不到高度兩倍的格子走直排（標題在上、按鈕貼底），其餘橫排（標題左、按鈕右）。'));
+        subRow('', hint('選擇「自動」時，寬度不到高度兩倍的格子採直排（標題在上、按鈕在下），其餘採橫排（標題在左、按鈕在右）。'));
         subRow('按鈕文字', txtInput(cell.tapLabel, '點我查看', (v) => { cell.tapLabel = v; touch(); }));
         subRow('按鈕動態', selInput(PARK_FX, cell.parkFx || 'Sweep', (v) => {
           cell.parkFx = v;
-          if (v !== 'None') { const q = quietOtherFx(page(), cell); if (q) BToast.warning(`一頁只有一格會動，同頁另外 ${q} 格的按鈕動態已改成「無」。`); }
+          if (v !== 'None') { const q = quietOtherFx(page(), cell); if (q) BToast.warning(`每頁只有一格能使用動態效果，同頁另外 ${q} 格的按鈕動態已改為「無」。`); }
           touch(); renderPanel();
         }));
       }
     }
     if (cell.tap === 'OpenParkInfo') {
-      // 內容是園區測站天氣時，測站 API 已在上面填過，不重複問
-      const asked = cell.content === 'Weather' && cell.wSrc === 'Station';
-      if (asked) {
-        subRow('', hint('點擊後開啟內建的園區地圖，測站狀態使用上方「內容」填的測站 API。'));
-      } else {
-        subRow('測站 API', txtInput(cell.wStUrl, 'https://…/api/telemetry/current', (v) => { cell.wStUrl = v; touch(); }, 'url'));
-        subRow('', hint(PARK_API
-          ? '點擊後開啟內建的園區地圖；測站 API 已預設帶入，留白時也會使用預設網址顯示各站在線狀態與即時數值。'
-          : '點擊後開啟內建的園區地圖。這個站台沒有設定園區測站 API，地圖僅供導覽；要顯示測站數值，請把上方「內容」改成天氣並填測站 API。'));
-      }
+      // 園區地圖、測站與資料來源都在「共用設定 › 園區測站」設定（2026-10-20），這裡只選這台機器的位置與版面
+      if (!parkMapNodes().length) subRow('', hint('點擊後會開啟園區地圖，地圖與測站請在「共用設定 › 園區測站」設定。'));
       // 目前位置（2026-09-22）：這台機器站在哪個測站點；地圖上那一站會多一個「目前位置」標記
-      subRow('目前位置', selInput([['', '無'], ...PARK_NODES.map(([id, name]) => [id, `${id} ${name}`])], cell.parkHere || '', (v) => { cell.parkHere = v; touch(); }));
-      subRow('', hint('地圖上會在這一站標出「目前位置」，遊客點進來也預設先看這一站的數值；選「無」就不標。'));
+      subRow('目前位置', selInput([['', '無'], ...parkMapNodes().map(([id, name]) => [id, `${id} ${name}`.trim()])], cell.parkHere || '', (v) => { cell.parkHere = v; touch(); }));
+      subRow('', hint('地圖會在這一站標示「目前位置」，訪客開啟時也會先顯示這一站的數值，選擇「無」則不標示。'));
       // 版面（2026-09-23 user）：跟客服同一組選項，小螢幕用手機模式，頂欄與字不放大
       subRow('園區資訊版面', selInput([['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']], cell.parkInfoLayout || 'Kiosk', (v) => { cell.parkInfoLayout = v; touch(); }));
-      subRow('', hint('預設 KIOSK展示模式（頂欄與文字放大，給大螢幕看）；小螢幕選手機操作模式，維持一般大小。'));
+      subRow('', hint('預設為 KIOSK展示模式（頂欄與文字放大，適合大螢幕），小螢幕請選擇手機操作模式，維持一般大小。'));
+      if (!pa.ok) greyFrom(tapFrom);
     }
     if (cell.tap === 'OpenAssistant') {
       // 從清單選擇客服（與 App 的 AgentPickerField 相同）：用機器設定裡的 JustAI 帳號拉清單
       const cApi = chatApiConfigured();
       if (!cApi) {
-        subRow('客服', hint('要從清單選擇客服，請先到「機器設定」填寫智能客服 API 帳號。'));
+        subRow('客服', hint('若要從清單選擇客服，請先在「機器設定」填寫智能客服 API 帳號。'));
       } else {
         if (agentCache.key !== agentKeyOf(cApi)) fetchAgents(); // 帳號變過或還沒載入
         if (agentCache.loading) {
-          subRow('客服', hint('載入客服清單中…'));
+          subRow('客服', hint('正在載入客服清單…'));
         } else if (agentCache.error) {
           subRow('客服', hint('無法載入客服清單。' + agentCache.error), btn('重試', () => { fetchAgents(true); renderPanel(); }));
         } else if (agentCache.list) {
@@ -2242,7 +2519,7 @@ function renderPanel() {
       const idInput = txtInput(cell.agentId, '或直接貼上 Agent ID', (v) => {
         cell.agentId = v.trim(); cell.agentName = ''; touch();
       });
-      idInput.title = 'JustAI 後台網址 chat.justhings.ai/agents/〔這一段〕/edit 就是 ID';
+      idInput.title = 'JustAI 後台網址 chat.justhings.ai/agents/〔此段〕/edit 中的〔此段〕即為 ID';
       subRow('Agent ID', idInput);
       subRow('介面', selInput(
         [['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']],
@@ -2250,28 +2527,28 @@ function renderPanel() {
       ));
       // 輸入區位置（2026-10-12 user）：下方＝原本的樣子；上方＝輸入框併進頂欄、最新的問答排最上面（螢幕鍵盤在下面，不會擋到輸入框）。跟介面各自獨立，App 同一個欄位
       const posRow = subRow('輸入區位置', selInput([['Bottom', '下方'], ['Top', '上方']], cell.agentInputPos === 'Bottom' ? 'Bottom' : 'Top', (v) => { cell.agentInputPos = v; touch(); }));
-      posRow.querySelector('.ins-label').title = '下方：輸入列在畫面底部，對話由上往下排；上方：輸入框在頂欄正下方，最新的一問一答排在最上面';
+      posRow.querySelector('.ins-label').title = '下方：輸入列位於畫面底部，對話由上往下排列；上方：輸入框位於頂欄正下方，最新的問答顯示在最上方';
       // 客服主題色（2026-09-14 定案）：「自動」＝站台主題色（後台 nav 設的那個）；「JustAI」＝客服後台設定的顏色（哨兵值 0）；其餘＝指定色。App／播放頁同規則
       const accentRow = subRow('主題色', swatchRow(ACCENT_SWATCHES, cell.agentAccent, true, (v) => {
         if (v === null) delete cell.agentAccent; else cell.agentAccent = v;
         touch(); renderPanel();
       }, '自動', [JUSTAI_CHIP]));
-      accentRow.querySelector('.ins-label').title = '此格開啟的聊天頁主色（頭像、按鈕、游標）；「自動」跟隨站台主題色，「JustAI」用客服後台設定的顏色';
+      accentRow.querySelector('.ins-label').title = '此格開啟的聊天頁主色（頭像、按鈕、游標），「自動」會沿用站台主題色，「JustAI」會使用客服後台設定的顏色';
       // 語音朗讀（2026-09-21）：開關只決定進這一格的客服時朗讀「預設」是開還是關，訪客在客服頂欄隨時能切換；
       // 語速不跟開關掛勾（user 2026-09-21）：預設關的話訪客自己打開也是用這個語速，所以一律顯示
       const speakRow = subRow('進入時預設朗讀', switchRow('', cell.agentSpeak !== false, (v) => {
         cell.agentSpeak = v; touch(); renderPanel();
       }));
-      speakRow.querySelector('.ins-label').title = '進這一格的客服時，朗讀預設是開還是關；訪客隨時可以用客服畫面上方的喇叭鈕切換';
+      speakRow.querySelector('.ins-label').title = '進入此格客服時是否預設開啟朗讀，訪客可隨時使用客服畫面上方的喇叭按鈕切換';
       const rateRow = subRow('語速', speakRateControl(Number(cell.agentSpeakRate) > 0 ? Number(cell.agentSpeakRate) : 1, (v) => {
         cell.agentSpeakRate = v; touch();
       }));
-      rateRow.querySelector('.ins-label').title = '唸回覆的速度；不論預設開或關，訪客打開朗讀時都用這個速度';
+      rateRow.querySelector('.ins-label').title = '朗讀回覆的速度，無論預設是否開啟，訪客開啟朗讀時都會使用此速度';
       // 上傳（2026-09-23 user）：客服輸入列的上傳鈕要不要出現，後台自己決定，不再只看客服後台的設定
       const uploadRow = subRow('允許上傳圖片', switchRow('', cell.agentUpload !== false, (v) => {
         cell.agentUpload = v; touch();
       }));
-      uploadRow.querySelector('.ins-label').title = '關閉後，客服輸入列不會出現上傳鈕，訪客只能打字或用說的；客服後台本身沒開放上傳時，這裡開了也不會出現';
+      uploadRow.querySelector('.ins-label').title = '關閉後，客服輸入列不會顯示上傳按鈕，訪客只能以文字或語音提問；若客服後台未開放上傳，即使在此開啟也不會顯示';
     }
   }
 
@@ -2299,7 +2576,34 @@ function hint(text) {
   p.className = 'hint'; p.textContent = text;
   return p;
 }
-function segRow(items) {
+// 文字位置九宮格：值＝App TextPosition 名稱（play.js／style.css 用 data-pos 排位置）
+const TEXT_POS = [
+  ['TopStart', '左上'], ['TopCenter', '上'], ['TopEnd', '右上'],
+  ['CenterStart', '左'], ['Center', '置中'], ['CenterEnd', '右'],
+  ['BottomStart', '左下'], ['BottomCenter', '下'], ['BottomEnd', '右下'],
+];
+function posGrid(value, onPick) {
+  const grid = document.createElement('div');
+  grid.className = 'pos-grid';
+  grid.setAttribute('role', 'radiogroup');
+  for (const [k, name] of TEXT_POS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pos-cell' + (k === value ? ' active' : '');
+    b.title = name;
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-label', name);
+    b.setAttribute('aria-checked', k === value ? 'true' : 'false');
+    b.onclick = () => {
+      grid.querySelectorAll('.pos-cell').forEach((c) => { c.classList.remove('active'); c.setAttribute('aria-checked', 'false'); });
+      b.classList.add('active'); b.setAttribute('aria-checked', 'true');
+      onPick(k);
+    };
+    grid.appendChild(b);
+  }
+  return grid;
+}
+function segRow(items, opts = {}) {
   const row = document.createElement('div');
   row.className = 'seg-row has-ind'; // has-ind＝active 底色改由滑動指示塊畫（ws-tabs 靜態版不吃）
   const ind = document.createElement('span');
@@ -2314,17 +2618,18 @@ function segRow(items) {
     ind.style.width = a.offsetWidth + 'px';
     ind.style.height = a.offsetHeight + 'px';
   };
-  for (const [text, active, onClick] of items) {
+  for (const [text, active, onClick, off] of items) {
     const b = document.createElement('button');
     b.className = 'seg' + (active ? ' active' : '');
     b.textContent = text;
+    if (off) b.disabled = true; // 第 4 項＝停用（例：園區測站目前不能用）
     b.onclick = () => {
       if (b.classList.contains('active')) return;
       // 先在本地滑動指示塊（onClick 會重繪整個面板、DOM 重建就看不到動畫），滑完才套用
       row.querySelectorAll('.seg').forEach((s) => s.classList.remove('active'));
       b.classList.add('active');
       moveInd();
-      setTimeout(onClick, 170);
+      setTimeout(onClick, opts.immediate ? 0 : 170); // immediate：不重畫面板的切換（例：園區測站地圖／預覽）跟指示塊同時開始
     };
     row.appendChild(b);
   }
@@ -2347,9 +2652,11 @@ function segRow(items) {
 function selInput(options, value, onChange) {
   const s = document.createElement('select');
   s.className = 'b-select';
-  for (const [v, label] of options) {
+  for (const [v, label, off, badge] of options) {
     const o = document.createElement('option');
     o.value = v; o.textContent = label; o.selected = v === value;
+    if (off) o.disabled = true; // 第 3 項＝停用（灰色、不能選）
+    if (badge) o.dataset.badge = badge; // 第 4 項＝狀態小標（BDropdown 畫在選項旁）
     s.appendChild(o);
   }
   s.onchange = () => onChange(s.value);
@@ -2494,7 +2801,7 @@ function thumbList(cell, cellPx) {
         return BDialog.confirm({
           title: '圖片與區塊尺寸不符',
           desc: `本區塊尺寸為 ${cellPx.w}×${cellPx.h} px，所選圖片尺寸為 ${dims.w}×${dims.h} px。` +
-            '仍要上傳這張圖片嗎？（顯示時會依「顯示方式」設定縮放）',
+            '\n顯示時會依「顯示方式」設定縮放，仍要上傳這張圖片嗎？',
           confirmText: '仍要上傳',
         });
       });
@@ -2523,16 +2830,67 @@ function pickAndUpload(accept, onDone, beforeUpload) {
     const f = input.files[0];
     if (!f) return;
     if (beforeUpload && !(await beforeUpload(f))) return;
-    try {
-      setStatus(`正在上傳「${f.name}」…`);
-      const form = new FormData();
-      form.append('file', f);
-      const r = await api('POST', '/api/upload', form, true);
-      onDone(r.url);
-      setStatus('已上傳。儲存並發布後，機器上才會顯示。');
-    } catch (e) { setStatus(`無法上傳「${f.name}」。${e.message}`, true); }
+    await uploadWithToast([f], {
+      noun: /^video/.test(f.type) ? '影片' : '圖片', unit: '個',
+      onEach: (r) => onDone(r.url),
+    });
   };
   input.click();
+}
+
+/** 上傳一個檔案（XHR：fetch 拿不到上傳進度）。錯誤句同 api()；onProgress(已送出的 bytes)。 */
+function uploadFile(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', BASE + '/api/upload');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.responseType = 'json';
+    xhr.upload.onprogress = (e) => { if (onProgress) onProgress(e.loaded); };
+    xhr.onload = () => {
+      if (xhr.status === 401) { logout(); reject(new Error('登入已過期，請重新登入。')); return; }
+      const body = xhr.response || {};
+      if (xhr.status < 200 || xhr.status >= 300) { reject(new Error(reasonFor(xhr.status, body.error))); return; }
+      resolve(body);
+    };
+    xhr.onerror = () => reject(new Error(NET_ERROR));
+    xhr.ontimeout = () => reject(new Error(TIMEOUT_ERROR));
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
+/** 一批檔案依序上傳，全程只有一則 toast（2026-10-20 user）：底色照總進度填綠、圖示從上傳變形成勾；
+ *  傳完的檔案等進度條填滿、變成功之後才交給 onEach（user：進度條跑完圖片才出現）。
+ *  失敗就停、整條轉紅、變形成叉；前面傳好的照常算數（失敗時馬上交給 onEach）。回傳成功的個數。 */
+async function uploadWithToast(files, { noun = '檔案', unit = '個', onEach } = {}) {
+  const n = files.length;
+  if (!n) return 0;
+  const what = n > 1 ? ` ${n} ${unit}${noun}` : noun;
+  const total = files.reduce((s, f) => s + (f.size || 0), 0) || 1;
+  const t = window.BToast && BToast.progress ? BToast.progress(`正在上傳${what}…`) : null;
+  const results = [];
+  const hand = () => { if (onEach) results.forEach(([r, f]) => onEach(r, f)); };
+  let sent = 0;
+  for (const f of files) {
+    try {
+      const r = await uploadFile(f, (loaded) => {
+        const p = Math.min(1, (sent + Math.min(loaded, f.size || 0)) / total);
+        if (t) t.progress(p); // 百分比由 toast 自己畫在第一排右邊
+      });
+      sent += f.size || 0;
+      results.push([r, f]);
+    } catch (e) {
+      hand();
+      const desc = e.message + (results.length ? `前 ${results.length} ${unit}已上傳。` : '');
+      if (t) t.fail(`無法上傳「${f.name}」。`, desc); else setStatus(`無法上傳「${f.name}」。${desc}`, true);
+      return results.length;
+    }
+  }
+  if (t) await t.success(`已上傳${what}。`); else setStatus(`已上傳${what}。`); // 成功只有一行（user：不要冒出第二行）
+  hand();
+  return results.length;
 }
 
 // ---------- 複製版面到其他機器 ----------
@@ -2542,31 +2900,31 @@ function pickAndUpload(accept, onDone, beforeUpload) {
 // 改成與版面設定的「加入機器」同一套語意＝接在對方現有頁面後面，對方原有頁面/設定/展示頁都不動。
 // 2026-09-08 再改：只送「目前正在編輯的這一頁」，不是整台的所有頁面（鈕在畫布下方，語意就是這一頁）。
 $('copyLayoutBtn').addEventListener('click', async () => {
-  if (!state || !page()) return;
+  if (!state || !mainPage()) return;
   await appendPagesToDevices({
-    pages: [page()], screen: state.config.screen, fallbackName: page().name || `頁面 ${pageIndex + 1}`,
+    pages: [mainPage()], screen: state.config.screen, fallbackName: mainPage().name || `頁面 ${pageIndex + 1}`,
     excludeDeviceId: deviceId,
-    title: '把這一頁加到其他機器',
-    desc: '會把目前正在編輯的這一頁（含未發布的修改）接在所選機器現有頁面的最後面並立即發布；對方原有的頁面、設定與展示頁都不會被改動。',
-    noTargetsTitle: '沒有其他機器', noTargetsDesc: '目前帳號下只有這一台機器，沒有可加入的對象。',
-    verb: '加到',
+    title: '將這一頁加入其他機器',
+    desc: '目前編輯中的這一頁（含未發布的修改）會加在所選機器現有頁面之後並立即發布，機器原有的頁面、設定與展示頁都不受影響。',
+    noTargetsTitle: '沒有其他機器', noTargetsDesc: '此帳號只有這一台機器，沒有其他可加入的機器。',
+    verb: '加入',
   });
 });
 
 // 「本機複製頁面」（2026-09-08）：把目前這一頁複製一份接在這台機器的最後面，名稱＝原名＋「2」；
 // 只改網頁上的草稿（標記未儲存），按「儲存並發布」才會送到機器。
 $('dupPageBtn').addEventListener('click', () => {
-  if (!state || !page()) return;
+  if (!state || !mainPage()) return;
   if (state.config.pages.length >= MAX_PAGES) return setStatus(`已達 ${MAX_PAGES} 頁上限，無法再複製頁面。`, true);
-  const src = page();
+  const src = mainPage();
   const nextId = Math.max(0, ...state.config.pages.map((p) => p.id || 0)) + 1;
   const copy = JSON.parse(JSON.stringify(src));
   copy.id = nextId;
   copy.name = (src.name || `頁面 ${pageIndex + 1}`) + '2';
   state.config.pages.push(copy);
   pageIndex = state.config.pages.length - 1;
-  selected = null; setDirty(true); render();
-  setStatus(`已複製為「${copy.name}」。儲存並發布後，機器上才會顯示。`);
+  selected = null; subStack = []; setDirty(true); render();
+  setStatus(`已複製為「${copy.name}」，儲存並發布後才會顯示在機器上。`);
 });
 
 /** 批次發布結果 toast：指名每一台（成功清單＋失敗清單）。 */
@@ -2821,7 +3179,7 @@ function pwInput(value, placeholder, onChange) {
   wrap.className = 'pw-wrap';
   const i = txtInput(value, placeholder, onChange, 'password');
   const eye = document.createElement('button');
-  eye.type = 'button'; eye.className = 'pw-eye'; eye.title = '顯示/隱藏密碼';
+  eye.type = 'button'; eye.className = 'pw-eye'; eye.title = '顯示或隱藏密碼';
   eye.innerHTML = '<i data-lucide="eye"></i>';
   eye.onclick = () => {
     const show = i.type === 'password';
@@ -2835,7 +3193,7 @@ function pwInput(value, placeholder, onChange) {
 }
 
 function chatApiCard(ctx) {
-  return settingsCard('智能客服 API', ['與機器上「設定 → 智能客服 API」相同；儲存發布後同步到機器。'], (g, foot) => {
+  return settingsCard('智能客服 API', ['與機器上的「設定 → 智能客服 API」相同，儲存並發布後會同步到機器。'], (g, foot) => {
     const c = ctx.cfg.chatApi;
     g.appendChild(field('伺服器位址',
       txtInput(c ? c.baseUrl : DEFAULT_CHAT_BASE, DEFAULT_CHAT_BASE, (v) => {
@@ -2850,7 +3208,7 @@ function chatApiCard(ctx) {
       pwInput(c ? c.password : '', 'JustAI 帳號密碼', (v) => {
         ensureChatApi(ctx.cfg).password = v; ctx.markDirty();
       }),
-      c && c.password ? '已設定，重打即覆蓋' : ''));
+      c && c.password ? '已設定，重新輸入即可覆蓋。' : ''));
     // 左下＝申請帳號連結（另開分頁）；右下＝tiri 文字鈕（同對話框「建立」樣式）
     const apply = document.createElement('a');
     apply.className = 'foot-link';
@@ -2888,8 +3246,8 @@ function speakRateControl(cur, onChange) {
  * 規則同 App PinSheet：只收數字、最長 8 碼；空白＝機器端用預設 PIN 0000。 */
 function pinCard(ctx) {
   return settingsCard('管理 PIN', [
-    '在機器畫面上長按或點角落進入管理畫面時要輸入的 PIN，與機器上「設定 → 管理 PIN」相同。',
-    '只能輸入數字，最長 8 碼；留空＝使用預設 PIN 0000。',
+    '在機器畫面上長按或點按角落進入管理畫面時需輸入的 PIN，與機器上的「設定 → 管理 PIN」相同。',
+    '僅限數字，最多 8 碼，留空則使用預設 PIN 0000。',
   ], (g) => {
     const cur = typeof ctx.cfg.adminPin === 'string' ? ctx.cfg.adminPin : '';
     const wrap = pwInput(cur, '4～8 位數字', (v) => {
@@ -2923,8 +3281,8 @@ function idleReturnLabel(sec) {
 }
 function idleCard(ctx) {
   return settingsCard('閒置返回', [
-    '訪客在智能客服、園區資訊或網頁頁多久沒有觸碰，就自動回到展示畫面；App 與網頁播放頁都照這個值。',
-    `預設 ${IDLE_RETURN_DEFAULT_SEC} 秒。選「永不」訪客頁會一直停留，直到有人手動回到展示畫面。`,
+    '訪客在智能客服、園區資訊或網頁畫面閒置超過這段時間，就會自動回到展示畫面，App 與網頁播放頁皆適用。',
+    `預設為 ${IDLE_RETURN_DEFAULT_SEC} 秒，選擇「永不」時會停留在訪客畫面，直到有人手動回到展示畫面。`,
   ], (g) => {
     const raw = Number(ctx.cfg.idleReturnSec);
     const cur = raw === IDLE_RETURN_NEVER || raw >= 10 ? raw : IDLE_RETURN_DEFAULT_SEC;
@@ -2943,20 +3301,20 @@ function idleCard(ctx) {
 
 async function testChatApi(holder) {
   const c = holder.chatApi;
-  if (!c || !c.baseUrl || !c.email || !c.password) return setStatus('請填寫伺服器位址、Email 和密碼後再測試連線。', true);
+  if (!c || !c.baseUrl || !c.email || !c.password) return setStatus('請先填寫伺服器位址、Email 和密碼，再測試連線。', true);
   try {
     const list = await api('POST', '/api/justai/agents', { baseUrl: c.baseUrl, email: c.email, password: c.password });
     agentCache = { key: agentKeyOf(c), list, loading: false, error: '' };
-    setStatus(`連線成功。已載入 ${list.length} 個客服，可在版面的格子中選用。`);
-  } catch (e) { setStatus('連線測試未成功。' + e.message, true); }
+    setStatus(`連線成功，已載入 ${list.length} 個客服，可在版面的格子中選用。`);
+  } catch (e) { setStatus('無法連線到智能客服。' + e.message, true); }
 }
 
 /* 休眠卡（2026-09-03 再改版＝共用版面同邏輯）：卡片只放固定 7 列清單（高度不再跳動），
  * 逐日的實際設定在「編輯」跳出的 modal 裡做；「每日相同」由 modal 的「套用到每天」取代。 */
 function sleepCard(ctx) {
   return settingsCard('休眠時段', [
-    '休眠時停止播放並顯示黑畫面；儲存發布後同步到機器（機器按「開始展示」後套用）。',
-    '時段的開始時間晚於結束時間＝跨午夜，結束時間為隔日。',
+    '休眠時會停止播放並顯示黑畫面，儲存並發布後會同步到機器，並於機器按下「開始展示」後套用。',
+    '開始時間晚於結束時間時視為跨午夜，結束時間為隔日。',
   ], (g) => {
     const s = ctx.cfg.sleep || { enabled: false, sameEveryDay: false, periods: [] };
     const top = document.createElement('div');
@@ -3037,7 +3395,7 @@ function sleepDayDialog(label, period) {
     chkRow.className = 'sleep-edit-check';
     const chk = document.createElement('input');
     chk.type = 'checkbox'; chk.className = 'b-switch'; chk.checked = !!p;
-    chkRow.append(chk, document.createTextNode('這一天要休眠'));
+    chkRow.append(chk, document.createTextNode('這一天啟用休眠'));
     body.appendChild(chkRow);
 
     const timeRow = document.createElement('div');
@@ -3207,8 +3565,8 @@ async function renderSharedLayoutView() {
     tb.innerHTML =
       '<tr><td colspan="5"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="layout-template"></i></span>' +
-      '<p class="b-empty-title">還沒有任何版面</p>' +
-      '<p class="b-empty-sub">' + (meIsAdmin ? '點右上角「新增版面」開始設計，之後可以把版面加到任何機器。' : '請管理員先在這裡新增版面，之後就能把版面加入機器。') + '</p>' +
+      '<p class="b-empty-title">尚未建立版面</p>' +
+      '<p class="b-empty-sub">' + (meIsAdmin ? '按一下右上角的「新增版面」開始設計，之後即可將版面加入任何機器。' : '管理員新增版面後，即可將版面加入機器。') + '</p>' +
       '</div></td></tr>';
     if (window.lucide) lucide.createIcons();
     return;
@@ -3260,7 +3618,7 @@ let thumbPreview = null; // { rerender, close }
 /** 讓縮圖可點開預覽：hover 微放大（CSS .is-zoomable），點擊開 overlay。 */
 function makeThumbZoomable(thumbEl, getData) {
   thumbEl.classList.add('is-zoomable');
-  thumbEl.title = '點擊放大預覽';
+  thumbEl.title = '按一下以放大預覽';
   thumbEl.addEventListener('click', (e) => {
     e.stopPropagation();
     if (thumbPreview) return;
@@ -3371,7 +3729,7 @@ function sharedLayoutThumb(layout) {
 async function addSharedLayout() {
   if (!(await ensureSharedLoaded())) return;
   const name = await BDialog.prompt({
-    title: '新增版面', desc: '為這個版面取個名字。',
+    title: '新增版面', desc: '請輸入這個版面的名稱。',
     placeholder: '例如：週年慶活動', confirmText: '建立',
   });
   if (name === null) return;
@@ -3403,7 +3761,7 @@ async function renameSharedLayout(layout) {
 async function deleteSharedLayout(layout) {
   const ok = await BDialog.confirm({
     title: `刪除版面「${layout.name || '未命名版面'}」？`,
-    desc: '只刪除這裡的範本；已加到機器上的頁面不受影響。',
+    desc: '只會刪除此處的範本，已加入機器的頁面不受影響。',
     variant: 'danger', confirmText: '刪除',
   });
   if (!ok) return;
@@ -3421,10 +3779,10 @@ async function applySharedLayout(layout) {
   const name = layout.name || '未命名版面';
   await appendPagesToDevices({
     pages: layout.pages, screen: layout.screen, fallbackName: layout.name || '', layoutId: layout.id,
-    title: `把「${name}」加入機器`,
-    desc: '會把這個版面加成所選機器的新頁面（接在現有頁面後面）並立即發布；機器原有的頁面與設定都不會被改動。',
-    noTargetsTitle: '沒有機器', noTargetsDesc: '目前帳號下沒有任何機器。',
-    verb: `把「${name}」加入`,
+    title: `將「${name}」加入機器`,
+    desc: '這個版面會加入為所選機器的新頁面（位於現有頁面之後）並立即發布，機器原有的頁面與設定都不受影響。',
+    noTargetsTitle: '沒有機器', noTargetsDesc: '此帳號目前沒有任何機器。',
+    verb: `將「${name}」加入`,
   });
 }
 
@@ -3511,15 +3869,1081 @@ function lockSettingsCard(card) {
   card.querySelector('.card-title-wrap').appendChild(badge);
 }
 
+// ---------- 共用設定 › 園區測站（2026-10-20 user：一套系統多場域用，什麼都不寫死）----------
+// 一張卡（2026-10-20 晚 user 重排）：上排＝測站頁籤（tiri 收件匣那種、切換有滑動指示塊），左＝這一站的照片／說明／看更多，
+// 右＝園區地圖（這一站的點亮起；按「編輯位置」才能動，而且只能動這一站的點；也在這裡上傳／更換地圖圖片）。
+// 頁首只有「資料來源」按鈕（測站 API，在 modal 裡設）。全部存共用設定 shared.parkInfo＝{ api, map: { src, w, h }, stations: { 代號: { name, photos, desc, link, x, y } } }，
+// 伺服器整理過後隨 /version、/wait、/config 發給機器與播放頁——整個場域共用、改了機器約一分鐘內更新，不用套用到機器。
+// 卡片右下角的「儲存」＝存這一站（照片、說明、連結、地圖位置，換過地圖圖片也一起）；有沒存的修改時換站、離開這頁都會先問。限管理員修改（伺服器也擋）。
+const PARK_MAX_PHOTOS = 6, PARK_DESC_MAX = 400;
+let parkSel = '';          // 目前這一站（頁籤）
+let parkStations = null;   // 測站 API 讀到的站（{ id, name, online }）；null＝還沒抓、[]＝抓不到
+let parkStationsLoading = false;
+let parkStationsErr = '';  // 讀已儲存的資料來源失敗的原因（空狀態判斷、連線狀態面板用）
+let parkDraft = null;      // 正在改的那一站：{ id, e: { photos, desc, link }, pos: [x, y] | null, map: { src, w, h } | null }
+let parkUploading = 0;     // 上傳中的批次數：傳到一半也算「還沒存」
+let parkSaving = false;
+let parkRedrawPhotos = null;
+let parkUploadSeq = 0;     // 捨棄時加一：還在傳的那批回來也不會再塞進草稿
+let parkPlacing = false;   // 地圖「編輯位置」開著：這一站的點可以拖、點地圖＝把它移過去
+let parkPlaceSnap = null;  // 按「編輯位置」（或更換地圖）那時候的位置與地圖：地圖下方的「取消」退回這裡
+let parkBarFx = '';        // 'enter'＝下一次畫地圖按鈕列時播「編輯位置 → 完成」進場動畫（只播一次，之後重畫不再播）
+let parkBarBusy = false;   // 退場動畫播放中（約 0.24 秒）：不接受第二下
+// 更換地圖中（user 2026-10-21：原本在地圖上的站全部放好才套用到機器）：{ map, from, need, pos }
+//   map＝新地圖、from＝目前已儲存的地圖（沒有＝第一次上傳）、need＝原本在地圖上的站、
+//   pos＝新地圖上的位置（沒有這個 key＝還沒處理，null＝不放在新地圖上）。只在後台，換站不會不見，按「套用新地圖」才存
+let parkMapSwap = null;
+const parkNoMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let parkApiDraft = null;   // 資料來源 modal 的輸入框（跟已儲存的不同才算修改）；null＝沒動
+let parkApiTest = null;    // 測試連線結果：{ url, list } 或 { url, error }
+
+const parkSavedInfo = () => {
+  const p = (shared && shared.parkInfo) || {};
+  return { api: p.api || '', map: p.map || null, stations: p.stations || {}, home: p.home || null };
+};
+const parkSavedOf = (id) => {
+  const e = parkSavedInfo().stations[id];
+  return e ? { photos: [...(e.photos || [])], desc: e.desc || '', descRich: e.descRich || '', link: e.link || '' } : { photos: [], desc: '', descRich: '', link: '' };
+};
+const parkSavedPos = (id) => { const e = parkSavedInfo().stations[id]; return e && e.x != null && e.y != null ? [e.x, e.y] : null; };
+/** 這一站已儲存的樣子（介紹、位置，連同場域的地圖） */
+const parkBase = (id) => ({ e: parkSavedOf(id), pos: parkSavedPos(id), map: parkSavedInfo().map });
+/** 這一站目前的樣子（正在改的就是草稿） */
+const parkCur = (id) => (parkDraft && parkDraft.id === id ? parkDraft : parkBase(id));
+const parkEntry = (id) => parkCur(id).e;
+// 介紹：有簡易格式就比格式，沒有就比純文字（舊資料只有 desc，打開編輯器沒改就不算修改）
+const parkDescKey = (e) => e.descRich || e.desc || '';
+const parkSame = (a, b) => JSON.stringify([a.e.photos, parkDescKey(a.e), String(a.e.link || '').trim(), a.pos, a.map])
+  === JSON.stringify([b.e.photos, parkDescKey(b.e), String(b.e.link || '').trim(), b.pos, b.map]);
+const parkChanged = () => !!parkDraft && !parkSame(parkDraft, parkBase(parkDraft.id));
+const parkApiChanged = () => parkApiDraft !== null && parkApiDraft.trim() !== parkSavedInfo().api;
+const parkBusy = () => parkChanged() || parkUploading > 0;
+/** 地圖區要畫的地圖與這一站的位置：更換地圖中＝新地圖與新位置，平常＝這一站目前的樣子（草稿或已儲存） */
+const parkMapOf = (id) => (parkMapSwap ? { map: parkMapSwap.map, pos: parkMapSwap.pos[id] || null } : { map: parkCur(id).map, pos: parkCur(id).pos });
+/** 更換地圖：還沒處理的站（原本在地圖上，新地圖還沒放、也沒按「從地圖移除」） */
+const parkSwapTodo = () => (parkMapSwap ? parkMapSwap.need.filter((id) => !(id in parkMapSwap.pos)) : []);
+/** 卡片右下角「● 尚有修改未儲存」＋儲存鈕（同工作區底部欄）。 */
+function setParkDirty() {
+  parkSyncFoot($('parkDirtyNote'), $('parkCancelBtn'), $('parkSaveBtn'));
+}
+/** 動作列三個元件照目前狀態設定（建立時也先套好：以前先建成「可以按」再變灰，中間量地圖寬度時套到顏色，儲存鈕會閃一下） */
+function parkSyncFoot(note, cancel, save) {
+  const v = parkChanged();
+  if (save) save.disabled = !v || parkSaving || parkUploading > 0;
+  const swapNote = !v && !!parkMapSwap; // 新地圖還沒套用（地圖上方的「套用新地圖」才會存）
+  if (note) { note.textContent = v ? '尚有修改未儲存' : swapNote ? '新地圖尚未套用' : ''; note.classList.toggle('is-on', v || swapNote); note.classList.remove('is-plain'); }
+  if (cancel) cancel.hidden = !v && !parkUploading;
+}
+/** 改這一站（fn 拿到介紹 e 與整份草稿 d：d.pos 位置、d.map 地圖） */
+function parkEdit(id, fn) {
+  if (!parkDraft || parkDraft.id !== id) parkDraft = { id, ...JSON.parse(JSON.stringify(parkBase(id))) };
+  fn(parkDraft.e, parkDraft);
+  setParkDirty();
+  if (parkPaneTab === 'preview') parkRefreshPreview(); // 資訊卡預覽跟著即時更新
+}
+const parkLinkOk = (v) => !String(v || '').trim() || /^https?:\/\/\S+$/.test(String(v).trim());
+/** 打字途中還沒打完的 http(s):// 不算錯（例如才打到「htt」），真的不對才提示 */
+const parkLinkMaybe = (v) => { const t = String(v || '').trim().toLowerCase(); return parkLinkOk(t) || 'https://'.startsWith(t) || 'http://'.startsWith(t); };
+/** 測站清單＝測站 API 讀到的站＋已經存過資料的站，照代號排；名稱以 API 的為準，讀不到就用存下來的。 */
+function parkList() {
+  const out = new Map();
+  for (const s of parkStations || []) out.set(s.id, { id: s.id, name: s.name && s.name !== s.id ? s.name : '', online: s.online });
+  for (const [id, e] of Object.entries(parkSavedInfo().stations)) {
+    const o = out.get(id);
+    if (o) { if (!o.name) o.name = e.name || ''; } else out.set(id, { id, name: e.name || '', online: null });
+  }
+  return [...out.values()].sort((a, b) => a.id.localeCompare(b.id, 'zh-Hant', { numeric: true }));
+}
+const parkLabel = (s) => (s.name ? `${s.id}　${s.name}` : s.id);
+function loadParkStations() {
+  if (parkStationsLoading) return;
+  if (!PARK_API) { parkStations = []; parkStationsErr = ''; return; }
+  parkStationsLoading = true;
+  api('GET', `/api/station/current?url=${encodeURIComponent(PARK_API)}`)
+    .then((root) => { parkStations = parseStations(root); parkStationsErr = ''; })
+    .catch((e) => { parkStations = []; parkStationsErr = e.message === 'no stations' ? '此網址未提供測站資料，請確認網址是否正確。' : e.message; })
+    .finally(() => { parkStationsLoading = false; if (!$('parkInfoView').classList.contains('hidden')) renderParkInfoView(); parkConnRefresh(); });
+}
+
+/** 存 parkInfo：以已儲存的為底套上 mutate，順手把測站 API 讀到的名稱抄進去（機器端 API 連不上也有名字）。成功回 true。 */
+async function parkPut(mutate, failMsg) {
+  const cur = parkSavedInfo();
+  const next = { api: cur.api, map: cur.map, stations: JSON.parse(JSON.stringify(cur.stations)), ...(cur.home ? { home: cur.home } : {}) };
+  mutate(next);
+  for (const s of parkStations || []) if (next.stations[s.id] && s.name && s.name !== s.id) next.stations[s.id].name = s.name;
+  for (const [id, e] of Object.entries(next.stations)) { // 沒內容又不在地圖上的站不留（跟伺服器 normParkInfo 同規則）
+    if (!(e.photos || []).length && !(e.desc || '').trim() && !(e.link || '').trim() && e.x == null) delete next.stations[id];
+  }
+  parkSaving = true;
+  setParkDirty();
+  try {
+    await api('PUT', '/api/shared-settings', { settings: { ...shared, parkInfo: next } });
+    shared.parkInfo = next;
+    return true;
+  } catch (e) {
+    BToast.danger(failMsg + e.message);
+    return false;
+  } finally {
+    parkSaving = false;
+    setParkDirty();
+  }
+}
+/** 存這一站：照片、說明、連結、地圖位置；連結不對就不存；別站一律照已儲存的送（換地圖另外按「套用新地圖」，parkApplySwap） */
+async function saveParkStation() {
+  if (!parkChanged() || parkSaving || parkUploading || !meIsAdmin) return;
+  const d = parkDraft, id = d.id, e = d.e;
+  if (!parkLinkOk(e.link)) {
+    const err = $('parkBody').querySelector('.park-err');
+    if (err) err.hidden = false;
+    BToast.show('無法儲存這一站。', 'danger', { desc: '「看更多連結」必須以 http:// 或 https:// 開頭。' });
+    return;
+  }
+  if (String(e.desc || '').length > PARK_DESC_MAX) {
+    BToast.show('無法儲存這一站。', 'danger', { desc: `介紹超過 ${PARK_DESC_MAX} 字，請精簡後再儲存。` });
+    return;
+  }
+  const name = parkList().find((s) => s.id === id)?.name || '';
+  const ok = await parkPut((next) => {
+    const st = { ...(next.stations[id] || {}), photos: e.photos.slice(0, PARK_MAX_PHOTOS), desc: String(e.desc || '').slice(0, PARK_DESC_MAX), link: String(e.link || '').trim() };
+    if (String(e.descRich || '').trim()) st.descRich = String(e.descRich).slice(0, 1500); else delete st.descRich; // 簡易格式；desc 是同一段的純文字版（舊版 App 用）
+    if (d.pos) { st.x = d.pos[0]; st.y = d.pos[1]; } else { delete st.x; delete st.y; }
+    next.stations[id] = st;
+  }, `無法儲存 ${id}。`);
+  if (!ok) return;
+  parkDraft = null; parkPlacing = false; parkPlaceSnap = null;
+  BToast.show(name ? `已儲存 ${id} ${name}。` : `已儲存 ${id}。`, 'success', { desc: '機器會在一分鐘內更新。' });
+  renderParkInfoView();
+}
+/** 資料來源（modal 的儲存）：存測站 API（清空＝這個場域沒有測站），存好關掉 modal */
+async function saveParkApi() {
+  if (!parkApiChanged() || parkSaving || !meIsAdmin) return;
+  const v = parkApiDraft.trim();
+  if (v && !/^https?:\/\/\S+$/.test(v)) {
+    BToast.show('無法儲存資料來源。', 'danger', { desc: '網址必須以 http:// 或 https:// 開頭。' });
+    return;
+  }
+  if (v) {
+    // 存之前先確認讀得到測站（2026-10-20：曾經把後台網址誤貼成資料來源，存了才發現連線失敗）
+    let list = parkApiTest && parkApiTest.url === v ? parkApiTest.list || null : null;
+    let why = parkApiTest && parkApiTest.url === v ? parkApiTest.error || '' : '';
+    if (!list && !why) {
+      parkSaving = true; syncParkSrcSave();
+      try { list = parseStations(await api('GET', `/api/station/current?url=${encodeURIComponent(v)}`)); parkApiTest = { url: v, list }; }
+      catch (e) { why = e.message === 'no stations' ? '此網址未提供測站資料。' : e.message; parkApiTest = { url: v, error: why }; }
+      finally { parkSaving = false; syncParkSrcSave(); parkConnRefresh(); }
+    }
+    if (!list || !list.length) {
+      const go = await BDialog.confirm({ title: '無法從這個網址讀取測站資料', desc: `${why || '可以連線，但沒有讀取到任何測站。'}\n請確認貼上的是測站平台的網址，仍要儲存嗎？`, confirmText: '仍要儲存' });
+      if (!go) return;
+    }
+  }
+  const ok = await parkPut((next) => { next.api = v; }, '無法儲存資料來源。');
+  syncParkSrcSave();
+  if (!ok) return;
+  PARK_API = v;
+  if (connInfo) connInfo.parkApi = v;
+  const tested = parkApiTest && parkApiTest.url === v && parkApiTest.list ? parkApiTest.list : null; // 剛測過就不用再抓一次
+  parkApiDraft = null; parkApiTest = null;
+  parkStations = v ? tested : []; parkStationsErr = '';
+  BModal.close('#parkSourceModal');
+  BToast.show(v ? '已儲存測站資料來源。' : '已清除測站資料來源。', 'success', { desc: v ? '機器會在一分鐘內更新。' : '版面中的「園區資訊」與「園區測站」格子會顯示為灰色，設定仍會保留。' });
+  renderParkInfoView();
+}
+/** 換站或離開這頁之前：有沒存的修改（或照片還在上傳）先問，捨棄＝草稿全部丟掉。回 true＝可以走。
+ *  page＝離開這一頁：新地圖還沒套用也要問（換站不用，新地圖跟著留著） */
+async function confirmParkLeave(page) {
+  if (parkBusy()) {
+    const what = parkUploading ? '照片仍在上傳，修改也尚未儲存' : `${parkDraft.id} 的修改尚未儲存`;
+    const ok = await BDialog.confirm({ title: '有尚未儲存的修改', desc: `${what}，要捨棄嗎？`, variant: 'danger', confirmText: '捨棄' });
+    if (!ok) return false;
+    parkUploading = 0; parkUploadSeq++;
+  }
+  if (page && parkMapSwap) {
+    const ok = await BDialog.confirm({ title: '新地圖尚未套用', desc: `離開這一頁會捨棄新地圖。\n${parkMapSwap.from ? '機器會繼續顯示目前的地圖。' : '這個場域仍不會有園區地圖。'}`, variant: 'danger', confirmText: '捨棄' });
+    if (!ok) return false;
+    parkMapSwap = null;
+  }
+  parkDraft = null; parkPlacing = false; parkPlaceSnap = null;
+  return true;
+}
+
+/** 頁首右邊：〔更換地圖〕〔資料來源〕（高度與內距同機器總覽頁首按鈕；資料來源＝主題色底白字、開 modal）。
+ *  更換地圖（2026-10-20 user：放資料來源左邊）只在畫面上有測站可以編輯、這個場域已經有地圖時出現（還沒地圖＝地圖區的「上傳地圖」） */
+function renderParkHeader(canChangeMap) {
+  const head = $('parkInfoView').querySelector('.page-header');
+  let acts = head.querySelector('.page-actions');
+  if (!acts) { acts = document.createElement('div'); acts.className = 'page-actions'; head.appendChild(acts); }
+  acts.innerHTML = '';
+  if (canChangeMap) {
+    const m = parkEl('button', 'b-btn', '更換地圖');
+    m.type = 'button'; m.id = 'parkMapBtn';
+    m.onclick = parkPickMap;
+    acts.append(m);
+  }
+  const src = parkEl('button', 'b-btn b-btn-primary', '資料來源');
+  src.type = 'button'; src.id = 'parkSourceBtn';
+  src.onclick = openParkSource;
+  acts.append(src);
+}
+
+async function renderParkInfoView() {
+  const body = $('parkBody');
+  if (!(await ensureSharedLoaded())) return;
+  PARK_API = parkSavedInfo().api;
+  if (PARK_API && parkStations === null) loadParkStations();
+  const hasMap = renderParkPage(body);
+  renderParkHeader(hasMap && meIsAdmin);
+  setParkDirty();
+  if (window.BDropdown) BDropdown.init(body);
+  if (window.lucide) lucide.createIcons({ nodes: [body] });
+}
+
+const parkEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+/** 空狀態卡（撐滿寬高、內容置中，同其他頁的空表格）；action＝[文字, onClick]；danger＝紅色圖示與紅色動作（連線失敗） */
+function parkEmpty(icon, title, action, danger) {
+  const card = parkEl('div', 'b-card park-empty' + (danger ? ' is-danger' : ''));
+  const em = parkEl('div', 'b-empty');
+  em.innerHTML = `<span class="b-empty-icon"><i data-lucide="${icon}"></i></span><p class="b-empty-title"></p>`;
+  em.querySelector('.b-empty-title').textContent = title;
+  if (action) { const b = parkEl('button', 'b-btn b-btn-text' + (danger ? ' b-btn-text-danger' : ''), action[0]); b.type = 'button'; b.onclick = action[1]; em.appendChild(b); }
+  card.appendChild(em);
+  return card;
+}
+const parkNoSource = () => parkEmpty('radio-tower', '尚未設定測站資料來源', meIsAdmin ? ['設定資料來源', openParkSource] : null);
+/** 資料來源讀完了但連不上／沒有測站（2026-10-20 user：照目前的連線狀態，連線失敗就是空狀態，不列存過的站）。
+ *  紅色＋插頭拔開的動畫（morph-icons.js unplugApart），說明字不放（原因在「資料來源」的連線狀態裡看得到） */
+const parkSourceBroken = () => !!PARK_API && parkStations !== null && !parkStationsLoading && (!!parkStationsErr || !parkStations.length);
+const parkConnFail = () => parkEmpty('unplug', parkStationsErr ? '無法連線到測站資料來源' : '測站資料來源中沒有任何測站',
+  meIsAdmin ? ['設定資料來源', openParkSource] : null, true);
+
+/** 畫整張卡；回 true＝畫出了測站、而且這一站看得到地圖（頁首才放「更換地圖」） */
+function renderParkPage(body) {
+  if (parkMapRO) { parkMapRO.disconnect(); parkMapRO = null; }
+  parkTipHide();
+  body.innerHTML = '';
+  if (!PARK_API) { body.append(parkNoSource()); return false; }
+  if (parkSourceBroken()) { body.append(parkConnFail()); return false; }
+  const list = parkList();
+  if (!list.length) { body.append(parkEmpty('radio-tower', '正在讀取測站資料…')); return false; }
+  if (!list.some((s) => s.id === parkSel)) parkSel = list[0].id;
+  const id = parkSel;
+  const s = list.find((x) => x.id === id);
+  const locked = !meIsAdmin;
+  const card = parkEl('div', 'b-card settings-card park-card');
+
+  // 上排：一站一個頁籤（tiri 收件匣的頂部標籤）＋ segment 的滑動指示塊；換站前有沒存的修改先問，取消就跳回原本那一站
+  const todo = parkSwapTodo();
+  const tabs = segRow(list.map((x) => ['', x.id === id, async () => {
+    if (!(await confirmParkLeave())) { renderParkInfoView(); return; }
+    parkSel = x.id;
+    renderParkInfoView();
+  }]));
+  tabs.classList.add('park-st-tabs');
+  tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '測站');
+  tabs.querySelectorAll('.seg').forEach((b, i) => {
+    const x = list[i];
+    b.type = 'button'; b.dataset.id = x.id;
+    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(x.id === id));
+    b.append(parkEl('b', null, x.id));
+    if (x.name) b.append(parkEl('span', null, x.name));
+    if (todo.includes(x.id)) { b.classList.add('is-todo'); b.title = '尚未放到新地圖上'; } // 更換地圖中：還沒處理的站
+  });
+  const goto = (sid) => tabs.querySelector(`.seg[data-id="${CSS.escape(sid)}"]`)?.click(); // 點地圖上別站的點＝換到那一站（同點頁籤）
+  card.appendChild(tabs);
+
+  const main = parkEl('div', 'park-card-body');
+  const g = parkEl('div', 'settings-fields park-form');
+  const pane = parkEl('div', 'park-map-pane');
+  main.append(g, pane);
+  card.appendChild(main);
+
+  // 左：分區（照片／介紹／看更多連結），每區一個小標題、區與區之間一條細線（user 2026-10-21：原本太陽春）
+  const sec = (title, meta) => {
+    const d = parkEl('section', 'park-sec');
+    const h = parkEl('div', 'park-sec-head');
+    h.appendChild(parkEl('h4', 'park-sec-title', title));
+    if (meta) h.appendChild(meta);
+    d.appendChild(h);
+    g.appendChild(d);
+    return d;
+  };
+  const photoMeta = parkEl('span', 'park-sec-meta');
+  const photos = parkEl('div', 'park-photos');
+  const drawPhotos = () => {
+    photos.innerHTML = '';
+    const list2 = parkEntry(id).photos;
+    photoMeta.textContent = `${list2.length} / ${PARK_MAX_PHOTOS}`;
+    list2.forEach((uri, i) => {
+      const t = parkEl('div', 'park-photo');
+      const img = document.createElement('img'); img.src = mediaSrc(uri); img.alt = `照片 ${i + 1}`; img.loading = 'lazy';
+      t.appendChild(img);
+      if (i === 0) t.appendChild(parkEl('span', 'park-photo-first', '第一張'));
+      if (!locked) {
+        const del = parkEl('button'); del.type = 'button'; del.innerHTML = SVG_X; del.title = '移除這張'; del.setAttribute('aria-label', `移除照片 ${i + 1}`);
+        del.onclick = () => { parkEdit(id, (e) => { e.photos.splice(i, 1); }); drawPhotos(); };
+        t.appendChild(del);
+      }
+      photos.appendChild(t);
+    });
+    if (!locked && list2.length < PARK_MAX_PHOTOS) {
+      const add = parkEl('button', 'park-photo-add'); add.type = 'button';
+      add.innerHTML = `${SVG_PLUS}<span>上傳照片</span>`;
+      add.onclick = () => {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+        input.onchange = async () => {
+          const files = [...input.files].slice(0, PARK_MAX_PHOTOS - parkEntry(id).photos.length);
+          if (!files.length) return;
+          const seq = parkUploadSeq;
+          parkUploading++; setParkDirty();
+          try {
+            await uploadWithToast(files, {
+              noun: '照片', unit: '張',
+              onEach: (r) => {
+                if (seq !== parkUploadSeq) return; // 已經捨棄這一站的修改
+                parkEdit(id, (e) => { e.photos.push(r.url); });
+                if (parkRedrawPhotos) parkRedrawPhotos(id);
+              },
+            });
+          } finally {
+            if (seq === parkUploadSeq) { parkUploading = Math.max(0, parkUploading - 1); setParkDirty(); }
+          }
+        };
+        input.click();
+      };
+      photos.appendChild(add);
+    }
+  };
+  parkRedrawPhotos = (sid) => { if (sid === id && photos.isConnected) drawPhotos(); };
+  drawPhotos();
+  sec('照片', photoMeta).append(photos, hint(`最多 ${PARK_MAX_PHOTOS} 張，展示機依序輪播，建議使用橫式（16:9）照片。`));
+
+  // 介紹：簡易格式編輯器（粗體、小標題、條列、連結），固定高度、內容多了在框裡捲（user：不要讓使用者拉伸）
+  const count = parkEl('span', 'park-sec-meta park-count');
+  const secDesc = sec('介紹', count);
+  secDesc.appendChild(parkRichEditor(id, locked, (n) => { count.textContent = `${n} / ${PARK_DESC_MAX}`; count.classList.toggle('is-over', n > PARK_DESC_MAX); }));
+  secDesc.appendChild(hint('可使用粗體、小標題、條列與連結，展示機會以統一的字型與大小顯示。'));
+
+  const linkErr = parkEl('p', 'hint park-err', '網址必須以 http:// 或 https:// 開頭。');
+  const link = txtInput(parkEntry(id).link, 'https://…（選填）', (v) => {
+    linkErr.hidden = parkLinkMaybe(v);
+    parkEdit(id, (e) => { e.link = v; });
+  }, 'url');
+  link.id = 'parkLink';
+  link.disabled = locked;
+  link.addEventListener('blur', () => { linkErr.hidden = parkLinkOk(link.value); });
+  linkErr.hidden = parkLinkOk(link.value);
+  sec('看更多連結').append(link, linkErr, hint('填寫後會顯示「看更多」，訪客點選即可在園區資訊頁中開啟這個網頁。'));
+
+  // 右：園區地圖（寬度跟著地圖圖片的比例，四周留白一樣寬）
+  const ar = parkMapPane(pane, list, s, locked, goto);
+
+  // 右下角（上面一條分隔線）：「● 尚有修改未儲存」＋取消（有修改才出現，捨棄這一站全部沒存的修改）＋儲存；一般帳號只看得到「限管理員」
+  const foot = parkEl('div', 'settings-foot');
+  if (locked) foot.appendChild(Object.assign(parkEl('span', 'b-badge neutral settings-lock-badge'), { textContent: '限管理員' }));
+  else parkFootSave(foot);
+  card.appendChild(foot);
+  body.append(card);
+  parkFitMap(main, pane, ar);
+  if (parkShowPreviewSoon) { parkShowPreviewSoon = false; parkShowPreview(false); }
+  requestAnimationFrame(() => tabs.querySelector('.seg.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); // 站多到要橫捲時，目前這一站捲進來
+  return !!ar;
+}
+/** 右半邊要看哪一個（2026-10-21 user）：'map'＝園區地圖、'preview'＝資訊卡預覽（這一站在展示機上滑下來的樣子，邊改邊看） */
+let parkPaneTab = 'map';
+/** 資訊卡預覽：照網頁播放頁 fillParkSheet 的版型（照片輪播的第一張＋點點、名稱、介紹、看更多），用 --ps 等比縮小；
+ *  介紹有簡易格式就照格式畫（ParkRich.toHtml），沒有就是純文字 */
+function parkPreviewFill(sheet, id, name) {
+  const e = parkEntry(id);
+  sheet.replaceChildren();
+  // 內容在 .park-pv-body 裡捲，「查看更多」固定在底部（.park-pv-foot，同展示機）
+  const box = parkEl('div', 'park-pv-body');
+  sheet.appendChild(box);
+  const photos = (e.photos || []).filter(Boolean);
+  if (photos.length) {
+    // 照片滿寬，比例跟第一張照片（4:3～21:9，同展示機）
+    const ph = parkEl('div', 'park-pv-photo');
+    const img = document.createElement('img'); img.src = mediaSrc(photos[0]); img.alt = ''; img.draggable = false;
+    const fit = () => { if (img.naturalWidth && img.naturalHeight) ph.style.aspectRatio = String(Math.min(21 / 9, Math.max(4 / 3, img.naturalWidth / img.naturalHeight))); };
+    if (img.complete) fit(); else img.addEventListener('load', fit, { once: true });
+    ph.appendChild(img);
+    if (photos.length > 1) {
+      const dots = parkEl('div', 'park-pv-dots');
+      photos.forEach((_, i) => dots.appendChild(parkEl('span', i ? '' : 'on')));
+      ph.appendChild(dots);
+    }
+    box.appendChild(ph);
+  }
+  // 站名在展示機的頂欄、✕ 也是頂欄的返回鈕（user 2026-10-21），卡裡不再重複
+  const md = e.descRich || '';
+  if (md.trim()) { const d = parkEl('div', 'park-pv-desc park-rich-view'); d.innerHTML = ParkRich.toHtml(md); box.appendChild(d); }
+  else if (String(e.desc || '').trim()) box.appendChild(parkEl('div', 'park-pv-desc is-plain', e.desc));
+  const hasLink = !!String(e.link || '').trim();
+  if (!photos.length && !md.trim() && !String(e.desc || '').trim()) box.appendChild(parkEl('p', 'park-pv-empty', '這一站尚未填寫介紹，展示機上不會出現資訊卡。'));
+  if (hasLink) {
+    const foot = parkEl('div', 'park-pv-foot');
+    foot.appendChild(Object.assign(parkEl('div', 'park-pv-more'), { innerHTML: '查看更多<i data-lucide="chevron-right"></i>' }));
+    sheet.appendChild(foot);
+  }
+  sheet.classList.toggle('has-foot', hasLink);
+  if (window.lucide) lucide.createIcons({ nodes: [sheet] });
+}
+function parkPreview(s) {
+  // 後面放這張園區地圖＋半透明遮罩，資訊卡從上方蓋下來（同展示機），大小跟地圖那一面一樣（user 2026-10-21：原本上重下輕）
+  const cur = parkCur(s.id);
+  const wrap = parkEl('div', 'park-pv');
+  const screen = parkEl('div', 'park-pv-screen');
+  screen.style.setProperty('--ar', cur.map ? `${cur.map.w} / ${cur.map.h}` : '9 / 16');
+  if (cur.map) { const img = document.createElement('img'); img.src = mediaSrc(cur.map.src); img.alt = ''; img.draggable = false; screen.appendChild(img); }
+  screen.appendChild(parkEl('div', 'park-pv-scrim'));
+  const sheet = parkEl('div', 'park-pv-sheet');
+  sheet.dataset.id = s.id; sheet.dataset.name = s.name || s.id;
+  parkPreviewFill(sheet, s.id, s.name || s.id);
+  screen.appendChild(sheet);
+  wrap.appendChild(screen);
+  return wrap;
+}
+/** 資訊卡預覽（user 2026-10-21：同一張地圖，切到預覽＝資訊卡像 App 一樣從上方掉下來、後面蓋半透明遮罩；切回地圖＝往上收回去）。
+ *  蓋在地圖圖片上的一層；只能用上方的〔地圖｜資訊卡預覽〕收起，點遮罩、點地圖都沒有作用（user 2026-10-21）。還沒有地圖就用灰底的直式畫面代替（parkPreview） */
+function parkShowPreview(animate) {
+  const pane = document.querySelector('#parkBody .park-map-pane');
+  if (!pane || !parkPaneCtx) return;
+  pane.querySelectorAll('.park-pv-layer').forEach((x) => x.remove());
+  const host = pane.querySelector('.park-pane-stage .park-map-edit');
+  const { s } = parkPaneCtx;
+  if (!host) { const stage = pane.querySelector('.park-pane-stage'); stage.replaceChildren(parkPreview(s)); if (pane._fit) pane._fit(); return; }
+  const layer = parkEl('div', 'park-pv-layer');
+  const scrim = parkEl('div', 'park-pv-scrim');
+  const sheet = parkEl('div', 'park-pv-sheet');
+  sheet.dataset.id = s.id; sheet.dataset.name = s.name || s.id;
+  parkPreviewFill(sheet, s.id, s.name || s.id);
+  layer.append(scrim, sheet);
+  host.appendChild(layer);
+  if (pane._fit) pane._fit();
+  if (animate) { layer.classList.add('is-entering'); setTimeout(() => layer.classList.remove('is-entering'), 340); }
+}
+function parkHidePreview(animate) {
+  const pane = document.querySelector('#parkBody .park-map-pane');
+  const layer = pane && pane.querySelector('.park-pv-layer:not(.is-leaving)');
+  if (!layer) { if (pane && pane.querySelector('.park-pane-stage > .park-pv')) renderParkInfoView(); return; } // 沒地圖時的灰底預覽：重畫回地圖區
+  if (!animate) { layer.remove(); return; }
+  layer.classList.remove('is-entering');
+  layer.classList.add('is-leaving');
+  setTimeout(() => layer.remove(), 240);
+}
+/** 編輯時即時更新預覽（只換預覽裡的內容，不重畫整頁，游標不會跑掉） */
+function parkRefreshPreview() {
+  const sheet = document.querySelector('#parkBody .park-pv-sheet');
+  if (sheet) parkPreviewFill(sheet, sheet.dataset.id, sheet.dataset.name);
+}
+
+/** 介紹的簡易格式編輯器（user 2026-10-21 選：不做完整 HTML，只有粗體、小標題、條列、連結；展示機的字型、顏色、大小統一由系統控制）。
+ *  直接在框裡看到效果（contenteditable），存成 ParkRich 的簡易格式（descRich）＋純文字（desc）。固定高度、內容多了在框裡捲。 */
+function parkRichEditor(id, locked, onCount) {
+  const wrap = parkEl('div', 'park-rich');
+  const bar = parkEl('div', 'park-rich-bar');
+  const ed = parkEl('div', 'park-rich-ed');
+  ed.id = 'parkDesc';
+  ed.contentEditable = locked ? 'false' : 'true';
+  ed.setAttribute('role', 'textbox'); ed.setAttribute('aria-multiline', 'true'); ed.setAttribute('aria-label', '介紹');
+  ed.dataset.placeholder = '這一站附近的介紹，例如花期、步道、設施…';
+  const e0 = parkEntry(id);
+  ed.innerHTML = ParkRich.toEditorHtml(e0.descRich || e0.desc || '');
+  const plainOf = (md) => ParkRich.toPlain(md);
+  const sync = () => {
+    const md = ParkRich.fromEditor(ed);
+    ed.classList.toggle('is-empty', !ed.textContent.trim() && !ed.querySelector('li'));
+    parkEdit(id, (e) => { e.descRich = md; e.desc = plainOf(md); });
+    onCount(plainOf(md).length);
+    parkSyncRichBar();
+  };
+  ed.classList.toggle('is-empty', !ed.textContent.trim() && !ed.querySelector('li'));
+  onCount(plainOf(ParkRich.fromEditor(ed)).length);
+  ed.addEventListener('focus', () => { try { document.execCommand('defaultParagraphSeparator', false, 'div'); document.execCommand('styleWithCSS', false, false); } catch { /* 舊瀏覽器 */ } });
+  // 400 字硬上限（user 2026-10-21：不要等按儲存才說超過）：注音等輸入法選字時瀏覽器擋不住，打完（input／compositionend）超過的字就刪掉
+  const countOf = () => plainOf(ParkRich.fromEditor(ed)).length;
+  const trimOver = () => {
+    let over = countOf() - PARK_DESC_MAX;
+    if (over <= 0) return;
+    const sel = getSelection();
+    if (sel && sel.rangeCount && ed.contains(sel.anchorNode) && sel.modify) { // 先刪游標前面剛打的字
+      sel.collapseToEnd();
+      for (let i = 0; i < over; i++) sel.modify('extend', 'backward', 'character');
+      if (!sel.isCollapsed) document.execCommand('delete');
+    }
+    // 還超過（例如游標在最前面）：從最後面往回刪
+    for (let guard = 0; (over = countOf() - PARK_DESC_MAX) > 0 && guard < 20; guard++) {
+      const w = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+      const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
+      if (!nodes.length) break;
+      for (let i = nodes.length - 1; i >= 0 && over > 0; i--) { const t = nodes[i]; const cut = Math.min(over, t.data.length); t.data = t.data.slice(0, t.data.length - cut); over -= cut; }
+    }
+  };
+  let composing = false; // 選字中：不擋（擋了選好的字會送不出去、注音留在框裡），選完再一次刪掉超出的字
+  ed.addEventListener('compositionstart', () => { composing = true; });
+  ed.addEventListener('compositionend', () => { composing = false; trimOver(); sync(); });
+  ed.addEventListener('input', (ev) => { if (!ev.isComposing && !composing) trimOver(); sync(); });
+  // 超過字數就不再收新字（換行、刪除照常）
+  ed.addEventListener('beforeinput', (ev) => {
+    if (composing || ev.isComposing) return;
+    if (!/^insert(Text|FromPaste|FromDrop|ReplacementText)$/.test(ev.inputType)) return;
+    if (plainOf(ParkRich.fromEditor(ed)).length >= PARK_DESC_MAX) ev.preventDefault();
+  });
+  // 貼上一律只收純文字（從 Word／網頁貼過來的字型、顏色不帶進來），超過字數的部分截掉
+  ed.addEventListener('paste', (ev) => {
+    ev.preventDefault();
+    const room = PARK_DESC_MAX - plainOf(ParkRich.fromEditor(ed)).length;
+    const text = (ev.clipboardData ? ev.clipboardData.getData('text/plain') : '').replace(/\r/g, '').slice(0, Math.max(0, room));
+    if (text) document.execCommand('insertText', false, text);
+  });
+  const run = (fn) => { if (locked) return; ed.focus(); fn(); sync(); };
+  const blockOf = () => { const sel = getSelection(); let n = sel && sel.anchorNode; while (n && n !== ed) { if (n.nodeType === 1 && /^(H3|DIV|LI|P)$/.test(n.tagName)) return n; n = n.parentNode; } return null; };
+  const anchorOf = () => { const sel = getSelection(); let n = sel && sel.anchorNode; while (n && n !== ed) { if (n.nodeType === 1 && n.tagName === 'A') return n; n = n.parentNode; } return null; };
+  const tools = [
+    ['bold', '粗體', () => run(() => document.execCommand('bold'))],
+    ['heading', '小標題', () => run(() => { const b = blockOf(); document.execCommand('formatBlock', false, b && b.tagName === 'H3' ? '<div>' : '<h3>'); })],
+    ['list', '條列', () => run(() => {
+      document.execCommand('insertUnorderedList');
+      // 條列每一項的「・」也算字數：套用後超過就退回去
+      if (countOf() > PARK_DESC_MAX) { document.execCommand('undo'); BToast.show('無法套用條列。', 'danger', { desc: `套用後會超過 ${PARK_DESC_MAX} 字。` }); }
+    })],
+    ['link', '連結', async () => {
+      if (locked) return;
+      const a = anchorOf();
+      if (a) { run(() => { const r = document.createRange(); r.selectNodeContents(a); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand('unlink'); }); return; }
+      const sel = getSelection();
+      const range = sel && sel.rangeCount && ed.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+      const url = await BDialog.prompt({ title: '加入連結', desc: '請輸入以 http:// 或 https:// 開頭的網址。', placeholder: 'https://', inputType: 'url', confirmText: '加入' });
+      if (url == null) return;
+      const u = url.trim();
+      if (!/^https?:\/\/\S+$/.test(u)) { BToast.show('無法加入連結。', 'danger', { desc: '網址必須以 http:// 或 https:// 開頭。' }); return; }
+      // 沒選字時網址會當成文字插進去，也算字數
+      if ((!range || range.collapsed) && countOf() + u.length > PARK_DESC_MAX) { BToast.show('無法加入連結。', 'danger', { desc: `加入後會超過 ${PARK_DESC_MAX} 字，請先選取要加上連結的文字。` }); return; }
+      run(() => {
+        const s2 = getSelection();
+        s2.removeAllRanges();
+        if (range) s2.addRange(range); else { const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); s2.addRange(r); }
+        if (s2.isCollapsed) document.execCommand('insertHTML', false, `<a href="${esc(u)}">${esc(u)}</a>`);
+        else document.execCommand('createLink', false, u);
+      });
+    }],
+  ];
+  for (const [icon, label, fn] of tools) {
+    const b = parkIconBtn(icon, label, fn);
+    b.dataset.cmd = icon;
+    b.addEventListener('mousedown', (ev) => ev.preventDefault()); // 按工具列時編輯框的選取範圍不要跑掉
+    b.disabled = locked;
+    bar.appendChild(b);
+  }
+  wrap.append(bar, ed);
+  return wrap;
+}
+/** 工具列按鈕亮起＝游標所在位置已經套用那個格式（粗體／小標題／條列／連結） */
+function parkSyncRichBar() {
+  const ed = $('parkDesc');
+  if (!ed || !ed.classList.contains('park-rich-ed')) return;
+  const sel = getSelection();
+  const inside = !!sel && !!sel.anchorNode && ed.contains(sel.anchorNode);
+  const up = (tag) => { let n = inside ? sel.anchorNode : null; while (n && n !== ed) { if (n.nodeType === 1 && n.tagName === tag) return true; n = n.parentNode; } return false; };
+  const state = { bold: inside && document.queryCommandState('bold'), heading: up('H3'), list: up('LI'), link: up('A') };
+  ed.parentElement.querySelectorAll('.park-rich-bar [data-cmd]').forEach((b) => b.classList.toggle('is-on', !!state[b.dataset.cmd]));
+}
+document.addEventListener('selectionchange', () => { if (document.querySelector('#parkBody .park-rich-ed')) parkSyncRichBar(); });
+
+/** 動作列右邊：「● 尚有修改未儲存」＋取消＋儲存（跟「測試連線」同一種文字鈕） */
+function parkFootSave(foot) {
+  const note = parkEl('span', 'ws-dirty-note park-dirty-note');
+  note.id = 'parkDirtyNote'; note.setAttribute('aria-live', 'polite');
+  const cancel = parkEl('button', 'b-btn b-btn-quiet', '取消');
+  cancel.type = 'button'; cancel.id = 'parkCancelBtn'; cancel.hidden = true;
+  cancel.onclick = parkDiscard;
+  const save = parkEl('button', 'b-btn b-btn-text', '儲存');
+  save.type = 'button'; save.id = 'parkSaveBtn';
+  save.onclick = () => saveParkStation();
+  parkSyncFoot(note, cancel, save);
+  foot.append(note, cancel, save);
+}
+/** 取消：這一站全部沒存的修改丟掉（照片、說明、連結、位置、換過的地圖），還在傳的照片回來也不收 */
+function parkDiscard() {
+  if (parkUploading) { parkUploading = 0; parkUploadSeq++; }
+  parkDraft = null; parkPlacing = false; parkPlaceSnap = null;
+  renderParkInfoView();
+}
+/** 「編輯位置」開始前的樣子（位置＋地圖）：地圖下方的「取消」只退回這次編輯位置做的改動 */
+const parkSnapOf = (id) => JSON.parse(JSON.stringify({ pos: parkCur(id).pos, map: parkCur(id).map }));
+/** 這一站在這張地圖上的預設位置（「回到預設位置」；卓也＝原本內建的 D1–D5，只對那張地圖有效，新場域沒有） */
+const parkHomeOf = (id, map) => { const h = parkSavedInfo().home; return h && map && h.map === map.src && h.pos && h.pos[id] ? h.pos[id] : null; };
+
+/** 這個場域已經設定了多少：幾站放在地圖上、幾站填了介紹（照片／說明／看更多）；目前這一站以草稿為準 */
+function parkSetupCount() {
+  let placed = 0, filled = 0;
+  for (const x of parkList()) {
+    const c = parkCur(x.id);
+    if (c.pos) placed++;
+    if (c.e.photos.length || String(c.e.desc || '').trim() || String(c.e.link || '').trim()) filled++;
+  }
+  return { placed, filled };
+}
+/** 頁首「更換地圖」（還沒地圖時＝地圖區的「上傳地圖」）：新地圖先只在後台（parkMapSwap，user 2026-10-21），機器照舊顯示目前的地圖；
+ *  所有測站都要在新地圖上重放（不保留舊位置），換站不會不見；原本在地圖上的站都放好（或按「從地圖移除」）才能按「套用新地圖」。
+ *  已經有地圖、而且有任何一站放上地圖或填了介紹＝先跳警示框，確定了才選圖片；更換地圖中再換一張＝新地圖上放過的要重放，也先問 */
+async function parkPickMap() {
+  const id = parkSel;
+  if (!id || !meIsAdmin || parkBarBusy) return;
+  const saved = parkSavedInfo().map;
+  if (parkMapSwap) {
+    const placedNew = Object.values(parkMapSwap.pos).filter(Boolean).length;
+    if (placedNew) {
+      const ok = await BDialog.confirm({ title: '要改用另一張地圖嗎？', desc: `新地圖上已放置 ${placedNew} 個測站。\n改用另一張地圖後，需重新放置。`, confirmText: '選擇地圖' });
+      if (!ok) return;
+    }
+  } else {
+    const { placed, filled } = parkSetupCount();
+    if (saved && (placed || filled)) {
+      const has = [placed && `${placed} 個測站已放在地圖上`, filled && `${filled} 個測站已填寫介紹`].filter(Boolean).join('，');
+      const ok = await BDialog.confirm({
+        title: '要更換園區地圖嗎？',
+        desc: `${has}。\n${placed ? '原本在地圖上的測站都放到新地圖上後，按「套用新地圖」才會更新到機器。\n' : ''}照片與說明不會變更。`, // Apple 中性口吻、一行一句（user 2026-10-21）
+        confirmText: '選擇新地圖',
+      });
+      if (!ok) return;
+    }
+  }
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    const seq = parkUploadSeq;
+    parkUploading++; setParkDirty();
+    try {
+      await uploadWithToast([f], {
+        noun: '地圖', unit: '張',
+        onEach: async (r) => {
+          if (seq !== parkUploadSeq) return;
+          let sz = await imagePixelSizeOf(f);
+          if (!sz) sz = await new Promise((res) => { const im = new Image(); im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight }); im.onerror = () => res(null); im.src = mediaSrc(r.url); });
+          if (!sz || !sz.w || !sz.h) { BToast.danger('無法讀取地圖圖片的尺寸。請改用其他圖片。'); return; }
+          // 按鈕列已經是編輯中那一行（編輯位置或更換地圖中）就不再播進場動畫；編輯位置做到一半的改動退回去（舊地圖的位置用不到了）
+          const wasEditing = parkPlacing || !!parkMapSwap;
+          if (parkPlacing && parkPlaceSnap && parkDraft && parkDraft.id === parkSel) { parkDraft.pos = parkPlaceSnap.pos; parkDraft.map = parkPlaceSnap.map; }
+          parkPlacing = false; parkPlaceSnap = null;
+          parkMapSwap = { map: { src: r.url, w: sz.w, h: sz.h }, from: saved, need: parkList().filter((x) => parkSavedPos(x.id)).map((x) => x.id), pos: {} };
+          parkBarFx = wasEditing || parkNoMotion() ? '' : 'enter';
+          parkPaneTab = 'map';
+          renderParkInfoView();
+        },
+      });
+    } finally {
+      if (seq === parkUploadSeq) { parkUploading = Math.max(0, parkUploading - 1); setParkDirty(); }
+    }
+  };
+  input.click();
+}
+
+/** 右半邊的園區地圖：所有放上地圖的站都畫出來，目前這一站亮起（其他站的點點了＝換到那一站）。
+ *  平常鎖住；按「編輯位置」後只能動這一站的點（拖曳，或點地圖上的位置把它移過去／放上去）。回地圖比例（沒地圖＝0）。 */
+function parkMapPane(pane, list, s, locked, goto) {
+  const id = s.id;
+  const swap = !!parkMapSwap && !locked; // 更換地圖中：一直是編輯中那一行，按鈕＝取消／套用新地圖
+  const cur = parkMapOf(id);
+  const placing = (parkPlacing || swap) && !locked;
+  if (placing) parkPaneTab = 'map';
+  const ar = cur.map ? cur.map.w / cur.map.h : 0;
+  parkPaneCtx = { list, s, locked, goto };
+  // 上方按鈕列：左邊〔地圖｜資訊卡預覽〕（編輯位置時收起來），右邊地圖的按鈕；下方內容區（.park-pane-stage）切換時左右滑動
+  const bar = parkEl('div', 'park-map-bar');
+  const row = parkEl('div', 'park-bar-row');
+  bar.appendChild(row);
+  const stage = parkEl('div', 'park-pane-stage');
+  pane.append(bar, stage);
+  if (!placing) {
+    const act = parkEl('div', 'park-bar-act');
+    row.append(parkPaneTabs(), act);
+    stage.appendChild(parkPaneView(act));
+    act.hidden = parkPaneTab === 'preview'; // 預覽開著時不放「編輯位置」
+    if (parkPaneTab === 'preview') parkShowPreviewSoon = true; // 掛上畫面、算好寬度後再蓋上去（renderParkPage 收尾時）
+    return ar;
+  }
+
+  // 編輯位置中：左邊圖示鈕（回到預設位置＝有預設的站才有、從地圖移除＝紅），右邊「取消」（退回這次編輯前）「完成」。
+  // 動畫（user 2026-10-21：整行式的捲動）：進入編輯＝「地圖｜資訊卡預覽＋編輯位置」那一行往上捲走、新的一行從下面捲上來；
+  // 離開（完成／取消）＝反過來往下捲，播完（parkExitPlacing）才重畫。地圖外框跟著淡入淡出
+  const { view, map, place } = parkMapView(true);
+  stage.appendChild(view);
+  if (parkBarFx === 'enter') {
+    parkBarFx = '';
+    bar.classList.add('is-rolling', 'roll-up'); if (map) map.classList.add('fx-in');
+    bar.appendChild(parkGhostRow());
+    setTimeout(() => { bar.querySelector('.park-bar-ghost')?.remove(); bar.classList.remove('is-rolling', 'roll-up'); }, 320);
+  }
+  const textBtn = (text, fn, cls) => { const b = parkEl('button', 'b-btn ' + (cls || 'b-btn-text'), text); b.type = 'button'; b.onclick = fn; return b; };
+  const tools = parkEl('div', 'park-bar-tools');
+  const home = parkHomeOf(id, cur.map);
+  if (home) {
+    const h = parkIconBtn('rotate-ccw', '回到預設位置', () => place([...home]));
+    h.id = 'parkHomeBtn';
+    h.disabled = !!cur.pos && cur.pos[0] === home[0] && cur.pos[1] === home[1];
+    tools.appendChild(h);
+  }
+  if (swap) {
+    // 更換地圖中：還沒處理或已放上去的站都能按「從地圖移除」＝這一站不放在新地圖上（也算處理完）
+    if (parkMapSwap.pos[id] !== null) tools.appendChild(parkIconBtn('map-pin-x', '從地圖移除', () => { parkMapSwap.pos[id] = null; renderParkInfoView(); }, 'is-danger'));
+  } else if (cur.pos) tools.appendChild(parkIconBtn('map-pin-x', '從地圖移除', () => { parkEdit(id, (e, d) => { d.pos = null; }); renderParkInfoView(); }, 'is-danger'));
+  if (tools.childNodes.length) row.appendChild(tools);
+  if (swap) {
+    const cancelSwap = textBtn('取消', () => parkCancelSwap(bar), 'b-btn-quiet park-place-cancel');
+    cancelSwap.id = 'parkSwapCancelBtn';
+    const apply = textBtn(parkMapSwap.from ? '套用新地圖' : '套用地圖', () => parkApplySwap(bar), 'b-btn-text park-place-btn');
+    apply.id = 'parkSwapApplyBtn';
+    apply.disabled = parkSwapTodo().length > 0 || parkSaving; // 原本在地圖上的站都處理完才能套用（還差幾站寫在地圖左下角）
+    row.append(cancelSwap, apply);
+    return ar;
+  }
+  const cancel = textBtn('取消', () => parkExitPlacing(bar, id, () => {
+    const snap = parkPlaceSnap;
+    if (snap) parkEdit(id, (e, d) => { d.pos = snap.pos; d.map = snap.map; });
+  }), 'b-btn-quiet park-place-cancel');
+  const done = textBtn('完成', () => parkExitPlacing(bar, id, () => {}), 'b-btn-text park-place-btn');
+  done.id = 'parkPlaceBtn';
+  row.append(cancel, done);
+  return ar;
+}
+let parkPaneCtx = null; // 這一站畫地圖區要用的東西（換〔地圖｜資訊卡預覽〕時不重畫整頁，直接拿來用）
+let parkShowPreviewSoon = false;
+/** 右半邊的園區地圖（act＝按鈕列右邊放「編輯位置」的位置）；資訊卡預覽是蓋在地圖上的一層（parkShowPreview） */
+function parkPaneView(act) {
+  const { s, locked } = parkPaneCtx;
+  if (act) act.replaceChildren();
+  const { view } = parkMapView(false);
+  if (act && !locked && parkCur(s.id).map) {
+    const edit = parkEl('button', 'b-btn b-btn-text park-place-btn', '編輯位置');
+    edit.type = 'button'; edit.id = 'parkPlaceBtn';
+    edit.onclick = () => {
+      if (parkBarBusy) return;
+      parkPlaceSnap = parkSnapOf(s.id); parkPlacing = true;
+      parkBarFx = parkNoMotion() ? '' : 'enter';
+      renderParkInfoView();
+    };
+    act.appendChild(edit);
+  }
+  return view;
+}
+/** 園區地圖那一面：所有放上地圖的站都畫出來，目前這一站亮起（其他站的點點了＝換到那一站）。
+ *  placing＝編輯位置中：只有這一站的點能拖，點地圖空白處＝把這一站放到（或移到）那裡。回 { view, map, place } */
+function parkMapView(placing) {
+  const { list, s, locked, goto } = parkPaneCtx;
+  const id = s.id;
+  const cur = parkMapOf(id);
+  const swap = !!parkMapSwap;
+  // 放這一站：更換地圖中放進新地圖（不算這一站的修改），平常改這一站的草稿
+  const place = (pos) => { if (swap) parkMapSwap.pos[id] = pos; else parkEdit(id, (e, d) => { d.pos = pos; }); renderParkInfoView(); };
+  if (!cur.map) {
+    const em = parkEl('div', 'b-empty park-map-empty');
+    em.innerHTML = '<span class="b-empty-icon"><i data-lucide="map"></i></span><p class="b-empty-title">尚未上傳園區地圖</p>';
+    if (!locked) { const b = parkEl('button', 'b-btn b-btn-text', '上傳地圖'); b.type = 'button'; b.onclick = parkPickMap; em.appendChild(b); }
+    return { view: em, map: null, place };
+  }
+  const wrap = parkEl('div', 'park-map-wrap');
+  const map = parkEl('div', 'park-map-edit' + (placing ? ' is-editing' : ''));
+  map.style.setProperty('--ar', `${cur.map.w} / ${cur.map.h}`);
+  const img = document.createElement('img'); img.src = mediaSrc(cur.map.src); img.alt = '園區地圖'; img.draggable = false;
+  map.appendChild(img);
+  let mine = null;
+  for (const x of list) {
+    const p = x.id === id ? cur.pos : (swap ? parkMapSwap.pos[x.id] || null : parkSavedPos(x.id)); // 更換地圖中：只畫已放到新地圖上的站
+    if (!p) continue;
+    const pin = parkEl('span', 'park-pin' + (x.id === id ? ' is-sel' : ''), x.id);
+    pin.dataset.id = x.id;
+    pin.title = parkLabel(x);
+    pin.style.left = `${p[0]}%`; pin.style.top = `${p[1]}%`;
+    if (x.id === id) mine = pin;
+    else pin.onclick = (ev) => { ev.stopPropagation(); goto(x.id); };
+    map.appendChild(pin);
+  }
+  // 地圖左上角一句狀態（不另外佔一列）
+  const skipped = swap && parkMapSwap.pos[id] === null;
+  const tipText = placing ? (cur.pos ? `拖曳或按一下地圖以移動 ${id}` : skipped ? `${id} 不放在新地圖上，按一下地圖即可放置` : `按一下地圖以放置 ${id}`) : (cur.pos ? '' : `${id} 尚未放到地圖上`);
+  if (tipText) map.appendChild(parkEl('span', 'park-map-tip', tipText));
+  // 更換地圖中：左下角寫還差幾站（原本在地圖上的站）
+  if (swap && placing && parkMapSwap.need.length) {
+    const n = parkSwapTodo().length;
+    map.appendChild(parkEl('span', 'park-map-tip is-count' + (n ? '' : ' is-done'), n ? `還有 ${n} 個測站尚未放置` : '所有測站都已處理'));
+  }
+  if (placing) {
+    const posFrom = (ev) => {
+      const r = map.getBoundingClientRect();
+      const k = (v) => Math.round(Math.min(100, Math.max(0, v)) * 10) / 10;
+      return [k(((ev.clientX - r.left) / r.width) * 100), k(((ev.clientY - r.top) / r.height) * 100)];
+    };
+    if (mine) {
+      mine.addEventListener('pointerdown', (down) => {
+        if (down.button > 0) return;
+        down.preventDefault();
+        mine.setPointerCapture(down.pointerId);
+        mine.classList.add('is-drag');
+        const move = (m) => { const [x, y] = posFrom(m); mine.style.left = `${x}%`; mine.style.top = `${y}%`; };
+        const up = (u) => {
+          mine.removeEventListener('pointermove', move); mine.removeEventListener('pointerup', up); mine.removeEventListener('pointercancel', up);
+          mine.classList.remove('is-drag');
+          place(posFrom(u));
+        };
+        mine.addEventListener('pointermove', move); mine.addEventListener('pointerup', up); mine.addEventListener('pointercancel', up);
+      });
+    }
+    map.addEventListener('click', (ev) => { if (!ev.target.closest('.park-pin')) place(posFrom(ev)); });
+  }
+  wrap.appendChild(map);
+  return { view: wrap, map, place };
+}
+/** 換〔地圖｜資訊卡預覽〕：同一張地圖不動，資訊卡從上方掉下來／往上收回去（user 2026-10-21：像 App 那樣），跟指示塊同時開始 */
+function parkSwitchPane(to) {
+  if (parkPaneTab === to) return;
+  parkPaneTab = to;
+  const pane = document.querySelector('#parkBody .park-map-pane');
+  if (!pane || !parkPaneCtx) { renderParkInfoView(); return; }
+  parkTipHide();
+  const act = pane.querySelector('.park-bar-act');
+  if (act) act.hidden = to === 'preview';
+  if (to === 'preview') parkShowPreview(!parkNoMotion());
+  else parkHidePreview(!parkNoMotion());
+}
+/** 右半邊的〔地圖｜資訊卡預覽〕切換（點了馬上換，跟指示塊同時動） */
+function parkPaneTabs() {
+  const t = segRow([
+    ['地圖', parkPaneTab === 'map', () => parkSwitchPane('map')],
+    ['資訊卡預覽', parkPaneTab === 'preview', () => parkSwitchPane('preview')],
+  ], { immediate: true });
+  t.classList.add('park-pane-tabs');
+  t.querySelectorAll('.seg').forEach((b) => { b.type = 'button'; });
+  return t;
+}
+/** 捲動動畫用的「編輯位置」那一行（只是畫面，不能按）：進入時它往上捲走、離開時它從上面捲回來 */
+function parkGhostRow() {
+  const g = parkEl('div', 'park-bar-row park-bar-ghost');
+  g.setAttribute('aria-hidden', 'true');
+  const b = parkEl('button', 'b-btn b-btn-text park-place-btn', '編輯位置');
+  b.type = 'button'; b.tabIndex = -1;
+  g.append(parkPaneTabs(), b);
+  g.querySelectorAll('button').forEach((x) => { x.tabIndex = -1; });
+  return g;
+}
+/** 離開「編輯位置」（完成／取消）：先在畫面上往下捲（這一行捲走、「編輯位置」那一行從上面捲回來、地圖外框淡掉），
+ *  播完才套用（apply）並重畫；這段時間換了站就不套用。不要動畫＝馬上套用。 */
+function parkExitPlacing(bar, id, apply) {
+  parkRollDown(bar, () => { if (parkSel === id) { apply(); parkPlacing = false; parkPlaceSnap = null; } });
+}
+/** 編輯中那一行往下捲走（「編輯位置」那一行從上面捲回來、地圖外框淡掉），播完才 apply 並重畫；不要動畫＝馬上 */
+function parkRollDown(bar, apply) {
+  if (parkBarBusy) return;
+  const finish = () => {
+    parkBarBusy = false;
+    apply();
+    renderParkInfoView();
+  };
+  if (parkNoMotion() || !bar || !bar.isConnected) { finish(); return; }
+  parkBarBusy = true;
+  parkTipHide();
+  bar.querySelector('.park-bar-ghost')?.remove();
+  bar.classList.remove('roll-up');
+  bar.classList.add('is-rolling', 'roll-down');
+  bar.appendChild(parkGhostRow());
+  const map = bar.closest('.park-map-pane')?.querySelector('.park-map-edit');
+  if (map) { map.classList.remove('fx-in'); map.classList.add('fx-out'); }
+  setTimeout(finish, 260);
+}
+/** 更換地圖中按「取消」：新地圖上放過站就先問，捨棄後回到目前的地圖（機器本來就沒換） */
+async function parkCancelSwap(bar) {
+  if (!parkMapSwap || parkBarBusy) return;
+  const placed = Object.values(parkMapSwap.pos).filter(Boolean).length;
+  if (placed) {
+    const ok = await BDialog.confirm({
+      title: '要捨棄新地圖嗎？',
+      desc: `新地圖上已放置 ${placed} 個測站。\n${parkMapSwap.from ? '捨棄後，機器會繼續顯示目前的地圖。' : '捨棄後，這個場域仍不會有園區地圖。'}`,
+      variant: 'danger', confirmText: '捨棄',
+    });
+    if (!ok) return;
+  }
+  parkRollDown(bar, () => { parkMapSwap = null; });
+}
+/** 「套用新地圖」：新地圖＋所有站在新地圖上的位置一次存進去（不放的站拿掉位置），機器一分鐘內一起換 */
+async function parkApplySwap(bar) {
+  const sw = parkMapSwap;
+  if (!sw || parkSwapTodo().length || parkSaving || parkBarBusy || !meIsAdmin) return;
+  const ok = await parkPut((next) => {
+    next.map = sw.map;
+    for (const [sid, st] of Object.entries(next.stations)) {
+      const p = sw.pos[sid];
+      if (p) { st.x = p[0]; st.y = p[1]; } else { delete st.x; delete st.y; }
+    }
+    for (const [sid, p] of Object.entries(sw.pos)) if (p && !next.stations[sid]) next.stations[sid] = { name: '', photos: [], desc: '', link: '', x: p[0], y: p[1] };
+  }, sw.from ? '無法套用新地圖。' : '無法套用地圖。');
+  if (!ok) return;
+  // 正在改的那一站：草稿裡的地圖與位置換成剛存的，不算這一站的修改
+  if (parkDraft) { parkDraft.map = parkSavedInfo().map; parkDraft.pos = parkSavedPos(parkDraft.id); }
+  BToast.show(sw.from ? '已套用新地圖。' : '已套用園區地圖。', 'success', { desc: '機器會在一分鐘內更新。' });
+  parkRollDown(bar, () => { parkMapSwap = null; parkPlacing = false; parkPlaceSnap = null; });
+}
+/** 地圖下方的圖示鈕：滑過去在按鈕上方出一個小標籤寫名稱（全站不用瀏覽器原生 title 提示框）；按了就收掉標籤 */
+let parkTipEl = null;
+const parkTipHide = () => { if (parkTipEl) { parkTipEl.remove(); parkTipEl = null; } };
+function parkIconBtn(icon, label, fn, cls) {
+  const b = parkEl('button', 'icon-btn park-icon-btn' + (cls ? ' ' + cls : ''));
+  b.type = 'button'; b.setAttribute('aria-label', label);
+  b.innerHTML = `<i data-lucide="${icon}"></i>`;
+  b.onclick = () => { parkTipHide(); fn(); };
+  b.addEventListener('mouseenter', () => {
+    parkTipHide();
+    const t = parkEl('div', 'b-tip is-mini', label);
+    document.body.appendChild(t);
+    const r = b.getBoundingClientRect();
+    const x = Math.max(8, Math.min(window.innerWidth - t.offsetWidth - 8, r.left + r.width / 2 - t.offsetWidth / 2));
+    let y = r.top - t.offsetHeight - 6;
+    if (y < 8) y = r.bottom + 6;
+    t.style.left = `${x}px`; t.style.top = `${y}px`;
+    parkTipEl = t;
+    requestAnimationFrame(() => { if (t.isConnected) t.classList.add('is-on'); });
+  });
+  b.addEventListener('mouseleave', parkTipHide);
+  return b;
+}
+/** 地圖區寬度跟著圖片比例（user 2026-10-20：左右留白要跟上下一樣）：寬＝可用高度×比例＋左右內距，
+ *  至少放得下下方的按鈕、最多卡片寬的 60%；窄螢幕（上下排）不用。卡片大小變了就重算。 */
+let parkMapRO = null;
+function parkFitMap(main, pane, ar) {
+  const fit = () => {
+    if (!pane.isConnected) return;
+    if (!ar || !matchMedia('(min-width: 901px)').matches) { pane.style.width = ''; return; }
+    const cs = getComputedStyle(pane);
+    const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth);
+    const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const gap = parseFloat(cs.rowGap) || 0;
+    const bar = pane.querySelector('.park-map-bar');
+    const row = bar && bar.querySelector('.park-bar-row:not(.park-bar-ghost)');
+    const btns = row ? [...row.children] : []; // 左邊圖示群組＋右邊文字鈕：加起來的自然寬度
+    const barW = btns.reduce((w, b) => w + b.offsetWidth, 0) + Math.max(0, btns.length - 1) * (parseFloat(row && getComputedStyle(row).columnGap) || 0);
+    const barH = bar ? bar.offsetHeight + gap : 0;
+    const mapW = Math.max(0, main.clientHeight - padY - barH) * ar;
+    const w = Math.min(Math.max(mapW, barW, 240) + padX, main.clientWidth * 0.6);
+    pane.style.width = `${Math.round(w)}px`;
+    // 資訊卡預覽：1080 寬展示機在 KIOSK 版面（預設）的等比縮小（同播放頁 parkSheetScale：0.45 × 1080/820 × 1.6，文字再 × 1.45）
+    const pv = pane.querySelector('.park-pv-sheet');
+    if (pv) {
+      const ps = (pv.clientWidth / 1080) * 0.45 * (1080 / 820) * 1.6;
+      pv.style.setProperty('--ps', ps.toFixed(3));
+      pv.style.setProperty('--pt', (ps * 1.45).toFixed(3));
+    }
+  };
+  fit();
+  pane._fit = fit;
+  if (window.ResizeObserver) { parkMapRO = new ResizeObserver(() => requestAnimationFrame(fit)); parkMapRO.observe(main); }
+}
+
+// ---- 資料來源（modal；2026-10-20 user：從頁籤拿出來，頁首單獨一顆按鈕開；測試連線結果用 toast；
+//      各站連線狀態收進右上角按鈕，hover 展開垂直清單，按鈕上的小圓點看得出大概狀況） ----
+const parkSrcOpen = () => $('parkSourceModal').classList.contains('is-visible');
+/** 輸入框目前的網址（沒動過＝已儲存的） */
+const parkApiInputVal = () => (parkApiDraft !== null ? parkApiDraft : parkSavedInfo().api).trim();
+function syncParkSrcSave() {
+  $('parkApiSaveBtn').disabled = !parkApiChanged() || parkSaving;
+}
+/** 右上角連線狀態：面板裡一站一行（代號、名稱、在線／離線）；圖示顏色＝全部在線綠、有站離線琥珀、連不上紅、還沒測灰 */
+function parkConnRefresh() {
+  if (!parkSrcOpen()) return;
+  const box = $('parkConnBody');
+  box.innerHTML = '';
+  const url = parkApiInputVal();
+  let list = null, err = '', loading = false;
+  if (parkApiTest && parkApiTest.url === url) { list = parkApiTest.list || null; err = parkApiTest.error || ''; loading = !!parkApiTest.loading; }
+  else if (url && url === parkSavedInfo().api) { list = parkStations; err = parkStationsErr; loading = parkStations === null || parkStationsLoading; }
+  const note = (t) => box.appendChild(parkEl('p', 'park-conn-note', t));
+  let tone = '';
+  if (!url) note('尚未填寫測站 API 網址。');
+  else if (loading) note('正在讀取測站資料…');
+  else if (err) { note(err); tone = 'err'; }
+  else if (!list) note('網址已變更，請按一下「測試連線」確認能否讀取測站。');
+  else if (!list.length) { note('可以連線，但沒有讀取到任何測站。'); tone = 'err'; }
+  else {
+    const on = list.filter((x) => x.online).length;
+    note(`${list.length} 個測站，${on} 站在線。`);
+    const ul = parkEl('ul', 'park-conn-list');
+    for (const st of list) {
+      const li = parkEl('li');
+      li.appendChild(parkEl('b', null, st.id));
+      li.appendChild(parkEl('span', null, st.name && st.name !== st.id ? st.name : ''));
+      const chip = parkEl('span', 'park-online', st.online ? '在線' : '離線'); chip.dataset.on = String(!!st.online);
+      li.appendChild(chip);
+      ul.appendChild(li);
+    }
+    box.appendChild(ul);
+    tone = on === list.length ? 'ok' : 'warn';
+  }
+  $('parkConnPop').dataset.tone = tone;
+}
+function openParkSource() {
+  parkApiDraft = null; parkApiTest = null;
+  const input = $('parkApiInput');
+  input.value = parkSavedInfo().api;
+  input.disabled = !meIsAdmin;
+  $('parkApiSaveBtn').hidden = !meIsAdmin;
+  syncParkSrcSave();
+  BModal.open('#parkSourceModal');
+  if (PARK_API && parkStations === null) loadParkStations();
+  parkConnRefresh();
+  if (meIsAdmin) input.focus();
+}
+/** ✕／點遮罩／Esc：改了沒存先問 */
+async function closeParkSource() {
+  if (parkApiChanged()) {
+    const ok = await BDialog.confirm({ title: '有尚未儲存的修改', desc: '資料來源的修改尚未儲存，要捨棄嗎？', variant: 'danger', confirmText: '捨棄' });
+    if (!ok) return;
+  }
+  parkApiDraft = null; parkApiTest = null;
+  BModal.close('#parkSourceModal');
+}
+/** 測試連線：結果一律 toast（同其他地方），連線狀態面板跟著更新 */
+async function testParkApi() {
+  const url = parkApiInputVal();
+  if (!url) { BToast.show('無法測試連線。', 'danger', { desc: '請先填寫測站 API 網址。' }); return; }
+  if (!/^https?:\/\/\S+$/.test(url)) { BToast.show('無法測試連線。', 'danger', { desc: '網址必須以 http:// 或 https:// 開頭。' }); return; }
+  const b = $('parkApiTestBtn');
+  b.disabled = true;
+  parkApiTest = { url, loading: true }; parkConnRefresh();
+  try {
+    const list = parseStations(await api('GET', `/api/station/current?url=${encodeURIComponent(url)}`));
+    parkApiTest = { url, list };
+    if (!list.length) BToast.show('沒有讀取到任何測站。', 'danger', { desc: '可以連線到這個網址，但提供的不是測站資料，請確認網址。' });
+    else BToast.show('連線成功。', 'success', { desc: `讀取到 ${list.length} 個測站，其中 ${list.filter((x) => x.online).length} 站在線。` });
+  } catch (e) {
+    const why = e.message === 'no stations' ? '此網址未提供測站資料，請確認網址是否正確。' : e.message;
+    parkApiTest = { url, error: why };
+    BToast.show('無法連線到測站資料來源。', 'danger', { desc: why });
+  } finally {
+    b.disabled = false;
+    parkConnRefresh();
+  }
+}
+$('parkApiInput').addEventListener('input', (e) => { parkApiDraft = e.target.value; syncParkSrcSave(); parkConnRefresh(); });
+$('parkApiTestBtn').addEventListener('click', testParkApi);
+$('parkApiSaveBtn').addEventListener('click', () => saveParkApi());
+$('parkSourceClose').addEventListener('click', closeParkSource);
+$('parkSourceModal').addEventListener('click', (e) => { if (e.target === $('parkSourceModal')) closeParkSource(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !parkSrcOpen()) return;
+  if (document.querySelector('.b-modal-overlay[data-modal-vue].is-visible:not(#parkSourceModal)')) return; // BDialog 開著時它自己先攔
+  if ($('parkConnPop').matches(':focus-within, .is-open')) return; // 先收連線狀態面板（page-help 的 Esc 處理）
+  closeParkSource();
+});
+
 async function applySharedSettings() {
-  if (!shared.chatApi && !shared.sleep && !shared.adminPin && !shared.idleReturnSec) return setStatus('請先設定客服帳號、休眠時段、管理 PIN 或閒置回展示頁秒數，再套用到機器。', true);
+  if (!shared.chatApi && !shared.sleep && !shared.adminPin && !shared.idleReturnSec) return setStatus('請先設定客服帳號、休眠時段、管理 PIN 或閒置返回時間，再套用到機器。', true);
   if (sharedDirty && !(await saveShared(true))) return; // 自動存檔還沒跑完就先 flush，套用的內容＝存下來的內容
   let devices;
   try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus('無法取得機器清單。' + e.message, true); }
-  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
+  if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '此帳號目前沒有任何機器。' });
   const picked = await pickDevicesDialog({
     title: '套用共用設定到機器',
-    desc: '會以共用的客服帳號、休眠時段、管理 PIN 與閒置回展示頁秒數覆蓋所選機器並立即發布；版面不受影響。',
+    desc: '所選機器的客服帳號、休眠時段、管理 PIN 與閒置返回時間會改用共用設定並立即發布，版面不受影響。',
     confirmText: '套用並發布',
     items: devices.map((d) => ({ d })),
   });
@@ -3535,7 +4959,7 @@ async function applySharedSettings() {
 // ---------- 側邊欄：功能切換（navbar 只放全局操作） ----------
 // 目前頁記在網址 hash（#devices／#sharedLayout／#sharedSettings／#users），重新整理不會被打回機器總覽。
 // 用 replaceState 不留歷史紀錄：上一頁仍是離開後台，不是在四個頁籤間倒退。
-const VIEWS = ['devices', 'sharedLayout', 'sharedSettings', 'users'];
+const VIEWS = ['devices', 'sharedLayout', 'sharedSettings', 'parkInfo', 'users'];
 function restoreView() {
   const want = location.hash.slice(1);
   if (!VIEWS.includes(want)) return 'devices';
@@ -3543,6 +4967,8 @@ function restoreView() {
   return want;
 }
 function switchView(view) {
+  // 園區測站這一站有沒存的修改（2026-10-20 一定要按儲存）：離開前先問，捨棄才換頁
+  if (titleView === 'parkInfo' && view !== 'parkInfo' && (parkBusy() || parkMapSwap)) { confirmParkLeave(true).then((ok) => { if (ok) switchView(view); }); return; }
   history.replaceState(null, '', '#' + view);
   document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -3557,12 +4983,14 @@ function switchView(view) {
   $('devicesView').classList.toggle('hidden', view !== 'devices');
   $('sharedLayoutView').classList.toggle('hidden', view !== 'sharedLayout');
   $('sharedSettingsView').classList.toggle('hidden', view !== 'sharedSettings');
+  $('parkInfoView').classList.toggle('hidden', view !== 'parkInfo');
   $('usersView').classList.toggle('hidden', view !== 'users');
   titleView = view; updateDocTitle();
   spaFade();
   if (view === 'devices') renderDevicesView().catch((e) => setStatus('無法取得機器清單。' + e.message, true)); // 以前失敗＝默默空表
   if (view === 'sharedLayout') renderSharedLayoutView();
   if (view === 'sharedSettings') renderSharedSettingsView();
+  if (view === 'parkInfo') renderParkInfoView();
   if (view === 'users') renderUsersView();
 }
 document.querySelectorAll('.sidebar .nav-item').forEach((b) => {
@@ -3679,7 +5107,7 @@ const THEME_SWATCHES = ['FFE07800', 'FF0051A8', 'FF00606D', 'FF2E6F40', 'FF4C5D0
     shared.themeColor = draft;
     if (await saveShared(true)) {
       const el = styleEl(); if (el) el.textContent = T.css(draft); // 儲存成功才套到整站
-      setStatus('主題色已更新。展示機會在幾秒內跟著換。');
+      setStatus('主題色已更新，展示機會在幾秒內套用。');
       close();
     } else shared.themeColor = prev;
   }
@@ -3704,7 +5132,7 @@ function statusCell(d) {
   if (d.LastSeenAgoSec == null) {
     badge.className = 'b-badge neutral is-off';
     badge.append('尚未回報');
-    badge.title = '伺服器啟動後這台機器還沒連線過';
+    badge.title = '伺服器啟動後，這台機器尚未連線';
   } else if (d.LastSeenAgoSec < 60) {
     badge.className = 'b-badge ok';
     badge.append('在線');
@@ -3725,17 +5153,17 @@ function connIcon(d) {
   let cls, icon, title, body;
   if (d.KeyMismatch) {
     cls = 'danger'; icon = 'key-round'; title = '金鑰不符';
-    body = '這台機器最近用錯誤的連線金鑰連上來。請到機器的「雲端同步」重新連線到本站。';
+    body = '這台機器最近使用錯誤的連線金鑰連線。\n請在機器的「雲端同步」重新連線到本站。';
   } else if (d.ServerMatch === false) {
-    cls = 'warning'; icon = 'unplug'; title = `連到別的伺服器（${shortServer(d.LastServerUrl)}）`;
-    body = `機器填的伺服器位址是 ${d.LastServerUrl}，不是本站，在這裡做的變更不會送到機器。請到機器的「雲端同步」重新連線到本站。`;
+    cls = 'warning'; icon = 'unplug'; title = `連線到其他伺服器（${shortServer(d.LastServerUrl)}）`;
+    body = `機器設定的伺服器位址為 ${d.LastServerUrl}，並非本站，在此所做的變更不會傳送到機器。\n請在機器的「雲端同步」重新連線到本站。`;
   } else if (d.ServerMatch === true) {
     // 綠勾只在「在線」時顯示（2026-09-09）：這筆是機器最後一次連上本站時自報的，離線後它若改連別台伺服器，
     // 本站不會再收到任何回報、無從得知，掛著綠勾會誤導（user 實測：手機切去正式站，這裡仍顯示設定正確）。
     // 黃／紅警告照舊離線也顯示——那是最後一次接觸時就看到的問題，值得留著。
     if (!(d.LastSeenAgoSec < 60)) return null;
     cls = 'ok'; icon = 'circle-check'; title = '連線設定正確';
-    body = `伺服器位址與連線金鑰都是本站的。\n${keyKindText(d)}${d.LastAppVersion ? `\nApp v${d.LastAppVersion}` : ''}`;
+    body = `伺服器位址與連線金鑰皆屬於本站。\n${keyKindText(d)}${d.LastAppVersion ? `\nApp v${d.LastAppVersion}` : ''}`;
   } else {
     return null;
   }
@@ -3748,10 +5176,10 @@ function connIcon(d) {
 }
 /** 連線金鑰說明（2026-10-13）：每台專屬金鑰換好了沒。網頁播放頁一直用共用金鑰（網址上那把），不會換。 */
 function keyKindText(d) {
-  if (d.KeyKind === 'own') return '這台使用自己專屬的連線金鑰。';
-  if (d.KeyKind === 'pending') return '正在換成這台專屬的連線金鑰。';
+  if (d.KeyKind === 'own') return '這台機器使用專屬的連線金鑰。';
+  if (d.KeyKind === 'pending') return '正在更換為這台機器專屬的連線金鑰。';
   if (/^web/i.test(d.LastAppVersion || '')) return '網頁播放頁使用共用的連線金鑰。';
-  return '這台還在使用共用的連線金鑰，更新到新版 App 後會自動換成專屬的。';
+  return '這台機器仍在使用共用的連線金鑰，更新至新版 App 後會自動更換為專屬金鑰。';
 }
 /** hover 說明面板（page-help 同款外觀；掛在 body、fixed 定位，不會被表格捲動容器裁掉）：
  *  錨在元素下方 8px、左緣對齊元素；右邊貼到視窗就往內縮，下面放不下就改開在上方。 */
@@ -3867,17 +5295,17 @@ let devicesRev = 0;
 const DEVICE_EVENT_TEXT = {
   left: {
     icon: 'unplug', type: 'info',
-    one: (e) => [`「${e.name}」已中斷連線。`, '現場解除了與本站的連線，已從清單移除。'],
+    one: (e) => [`「${e.name}」已中斷連線。`, '已在現場解除與本站的連線，並從清單中移除。'],
     many: (n, names) => [`有 ${n} 台機器中斷連線。`, `${names}已從清單移除。`],
   },
   deleted: {
     icon: 'trash-2', type: 'info',
-    one: (e) => [`「${e.name}」已被刪除。`, `${whoText(e)}從後台刪除了這台機器。`],
+    one: (e) => [`「${e.name}」已被刪除。`, `${whoText(e)}已從後台刪除這台機器。`],
     many: (n, names) => [`有 ${n} 台機器被刪除。`, `${names}已從清單移除。`],
   },
   joined: {
     icon: 'monitor-check', type: 'success',
-    one: (e) => [`「${e.name}」已加入。`, `${whoText(e)}用配對碼新增了這台機器。`],
+    one: (e) => [`「${e.name}」已加入。`, `${whoText(e)}已使用配對碼新增這台機器。`],
     many: (n, names) => [`有 ${n} 台機器加入。`, `${names}已出現在清單中。`],
   },
 };
@@ -3954,8 +5382,8 @@ function groupNotifs(items) {
     if (g.count < 2) continue;
     const layout = (g.groupKey.match(/^[a-z]+:[^:]*:(.*)$/) || [])[1] || '';
     if (g.type === 'showLayout') g.text = `${g.actor}讓 ${g.count} 台機器展示版面「${layout}」`;
-    else if (g.type === 'appendLayout') g.text = `${g.actor}把版面「${layout}」加到 ${g.count} 台機器`;
-    else if (g.type === 'applySettings') g.text = `${g.actor}把共用機器設定套用到 ${g.count} 台機器`;
+    else if (g.type === 'appendLayout') g.text = `${g.actor}將版面「${layout}」加入 ${g.count} 台機器`;
+    else if (g.type === 'applySettings') g.text = `${g.actor}將共用機器設定套用到 ${g.count} 台機器`;
   }
   return out;
 }
@@ -4025,7 +5453,7 @@ function renderNotifPanel() {
   list.innerHTML = '';
   if (!groups.length) {
     list.innerHTML = '<div class="notif-empty"><span class="notif-empty-ic"><i data-lucide="bell-off"></i></span>' +
-      '<p class="notif-empty-title">目前沒有通知</p><p class="notif-empty-sub">機器加入、中斷連線或內容有更新時，會顯示在這裡。</p></div>';
+      '<p class="notif-empty-title">目前沒有通知</p><p class="notif-empty-sub">機器加入、中斷連線或內容更新時，通知會顯示在這裡。</p></div>';
     if (window.lucide) lucide.createIcons({ nodes: [list] });
     return;
   }
@@ -4057,7 +5485,7 @@ function renderNotifPanel() {
   }
   const foot = document.createElement('p');
   foot.className = 'notif-foot';
-  foot.textContent = '只保留最近 30 天的通知。';
+  foot.textContent = '僅保留最近 30 天的通知。';
   list.appendChild(foot);
   if (window.lucide) lucide.createIcons({ nodes: [list] });
 }
@@ -4109,7 +5537,7 @@ $('notifBtn').addEventListener('click', () => setNotifPanel($('notifPanel').hidd
 // 標題＝「(未讀數) 目前這一頁｜站名 展示機管理系統」，開著工作區時是機器名稱；有未讀時分頁小圖示右上角加紅點。
 // 切到別的分頁也看得到有新通知、在哪一頁。
 const BASE_TITLE = document.title;
-const VIEW_TITLE = { devices: '機器總覽', sharedLayout: '版面設定', sharedSettings: '共用機器設定', users: '帳號管理' };
+const VIEW_TITLE = { devices: '機器總覽', sharedLayout: '版面設定', sharedSettings: '共用機器設定', parkInfo: '園區測站', users: '帳號管理' };
 let titleView = '';
 function updateDocTitle() {
   const n = token ? unreadNotifCount() : 0;
@@ -4146,7 +5574,19 @@ function setFaviconDot(on) {
 const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 document.addEventListener('keydown', (e) => {
   if (!(e.key === 's' || e.key === 'S') || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.altKey) return;
-  if (!$('wsModal').classList.contains('is-visible')) return;
+  if (!$('wsModal').classList.contains('is-visible')) {
+    // 園區測站頁（2026-10-20）：同一顆快捷鍵＝儲存這一站；沒有修改就在儲存鈕左邊閃一句；資料來源 modal 開著＝存資料來源
+    if ($('parkInfoView').classList.contains('hidden') || !meIsAdmin) return;
+    e.preventDefault();
+    if (parkSrcOpen()) { saveParkApi(); return; }
+    if (parkChanged()) { saveParkStation(); return; }
+    const pn = $('parkDirtyNote');
+    if (!pn) return;
+    pn.textContent = '目前沒有新的修改'; pn.classList.add('is-on', 'is-plain');
+    clearTimeout(pn._t);
+    pn._t = setTimeout(() => setParkDirty(), 1600);
+    return;
+  }
   e.preventDefault();
   if (!$('saveBtn').disabled) { $('saveBtn').click(); return; }
   // 沒有修改：底部欄閃一句「目前沒有新的修改」，讓人知道有按到
@@ -4185,8 +5625,8 @@ async function renderDevicesView(opts = {}) {
     tb.innerHTML =
       '<tr><td colspan="8"><div class="b-empty">' +
       '<span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>' +
-      '<p class="b-empty-title">還沒有機器連上來</p>' +
-      '<p class="b-empty-sub">按右上角「新增機器」，輸入機器畫面上的配對碼，機器就會出現在這裡。</p>' +
+      '<p class="b-empty-title">尚未加入任何機器</p>' +
+      '<p class="b-empty-sub">按一下右上角的「新增機器」並輸入機器畫面上的配對碼，機器就會顯示在這裡。</p>' +
       '</div></td></tr>';
     if (window.lucide) lucide.createIcons();
     return;
@@ -4253,7 +5693,7 @@ $('addDeviceBtn').addEventListener('click', async () => {
  *  機器 20 秒內沒連上：照樣算新增成功（後台已建好這台），改成說明＋「知道了」。回傳 true＝已新增、false＝取消。 */
 function pairDialog() {
   return new Promise((resolve) => {
-    const hint = '名稱會顯示在機器總覽，之後也可以更名。';
+    const hint = '名稱會顯示在機器總覽，之後仍可更名。';
     const codeHint = '請輸入機器畫面上顯示的 6 位數配對碼。';
     // 機器目前連在別的場域（user 2026-10-13：要讓人知道這台已經在某個場域）：取名這一步先講清楚新增後會怎樣
     const nameDesc = (i) => (i.model ? `機型：${i.model}\n` : '') +
@@ -4392,7 +5832,7 @@ function pairDialog() {
       otp.hidden = next !== 'code';
       nameInput.hidden = !(next === 'name' || next === 'error');
       foot.hidden = next === 'busy' || next === 'done';
-      okBtn.textContent = next === 'code' ? '下一步' : next === 'slow' ? '知道了' : '新增';
+      okBtn.textContent = next === 'code' ? '下一步' : next === 'slow' ? '好' : '新增';
       cancelBtn.hidden = next === 'slow';
       okBtn.disabled = next === 'code' && otpValue().length !== 6;
       if (window.lucide) lucide.createIcons();
@@ -4414,7 +5854,7 @@ function pairDialog() {
           flagCode('exists', knownExisting.message);
           return;
         }
-        await transition(() => show('name', '幫這台機器取個名字', nameDesc(info)));
+        await transition(() => show('name', '為這台機器命名', nameDesc(info)));
         nameInput.focus();
       } catch (e) {
         flagCode('error', e.message);
@@ -4437,7 +5877,7 @@ function pairDialog() {
       if (phase === 'code') return lookup();
       if (phase === 'slow') return close(true);
       const name = nameInput.value.trim();
-      if (!name) { show('name', '幫這台機器取個名字', '請幫這台機器取個名字。\n' + hint); nameInput.focus(); return; }
+      if (!name) { show('name', '為這台機器命名', '請輸入機器名稱。\n' + hint); nameInput.focus(); return; }
       await transition(() => show('busy', '正在新增', '正在連線到機器，請稍候…'));
       let res;
       try { res = await api('POST', '/api/pair/claim', { code, name }); }
@@ -4452,10 +5892,10 @@ function pairDialog() {
         online = !!(d && d.LastSeenAgoSec != null && d.LastSeenAgoSec < 30);
       }
       if (online) {
-        settle(() => show('done', `已新增「${res.deviceName}」`, '機器已經連上，可以開始管理內容了。'));
+        settle(() => show('done', `已新增「${res.deviceName}」`, '機器已連線，現在可以開始管理內容。'));
         setTimeout(() => close(true), 1900); // 轉圈收成打勾約 1 秒，畫完再看一下才關
       } else {
-        settle(() => show('slow', `已新增「${res.deviceName}」`, '機器還沒連上。請確認機器開著而且有網路，連上後清單會顯示「在線」。'));
+        settle(() => show('slow', `已新增「${res.deviceName}」`, '機器尚未連線，請確認機器已開機並連上網路，連線後清單會顯示「在線」。'));
       }
     }
     const canDismiss = () => phase === 'code' || phase === 'name' || phase === 'error';
@@ -4489,10 +5929,10 @@ function pairDialog() {
     {
       let h = 0;
       const measure = () => { h = Math.max(h, modal.offsetHeight); };
-      show('name', '幫這台機器取個名字', nameDesc({ model: '—', currentSite: '揚昇高爾夫球場' })); measure();
+      show('name', '為這台機器命名', nameDesc({ model: '—', currentSite: '揚昇高爾夫球場' })); measure();
       show('code', '新增機器', existsDesc('一樓大廳展示機')); measure(); // 號碼這一步說明變兩行（已在清單中）也不長高
       show('busy', '正在新增', '正在連線到機器，請稍候…'); measure();
-      show('slow', '已新增「一樓大廳」', '機器還沒連上。請確認機器開著而且有網路，連上後清單會顯示「在線」。'); measure();
+      show('slow', '已新增「一樓大廳」', '機器尚未連線，請確認機器已開機並連上網路，連線後清單會顯示「在線」。'); measure();
       show('code', '新增機器', codeHint); measure();
       modal.style.minHeight = h + 'px';
     }
@@ -4596,10 +6036,10 @@ function showLayoutWizardDialog(devices, layouts) {
       '<button type="button" class="page-help-btn" data-pop aria-label="使用說明" aria-haspopup="true"><i data-lucide="circle-help"></i></button>' +
       '<div class="b-pop-panel page-help-panel">' +
       '<p class="b-pop-panel-title">使用說明</p>' +
-      '<p>勾選機器後按「下一步」挑一個共用版面，按「完成」這幾台就會一起切換到那個版面並進入展示模式。</p>' +
-      '<p>機器裡已經有這個版面時直接切到那一頁；還沒有的會先把版面接在現有頁面後面再切換，頁數滿了就無法加入。</p>' +
-      '<p>版面在後台改過的話，機器上那一頁會一併更新成目前的版面內容（機器上對那一頁做過的修改會被蓋掉），狀況欄會先標出哪幾台會更新。</p>' +
-      '<p>「上一步」會保留勾選；中途關閉不會改動任何機器。</p>' +
+      '<p>勾選機器後按一下「下一步」選擇共用版面，再按一下「完成」，這些機器就會一起切換到該版面並進入展示模式。</p>' +
+      '<p>機器中已有這個版面時會直接切換到該頁，沒有時會先將版面加在現有頁面之後再切換，頁數已滿則無法加入。</p>' +
+      '<p>若版面已在後台修改，機器上的該頁會一併更新為目前的版面內容（機器上對該頁所做的修改會被覆蓋），狀況欄會先標示哪些機器將更新。</p>' +
+      '<p>按一下「上一步」會保留勾選，中途關閉則不會變更任何機器。</p>' +
       '</div>';
     const helpBtn = help.querySelector('[data-pop]');
     helpBtn.addEventListener('click', (e) => { // kit 的 .b-pop 只在載入時綁，動態建的自己接同一套開合
@@ -4755,7 +6195,7 @@ function showLayoutWizardDialog(devices, layouts) {
       let ok = false;
       try {
         ok = await BDialog.confirm({
-          title: '要放棄這次批量調整嗎？', desc: '勾選的機器與版面不會保留；機器的展示畫面都還沒有改動。',
+          title: '要放棄這次批量調整嗎？', desc: '勾選的機器與版面不會保留，所有機器的展示畫面都不會變更。',
           variant: 'danger', confirmText: '放棄',
         });
       } finally { confirming = false; }
@@ -4864,11 +6304,11 @@ async function showLayoutWizard() {
   let devices;
   try {
     try { devices = await api('GET', '/api/devices'); } catch (e) { return setStatus('無法取得機器清單。' + e.message, true); }
-    if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '目前帳號下沒有任何機器。' });
+    if (!devices.length) return BDialog.alert({ title: '沒有機器', desc: '此帳號目前沒有任何機器。' });
     if (!(await ensureSharedLoaded())) return;
   } finally { btn.disabled = false; }
   const layouts = (shared.layouts || []).filter((l) => l.pages && l.pages.length);
-  if (!layouts.length) return BDialog.alert({ title: '沒有版面', desc: '請先到「共用設定 › 版面設定」新增版面，再回來展示。' });
+  if (!layouts.length) return BDialog.alert({ title: '沒有版面', desc: '請先在「共用設定 › 版面設定」新增版面，再進行展示。' });
 
   const result = await showLayoutWizardDialog(devices, layouts);
   if (!result) return; // 對話框縮圖的輪播計時器留給下次 renderDevicesView 的 clearListThumbs 收
@@ -4942,7 +6382,7 @@ function dangerZoneCard() {
       '<div class="b-pop page-help"><button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>' +
       '<div class="b-pop-panel page-help-panel"><p class="b-pop-panel-title">說明</p>' +
       `<p>從後台移除「${esc(curDevName())}」並停止同步。</p>` +
-      '<p>機器端的連線資料會一併清除，要在機器上重新配對才能再接回來。</p></div></div>';
+      '<p>機器端的連線資料會一併清除，需在機器上重新配對才能再次連線。</p></div></div>';
     const actions = document.createElement('div');
     actions.className = 'danger-actions';
     const cancel = document.createElement('button');
@@ -4960,8 +6400,8 @@ function dangerZoneCard() {
         // 第二下再彈警告框、確認鈕倒數 3 秒才可按（2026-09-07 user 指示）；取消就把鈕退回未確認態
         const ok = await BDialog.confirm({
           title: `要刪除「${curDevName()}」嗎？`,
-          desc: '機器會從後台移除並停止同步，畫面照常播放。\n' +
-            '機器端的連線資料會一併清除，之後要在機器上重新配對才能再接回來。\n' +
+          desc: '機器會從後台移除並停止同步，畫面仍會照常播放。\n' +
+            '機器端的連線資料會一併清除，之後需在機器上重新配對才能再次連線。\n' +
             '此動作無法復原。',
           variant: 'danger', confirmText: '刪除', countdown: 3,
         });
@@ -5092,7 +6532,7 @@ function openEditUser(u) {
   $('editUserRole').classList.toggle('is-locked', locked);
   $('editUserRoleHint').textContent = u.IsPrimary ? '主管理員的權限無法變更。'
     : u.IsMe ? '無法變更目前登入帳號的權限。'
-    : '一般帳號可管理所有機器，但看不到帳號管理。';
+    : '一般帳號可管理所有機器，但無法使用帳號管理。';
   BModal.open('#editUserModal');
   setRoleSeg('editUserRole', u.IsAdmin ? 'admin' : 'user', true); // 開窗後才量得到寬度；instant 不播滑入
   $('editDisplayName').focus();
@@ -5152,7 +6592,7 @@ async function closeAddUserModal() {
   const typed = $('newUsername').value || $('newPassword').value || $('newDisplayName').value;
   if (typed) {
     const ok = await BDialog.confirm({
-      title: '有尚未送出的內容', desc: '捨棄剛剛輸入的內容嗎？', variant: 'danger', confirmText: '捨棄',
+      title: '有尚未送出的內容', desc: '要捨棄已輸入的內容嗎？', variant: 'danger', confirmText: '捨棄',
     });
     if (!ok) return;
   }
@@ -5226,7 +6666,7 @@ function renderParkOverlay(el, cell, sizePx, fg) {
   const w = sizePx && sizePx.w ? sizePx.w : 1080;
   const h = sizePx && sizePx.h ? sizePx.h : 200;
   // 提示樣式＝按鈕的格子才有按鈕（園區資訊預設按鈕、其他預設角落徽章）
-  const ctaLabel = hintOf(cell) === 'Button' ? ctaLabelOf(cell) : null;
+  const ctaLabel = liveHintOf(cell) === 'Button' ? ctaLabelOf(cell) : null;
   const cta = !!ctaLabel;
   const vertical = cta && (cell.parkLayout === 'Vertical' || (cell.parkLayout !== 'Horizontal' && w / h < 2.0));
   const s = vertical

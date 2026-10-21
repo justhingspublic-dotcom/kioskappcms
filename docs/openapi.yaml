@@ -285,6 +285,7 @@ components:
       properties:
         version: { type: integer, example: 3, description: 該機器沒設定過為 0 }
         themeColor: { type: string, example: "#0051A8", description: "站台主題色 #RRGGBB（2026-09-14）：機器每輪對帳讀到就套用；/wait 回應也帶" }
+        parkInfo: { type: object, description: "園區測站（2026-10-20，整個場域共用）：{ api, map: { src, w, h } | null, stations: { 代號: { name, photos, desc, link, x?, y? } } }；後台「共用設定 › 園區測站」設定；/wait、GET /api/config 也帶" }
         keyKind: { type: string, enum: [own, shared], description: "只對機器請求回（2026-10-13）：shared＝這次用的是共用金鑰，新版 App 看到會呼叫 POST /api/devices/{deviceId}/key 換一把專屬的" }
 
     ConfigResponse:
@@ -414,6 +415,7 @@ components:
         video: { type: string, description: 影片來源，媒體路徑規則同 `bgImgs` }
         web: { type: string, description: content=Web 時的網址 }
         text: { type: string, description: content=Text／Marquee 的文字 }
+        txtPos: { type: string, enum: [TopStart, TopCenter, TopEnd, CenterStart, Center, CenterEnd, BottomStart, BottomCenter, BottomEnd], default: Center, description: content=Text 的文字位置（九宮格） }
         wAuto: { type: boolean, default: true, description: 天氣：自動定位 }
         wCounty: { type: string, description: 天氣：縣市 }
         wDistrict: { type: string, description: 天氣：鄉鎮區 }
@@ -421,7 +423,14 @@ components:
         wSrc: { type: string, enum: [Standard, Station], default: Standard, description: 天氣資料來源：一般天氣（Open-Meteo）或園區測站（客戶感測器 API） }
         wStUrl: { type: string, description: wSrc=Station 的測站 API 網址 }
         wStation: { type: string, description: wSrc=Station 要顯示的測站代號；空字串＝每 10 秒輪播全部 }
-        tap: { type: string, enum: [None, OpenWeb, OpenAssistant], description: 點擊動作 }
+        tap: { type: string, enum: [None, OpenWeb, OpenAssistant, OpenParkInfo, OpenSubPage], description: 點擊動作 }
+        sub:
+          type: object
+          description: tap=OpenSubPage 的子頁（樹狀展示）；node 與頁面的版面樹同格式，主頁算第 1 層、最多 3 層
+          properties:
+            name: { type: string, description: 子頁名稱（機器上子頁頂欄的標題，空＝「子頁」） }
+            node: { type: object, description: 子頁的版面樹（分割或格子） }
+            layout: { type: string, enum: [Kiosk, Mobile], default: Kiosk, description: 子頁頂欄（同園區資訊）：KIOSK 放大／手機模式一般大小 }
         tapUrl: { type: string, description: tap=OpenWeb 的網址 }
         agentId: { type: string, description: AI 客服 agent id }
         agentName: { type: string }

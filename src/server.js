@@ -49,6 +49,48 @@ const themeColor = require('../public/theme-color.js');
 const SITE_THEME = (process.env.SITE_THEME || '').trim();
 const LEGACY_THEME_COLOR = SITE_THEME === 'sunrise' ? '#2E6F40' : '#0051A8';
 let siteThemeColor = themeColor.DEFAULT; // 記憶體快取：啟動時從共用設定讀，PUT 改色時更新
+// 園區測站（2026-10-20 user：一套系統多場域用，不寫死）：共用設定 settings.parkInfo＝
+//   { api: 測站 API 網址（''＝這個場域沒有測站）, map: { src: '/files/…', w, h }（園區地圖，後台上傳）,
+//     stations: { 測站代號: { name, photos, desc, link, x, y } } }
+// name＝存的時候從測站 API 抄下來的名稱（API 連不上也有名字）；x／y＝在地圖圖片上的位置（寬／高百分比），沒有＝不在地圖上。
+// 後台「共用設定 › 園區測站」設定（限管理員），整個場域的機器共用；跟 themeColor 一樣隨 /version、/wait、/config 回給機器／播放頁。
+let siteParkInfo = { api: '', map: null, stations: {} };
+function normParkInfo(v) {
+  const src = v && typeof v === 'object' ? v : {};
+  const api = typeof src.api === 'string' && /^https?:\/\/\S+$/.test(src.api.trim()) ? src.api.trim().slice(0, 500) : '';
+  const m = src.map;
+  const dim = (n) => (Number.isInteger(Number(n)) && Number(n) > 0 && Number(n) <= 20000 ? Number(n) : 0);
+  const map = m && typeof m === 'object' && typeof m.src === 'string' && /^\/files\/[\w.-]+$/.test(m.src) && dim(m.w) && dim(m.h)
+    ? { src: m.src, w: dim(m.w), h: dim(m.h) } : null;
+  const pct = (n) => (n === null || n === undefined || n === '' || !Number.isFinite(Number(n)) ? null : Math.min(100, Math.max(0, Math.round(Number(n) * 10) / 10)));
+  const out = { api, map, stations: {} };
+  const st = src.stations && typeof src.stations === 'object' ? src.stations : {};
+  for (const [id, s] of Object.entries(st).slice(0, 60)) {
+    if (!/^[^\s<>"'\\]{1,64}$/.test(id) || !s || typeof s !== 'object') continue;
+    const name = typeof s.name === 'string' ? s.name.trim().slice(0, 40) : '';
+    const photos = (Array.isArray(s.photos) ? s.photos : []).filter((u) => typeof u === 'string' && /^\/files\/[\w.-]+$/.test(u)).slice(0, 6);
+    const desc = typeof s.desc === 'string' ? s.desc.slice(0, 400) : '';
+    const link = typeof s.link === 'string' && /^https?:\/\/\S+$/.test(s.link.trim()) ? s.link.trim().slice(0, 500) : '';
+    const e = { name, photos, desc, link };
+    // 介紹的簡易格式（2026-10-21）：ParkRich 的 Markdown 子集，展示端一律先跳脫再套格式；desc 是同一段的純文字版（舊版 App 用）
+    if (typeof s.descRich === 'string' && s.descRich.trim()) e.descRich = s.descRich.replace(/\r/g, '').slice(0, 1500);
+    const x = pct(s.x), y = pct(s.y);
+    if (x !== null && y !== null) { e.x = x; e.y = y; }
+    if (photos.length || desc.trim() || link || 'x' in e) out.stations[id] = e;
+  }
+  // 預設位置（「回到預設位置」用）：只對 home.map 那張地圖有效
+  const h = src.home;
+  if (h && typeof h === 'object' && typeof h.map === 'string' && /^\/files\/[\w.-]+$/.test(h.map) && h.pos && typeof h.pos === 'object') {
+    const pos = {};
+    for (const [id, p] of Object.entries(h.pos).slice(0, 60)) {
+      if (!/^[^\s<>"'\\]{1,64}$/.test(id) || !Array.isArray(p)) continue;
+      const x = pct(p[0]), y = pct(p[1]);
+      if (x !== null && y !== null) pos[id] = [x, y];
+    }
+    if (Object.keys(pos).length) out.home = { map: h.map, pos };
+  }
+  return out;
+}
 // 播放頁預設機器名（2026-09-10）：網址沒帶 ?device= 時用這個名字登錄。所有沒有 App 的螢幕開同一個網址＝同一台機器、
 // 同一畫面（user 2026-09-10：網頁版不需要每面螢幕不同網址）；要讓某面螢幕不同，第一次開時帶 ?device=名字即可。
 const PLAY_DEFAULT_DEVICE = (process.env.PLAY_DEFAULT_DEVICE || '').trim().slice(0, 64);
@@ -75,9 +117,9 @@ app.use('/api', (_req, res, next) => {
 app.get('/api/health', (_req, res) => res.json(health.snapshot()));
 // DB 還沒連上（啟動中或公司 DB 斷線）：API 一律回 503＋中文訊息，網頁照常載入。
 app.use('/api', (_req, res, next) => {
-  if (!db.isReady()) return res.status(503).json({ error: '正在連接資料庫。請稍候再試一次。' });
+  if (!db.isReady()) return res.status(503).json({ error: '伺服器正在準備中，請稍候再試一次。' });
   // DB 心跳已連續失敗（src/health.js 每 15 秒一次）：直接回 503，別讓每個請求各自等 75 秒的取連線逾時
-  if (health.snapshot().db.failures >= 2) return res.status(503).json({ error: '資料庫暫時無法連線。請稍候再試一次。' });
+  if (health.snapshot().db.failures >= 2) return res.status(503).json({ error: '伺服器暫時無法存取資料，請稍候再試一次。' });
   next();
 });
 
@@ -244,7 +286,7 @@ function isDevice(req, deviceId = req.params && req.params.deviceId) {
 function requireUser(req, res, next) {
   req.user = currentUser(req);
   if (req.user) return next();
-  res.status(401).json({ error: '登入已過期。請重新登入。' });
+  res.status(401).json({ error: '登入已過期，請重新登入。' });
 }
 function requireAdmin(req, res, next) {
   req.user = currentUser(req);
@@ -335,7 +377,7 @@ app.get('/api/me', requireUser, async (req, res) => {
     .input('id', db.sql.NVarChar(64), req.user.userId)
     .query('SELECT Username, DisplayName, IsAdmin FROM dbo.KioskUser WHERE UserId = @id');
   const row = r.recordset[0];
-  if (!row) return res.status(401).json({ error: '登入已過期。請重新登入。' });
+  if (!row) return res.status(401).json({ error: '登入已過期，請重新登入。' });
   req.user.isAdmin = !!row.IsAdmin;
   res.json({ username: row.Username, displayName: row.DisplayName || '', isAdmin: !!row.IsAdmin });
 });
@@ -343,7 +385,7 @@ app.get('/api/me', requireUser, async (req, res) => {
 /** 機器連線資訊（側欄底部卡片）：所有登入者都可看，方便在機器上抄填。
  *  位址優先用 .env 的 PUBLIC_URL（對外上線時填），否則以這次請求的 host 推算。金鑰唯讀，更換仍走 .env。 */
 app.get('/api/connection-info', requireUser, (req, res) => {
-  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '', playDefaultDevice: PLAY_DEFAULT_DEVICE, parkApi: PARK_API });
+  res.json({ serverUrl: thisServerUrl(req), deviceKey: DEVICE_KEY || '', playDefaultDevice: PLAY_DEFAULT_DEVICE, parkApi: siteParkInfo.api || '' }); // 園區測站資料來源＝後台設定（2026-10-20）
 });
 
 // ---- 帳號管理（限管理員）----
@@ -362,7 +404,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: '請填寫帳號和密碼。' });
   // U+FFFD＝上游編碼壞掉的替換字元（如用非 UTF-8 terminal 打 API），擋下避免存進壞資料
   if (/�/.test(String(username) + String(displayName || ''))) {
-    return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
+    return res.status(400).json({ error: '名稱含有無法辨識的字元，請在後台網頁重新輸入。' });
   }
   try {
     const id = crypto.randomUUID().replace(/-/g, '');
@@ -394,7 +436,7 @@ app.put('/api/users/:userId', requireAdmin, async (req, res) => {
   if (body.displayName !== undefined) {
     const displayName = String(body.displayName ?? '').trim();
     if (/\uFFFD/.test(displayName)) {
-      return res.status(400).json({ error: '名稱含無效字元（來源編碼問題），請改用網頁介面輸入' });
+      return res.status(400).json({ error: '名稱含有無法辨識的字元，請在後台網頁重新輸入。' });
     }
     q.input('n', db.sql.NVarChar(128), displayName.slice(0, 128) || null);
     sets.push('DisplayName = @n');
@@ -405,7 +447,7 @@ app.put('/api/users/:userId', requireAdmin, async (req, res) => {
     q.input('a', db.sql.Bit, body.isAdmin ? 1 : 0);
     sets.push('IsAdmin = @a');
   }
-  if (!sets.length) return res.status(400).json({ error: '要求的格式不正確。' });
+  if (!sets.length) return res.status(400).json({ error: '送出的資料不正確，請重新整理頁面後再試一次。' });
   const r = await q.query(`UPDATE dbo.KioskUser SET ${sets.join(', ')} WHERE UserId = @id`);
   if (!r.rowsAffected[0]) return res.status(404).json({ error: '這個帳號已不存在。' });
   // 該帳號若已登入，讓它的 token 立刻反映新權限
@@ -485,7 +527,7 @@ app.delete('/api/devices/:deviceId', requireAdmin, async (req, res) => {
 // ---- 機器自己中斷連線（2026-10-13）：App 按「中斷連線」順便把自己從這個場域的後台拿掉（user：手機斷了、後台還留著那台很怪）。
 // 跟後台刪除同一套；機器那邊已經先清掉自己的連線設定，不會再來拿 410。
 app.post('/api/devices/:deviceId/disconnect', async (req, res) => {
-  if (!isDevice(req)) return res.status(401).json({ error: '金鑰不正確。' });
+  if (!isDevice(req)) return res.status(401).json({ error: '連線金鑰不正確。' });
   const name = (await removeDevice(req.params.deviceId, { kind: 'device' })) || req.params.deviceId;
   audit.record(req, { action: 'device.disconnect', targetType: 'device', targetId: req.params.deviceId, targetName: name, summary: `機器「${name}」在機器上中斷連線，已從後台移除` });
   log.info('device', '機器自己中斷連線，已從後台移除', { device: req.params.deviceId, rid: req.id });
@@ -560,11 +602,11 @@ async function readVersion(deviceId) {
 }
 
 app.get('/api/config/:deviceId/version', async (req, res) => {
-  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
+  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期，請重新登入。' });
   // themeColor（2026-09-14）：站台主題色跟著版本回，機器每輪對帳都會看到、不用動設定版本
   // keyKind（2026-10-13）：機器還在用共用金鑰＝'shared'，新版 App 看到就換一把專屬的（POST /api/devices/:id/key）
   const keyKind = isDevice(req) ? deviceKeys.identify(req.get('X-Device-Key')).kind : undefined;
-  res.json({ version: await readVersion(req.params.deviceId), themeColor: siteThemeColor, keyKind });
+  res.json({ version: await readVersion(req.params.deviceId), themeColor: siteThemeColor, parkInfo: siteParkInfo, keyKind });
 });
 
 // ---- 長輪詢：kiosk 掛在這支等新版本，網頁一發布立刻回應（最多掛 25 秒）----
@@ -579,14 +621,14 @@ function notifyWaiters(deviceId, version, ev) {
   waiters.delete(deviceId);
   for (const w of set) {
     clearTimeout(w.timer);
-    try { w.res.json({ version, themeColor: siteThemeColor }); } catch { /* client gone */ }
+    try { w.res.json({ version, themeColor: siteThemeColor, parkInfo: siteParkInfo }); } catch { /* client gone */ }
   }
 }
 /** 主題色改了：把掛在 /wait 的機器全部叫醒（版本照舊回），它們下一輪 /version 就拿到新顏色。 */
 function wakeAllWaiters() {
   for (const [deviceId, set] of Array.from(waiters)) {
     waiters.delete(deviceId);
-    for (const w of set) { clearTimeout(w.timer); try { w.res.json({ version: w.since, themeColor: siteThemeColor }); } catch { /* gone */ } }
+    for (const w of set) { clearTimeout(w.timer); try { w.res.json({ version: w.since, themeColor: siteThemeColor, parkInfo: siteParkInfo }); } catch { /* gone */ } }
   }
 }
 
@@ -739,18 +781,18 @@ app.get('/api/devices/wait', requireUser, (req, res) => {
 });
 
 app.get('/api/config/:deviceId/wait', async (req, res) => {
-  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期。請重新登入。' });
+  if (!isDevice(req) && !currentUser(req)) return res.status(401).json({ error: '登入已過期，請重新登入。' });
   const deviceId = req.params.deviceId;
   const since = Number(req.query.version || 0);
   const current = await readVersion(deviceId);
-  if (current !== since) return res.json({ version: current, themeColor: siteThemeColor });
+  if (current !== since) return res.json({ version: current, themeColor: siteThemeColor, parkInfo: siteParkInfo });
 
   const entry = { res, since };
   const set = waiters.get(deviceId) || new Set();
   set.add(entry);
   waiters.set(deviceId, set);
   const drop = () => { set.delete(entry); if (!set.size) waiters.delete(deviceId); };
-  entry.timer = setTimeout(() => { drop(); try { res.json({ version: current, themeColor: siteThemeColor }); } catch { /* gone */ } }, WAIT_HOLD_MS);
+  entry.timer = setTimeout(() => { drop(); try { res.json({ version: current, themeColor: siteThemeColor, parkInfo: siteParkInfo }); } catch { /* gone */ } }, WAIT_HOLD_MS);
   req.on('close', () => { clearTimeout(entry.timer); drop(); });
 });
 
@@ -758,24 +800,24 @@ app.get('/api/config/:deviceId/wait', async (req, res) => {
 app.get('/api/config/:deviceId', async (req, res) => {
   const user = currentUser(req);
   if (!isDevice(req)) {
-    if (!user) return res.status(401).json({ error: '登入已過期。請重新登入。' });
-    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: '你沒有權限管理這台機器。' });
+    if (!user) return res.status(401).json({ error: '登入已過期，請重新登入。' });
+    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: '此帳號沒有管理這台機器的權限。' });
   }
   const r = await db.getPool().request()
     .input('id', db.sql.NVarChar(64), req.params.deviceId)
     .query('SELECT Version, ConfigJson, UpdatedAt FROM dbo.KioskConfig WHERE DeviceId = @id');
   const row = r.recordset[0];
-  if (!row) return res.status(404).json({ error: '這台機器還沒有任何設定。' });
+  if (!row) return res.status(404).json({ error: '這台機器尚未上傳設定。' });
   // 版本 0＝剛用配對碼新增、機器還沒把內容推上來（src/pairing.js）：這份只有名稱，別讓後台拿去編
-  if (row.Version === 0 && !isDevice(req)) return res.status(409).json({ error: '這台機器正在連線，請過幾秒再試一次。' });
-  res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson), themeColor: siteThemeColor });
+  if (row.Version === 0 && !isDevice(req)) return res.status(409).json({ error: '這台機器正在連線，請稍候幾秒再試一次。' });
+  res.json({ version: row.Version, updatedAt: row.UpdatedAt, config: JSON.parse(row.ConfigJson), themeColor: siteThemeColor, parkInfo: siteParkInfo });
 });
 
 // ---- 操作紀錄：PUT config 的中文摘要（2026-09-10）----
 // 網頁端的批量動作（加到其他機器、套用設定、展示版面）在伺服器看來都只是 PUT config，
 // 所以網頁 body 多帶 reason（字串或 { type, layoutName, mode }）說明這次是什麼動作，這裡照 reason 寫成一句話。
 // 機器自報的 PUT 不記（每台每分鐘都有，會洗版）。
-const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置返回', themeColor: '主題色', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
+const CONFIG_FIELD_NAMES = { pages: '版面', chatApi: '智能客服', sleep: '休眠排程', adminPin: '管理 PIN', idleReturnSec: '閒置返回', themeColor: '主題色', parkInfo: '園區測站', activePage: '展示頁', deviceName: '機器名稱', screen: '螢幕尺寸' };
 // 閒置回展示頁秒數（2026-09-14）：只收 10～3600 的整數，-1＝開關關閉不自動返回（2026-09-14 晚），其他一律存 0＝機器／播放頁用預設 90 秒
 const normIdleSec = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && (n === -1 || (n >= 10 && n <= 3600)) ? n : 0; };
 function auditConfigPut(req, { incoming, prevParsed, config, deviceName, version }) {
@@ -793,9 +835,9 @@ function auditConfigPut(req, { incoming, prevParsed, config, deviceName, version
   const layoutName = typeof reason.layoutName === 'string' ? reason.layoutName.slice(0, 128) : '';
   let action, summary;
   switch (reason.type) {
-    case 'rename': action = 'device.rename'; summary = `把機器${q(prev.deviceName || req.params.deviceId)}更名為${q(name)}`; break;
-    case 'switchPage': action = 'config.switchPage'; summary = `把${q(name)}切到${pageLabel(config.activePage)}展示`; break;
-    case 'appendLayout': action = 'config.appendLayout'; summary = `把版面${q(layoutName)}加到${q(name)}`; break;
+    case 'rename': action = 'device.rename'; summary = `將機器${q(prev.deviceName || req.params.deviceId)}更名為${q(name)}`; break;
+    case 'switchPage': action = 'config.switchPage'; summary = `將${q(name)}切換到${pageLabel(config.activePage)}展示`; break;
+    case 'appendLayout': action = 'config.appendLayout'; summary = `將版面${q(layoutName)}加入${q(name)}`; break;
     case 'applySettings': {
       action = 'config.applySettings';
       const which = names.filter((n) => n !== '展示頁');
@@ -804,7 +846,7 @@ function auditConfigPut(req, { incoming, prevParsed, config, deviceName, version
     case 'showLayout': {
       action = 'config.showLayout';
       const how = reason.mode === 'append' ? '新增一頁並切換' : reason.mode === 'update' ? '更新內容並切換' : '切換';
-      summary = `讓${q(name)}展示版面${q(layoutName)}（${how}到${pageLabel(config.activePage)}）`; break;
+      summary = `將${q(name)}切換為展示版面${q(layoutName)}（${how}到${pageLabel(config.activePage)}）`; break;
     }
     case 'publish': action = 'config.publish'; summary = `發布${q(name)}的畫面與設定（版本 ${version}）${names.length ? `，更動：${names.join('、')}` : '，內容沒有變更'}`; break;
     default: action = 'config.update'; summary = `更新${q(name)}的設定（版本 ${version}）${names.length ? `，更動：${names.join('、')}` : ''}`;
@@ -820,12 +862,12 @@ app.put('/api/config/:deviceId', async (req, res) => {
   const user = currentUser(req);
   if (user) req.user = user; // 這條路由沒掛 requireUser，log／操作紀錄要靠 req.user 知道是誰
   if (!isDevice(req)) {
-    if (!user) return res.status(401).json({ error: '登入已過期。請重新登入。' });
-    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: '你沒有權限管理這台機器。' });
+    if (!user) return res.status(401).json({ error: '登入已過期，請重新登入。' });
+    if (!(await canAccessDevice(user, req.params.deviceId))) return res.status(403).json({ error: '此帳號沒有管理這台機器的權限。' });
   }
   let config = req.body?.config;
   if (!config || typeof config !== 'object') {
-    return res.status(400).json({ error: '要求的格式不正確。' });
+    return res.status(400).json({ error: '送出的資料不正確，請重新整理頁面後再試一次。' });
   }
   // 管理 PIN 限管理員（2026-09-07 定案）：一般帳號送來的 adminPin 直接剝掉，下面的淺合併會沿用舊值
   if (!isDevice(req) && !user.isAdmin) delete config.adminPin;
@@ -847,7 +889,7 @@ app.put('/api/config/:deviceId', async (req, res) => {
       .query('SELECT Version, ConfigJson FROM dbo.KioskConfig WHERE DeviceId = @id');
     // 版本 0（剛配對、機器還沒推內容）：後台這時寫進去會變成版本 1 的「只有名稱」設定，機器反而會去拉這份空的——先擋
     if (prev.recordset[0]?.Version === 0 && !isDevice(req)) {
-      return res.status(409).json({ error: '這台機器正在連線，請過幾秒再試一次。' });
+      return res.status(409).json({ error: '這台機器正在連線，請稍候幾秒再試一次。' });
     }
     prevParsed = prev.recordset[0] ? JSON.parse(prev.recordset[0].ConfigJson) : null;
     config = Object.assign({}, prevParsed || {}, config);
@@ -943,6 +985,45 @@ async function seedThemeColor() {
     log.info('db', `主題色第一次寫進共用設定：${settings.themeColor}（${SITE_THEME || '預設藍'}）`);
   }
   siteThemeColor = themeColor.normalize(settings?.themeColor) || themeColor.DEFAULT;
+  if (settings) { await seedParkInfo(settings); await seedParkHome(settings); }
+  siteParkInfo = normParkInfo(settings?.parkInfo); // 園區測站也在這時候載進記憶體
+}
+/** 卓也原本寫在程式裡的 D1–D5（名稱、地圖上的百分比位置）：搬進後台設定時用，也是「回到預設位置」的預設值 */
+const JOYE_MAP = '/files/joye-map.jpg';
+const JOYE_PRESET = { D1: ['遊園入口', 9.5, 50.7], D2: ['廣場中庭', 34.0, 54.2], D3: ['不差的花園', 47.0, 39.2], D4: ['藍染長廊', 90.0, 82.7], D5: ['卓也書園子', 9.5, 35.5] };
+const joyeHome = () => ({ map: JOYE_MAP, pos: Object.fromEntries(Object.entries(JOYE_PRESET).map(([id, [, x, y]]) => [id, [x, y]])) });
+/** 已經搬過（2026-10-20 下午）但還沒有預設位置的卓也：補上 home（只看地圖是不是那張卓也地圖，其他場域不動） */
+async function seedParkHome(settings) {
+  const cur = settings.parkInfo;
+  if (!cur || typeof cur !== 'object' || cur.home || !cur.map || cur.map.src !== JOYE_MAP) return;
+  settings.parkInfo = normParkInfo({ ...cur, home: joyeHome() });
+  await writeShared(settings);
+  log.info('db', '園區測站補上卓也 D1–D5 的預設位置（回到預設位置用）');
+}
+/** 園區測站改成後台設定（2026-10-20）之前，卓也的測站 API 在 .env PARK_API_URL、地圖與 D1–D5 位置寫在程式裡。
+ *  第一次啟動新版時把它們寫進共用設定（地圖圖片複製一份到上傳資料夾），之後一律以後台設定為準、.env 不再用。
+ *  只做一次：parkInfo 已經有 api 這個欄位（就算是空字串＝管理員清掉了）就不動。 */
+async function seedParkInfo(settings) {
+  const cur = settings.parkInfo && typeof settings.parkInfo === 'object' ? settings.parkInfo : {};
+  if ('api' in cur || !PARK_API) return;
+  const next = { ...cur, api: PARK_API, stations: { ...(cur.stations || {}) } };
+  if (!next.map) {
+    try {
+      const dest = path.join(UPLOAD_DIR, 'joye-map.jpg');
+      if (!fs.existsSync(dest)) fs.copyFileSync(path.join(__dirname, '..', 'public', 'img', 'joye-map.jpg'), dest);
+      next.map = { src: JOYE_MAP, w: 1600, h: 2253 };
+    } catch (e) { log.warn('db', `園區地圖複製失敗：${e.message}`); }
+  }
+  if (next.map) {
+    for (const [id, [name, x, y]] of Object.entries(JOYE_PRESET)) {
+      const e = next.stations[id] || { photos: [], desc: '', link: '' };
+      next.stations[id] = { ...e, name: e.name || name, x: e.x ?? x, y: e.y ?? y };
+    }
+    next.home = joyeHome();
+  }
+  settings.parkInfo = normParkInfo(next);
+  await writeShared(settings);
+  log.info('db', `園區測站第一次寫進共用設定：資料來源 ${PARK_API}、${next.map ? '卓也地圖＋D1–D5 位置' : '沒有地圖'}`);
 }
 
 /** 操作紀錄：共用設定 PUT 前後比對（版面新增／更名／修改／刪除、客服／休眠／PIN 範本修改），一件事一筆。 */
@@ -955,7 +1036,7 @@ function auditSharedPut(req, current, next) {
     const old = curL.get(id);
     const base = { targetType: 'layout', targetId: String(id), targetName: l.name || '' };
     if (!old) audit.record(req, { action: 'shared.layout.create', summary: `新增共用版面${q(l.name)}`, ...base });
-    else if ((old.name || '') !== (l.name || '')) audit.record(req, { action: 'shared.layout.rename', summary: `把共用版面${q(old.name)}更名為${q(l.name)}`, ...base });
+    else if ((old.name || '') !== (l.name || '')) audit.record(req, { action: 'shared.layout.rename', summary: `將共用版面${q(old.name)}更名為${q(l.name)}`, ...base });
     else if (JSON.stringify(old.pages) !== JSON.stringify(l.pages) || JSON.stringify(old.screen) !== JSON.stringify(l.screen)) {
       audit.record(req, { action: 'shared.layout.update', summary: `修改共用版面${q(l.name)}的內容`, ...base });
     }
@@ -963,7 +1044,7 @@ function auditSharedPut(req, current, next) {
   for (const [id, l] of curL) {
     if (!nxL.has(id)) audit.record(req, { action: 'shared.layout.delete', summary: `刪除共用版面${q(l.name)}`, targetType: 'layout', targetId: String(id), targetName: l.name || '' });
   }
-  const changed = ['chatApi', 'sleep', 'adminPin', 'idleReturnSec', 'themeColor'].filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(nx[k]));
+  const changed = ['chatApi', 'sleep', 'adminPin', 'idleReturnSec', 'themeColor', 'parkInfo'].filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(nx[k]));
   if (changed.length) {
     audit.record(req, { action: 'shared.settings.update', targetType: 'shared', targetId: 'settings', summary: `修改共用機器設定：${changed.map((k) => CONFIG_FIELD_NAMES[k]).join('、')}`, detail: { changed } });
   }
@@ -976,7 +1057,7 @@ app.get('/api/shared-settings', requireUser, async (_req, res) => {
 app.put('/api/shared-settings', requireUser, async (req, res) => {
   const incoming = req.body?.settings;
   if (!incoming || typeof incoming !== 'object') {
-    return res.status(400).json({ error: '要求的格式不正確。' });
+    return res.status(400).json({ error: '送出的資料不正確，請重新整理頁面後再試一次。' });
   }
   const current = (await readShared()).settings || {};
   let next;
@@ -985,6 +1066,8 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
     if ('idleReturnSec' in next) next.idleReturnSec = normIdleSec(next.idleReturnSec);
     // 主題色（2026-09-14）：只收 #RRGGBB；不合法就當沒改、保留現值
     next.themeColor = themeColor.normalize(next.themeColor) || current.themeColor;
+    // 園區測站（2026-10-20）：整理過才存；舊分頁送來的沒有這個欄位＝沒動，保留現值（別被沒重新整理的分頁洗掉）
+    next.parkInfo = 'parkInfo' in next ? normParkInfo(next.parkInfo) : current.parkInfo;
     // 建立者由伺服器蓋章（新出現的版面 id，或舊資料沒記的）：用登入者的顯示名稱
     const known = new Map((current.layouts || []).map((l) => [l.id, l]));
     const me = await db.getPool().request().input('id', db.sql.NVarChar(64), req.user.userId)
@@ -1007,6 +1090,12 @@ app.put('/api/shared-settings', requireUser, async (req, res) => {
     wakeAllWaiters(); // 機器立刻拿到新主題色（不用等 25 秒長輪詢到期）
     log.info('sys', `主題色改為 ${siteThemeColor}`);
   }
+  const park = normParkInfo(next.parkInfo);
+  if (JSON.stringify(park) !== JSON.stringify(siteParkInfo)) {
+    siteParkInfo = park;
+    wakeAllWaiters(); // 機器／播放頁立刻拿到新的測站資訊
+    log.info('sys', `園區測站已更新（資料來源${park.api ? '已設定' : '未設定'}、${park.map ? '有' : '沒有'}地圖、${Object.keys(park.stations).length} 站有資料）`);
+  }
   res.json({ ok: true });
 });
 
@@ -1027,17 +1116,17 @@ app.post('/api/justai/agents', requireUser, async (req, res) => {
       body: JSON.stringify({ email, password }),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!login.ok) return res.status(502).json({ error: '無法登入智能客服平台。請檢查帳號和密碼。' });
+    if (!login.ok) return res.status(502).json({ error: '無法登入智能客服平台，請檢查帳號和密碼。' });
     const jt = (await login.json()).token;
     const r = await fetch(root + '/api/agents', { headers: { Authorization: 'Bearer ' + jt }, signal: AbortSignal.timeout(15_000) });
-    if (!r.ok) return res.status(502).json({ error: '智能客服平台目前無法提供客服清單。請稍後再試一次。' });
+    if (!r.ok) return res.status(502).json({ error: '智能客服平台目前無法提供客服清單，請稍後再試一次。' });
     const arr = await r.json();
     res.json((Array.isArray(arr) ? arr : []).map((a) => ({
       id: a.id, name: a.name || '', description: a.description || '',
     })));
   } catch (e) {
     log.error('justai', `拉客服清單失敗：${e.message}`, { rid: req.id });
-    res.status(502).json({ error: '無法連接智能客服平台。請檢查伺服器位址和網路連線。' });
+    res.status(502).json({ error: '無法連接智能客服平台，請檢查伺服器位址和網路連線。' });
   }
 });
 
@@ -1049,20 +1138,40 @@ const stationCache = new Map(); // url -> { ts, body }
 app.get('/api/station/current', requireUserOrDevice, async (req, res) => {
   const url = String(req.query.url || '').trim();
   if (!/^https?:\/\/\S+$/.test(url)) {
-    return res.status(400).json({ error: '測站 API 網址格式不正確。請以 http:// 或 https:// 開頭。' });
+    return res.status(400).json({ error: '測站 API 網址格式不正確，請以 http:// 或 https:// 開頭。' });
   }
   const hit = stationCache.get(url);
   if (hit && Date.now() - hit.ts < 10_000) return res.type('application/json').send(hit.body);
   try {
-    const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return res.status(502).json({ error: '測站 API 目前無法回應。請稍後再試一次。' });
+    // 連不上、逾時、對方 5xx＝再試一次（2026-10-21：早上第一次連卓也測站平台 8 秒沒回應，重新整理就好了——
+    // 偶爾一次慢不該讓畫面跳「連線失敗」）。網址錯（404／不是 JSON）不重試。
+    let r;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) });
+        if (r.status < 500 || attempt >= 2) break;
+        log.warn('station', `測站 API 回應 ${r.status}，再試一次`, { rid: req.id });
+      } catch (e) {
+        if (attempt >= 2) throw e;
+        log.warn('station', `測站 API 沒回應（${e.message}），再試一次`, { rid: req.id });
+      }
+    }
+    // 錯誤原因分清楚（2026-10-20：網址打錯被說成「稍後再試」會誤會成對方當機）
+    if (!r.ok) {
+      log.warn('station', `測站 API 回應 ${r.status}`, { rid: req.id });
+      return res.status(502).json({ error: r.status === 404 || r.status === 410 ? '找不到此網址，請確認網址是否正確。'
+        : r.status < 500 ? '測站資料來源拒絕存取，請確認網址是否正確。' : '測站資料來源目前無法回應，請稍後再試一次。' });
+    }
     const body = await r.text();
-    JSON.parse(body); // 不是 JSON 就當連錯網址
+    try { JSON.parse(body); } catch { // 不是 JSON＝連到的不是測站資料（例如貼成網頁的網址）
+      log.warn('station', '測站 API 回傳的不是 JSON', { rid: req.id });
+      return res.status(502).json({ error: '此網址未提供測站資料，請確認網址是否正確。' });
+    }
     stationCache.set(url, { ts: Date.now(), body });
     res.type('application/json').send(body);
   } catch (e) {
     log.error('station', `測站代理失敗：${e.message}`, { rid: req.id });
-    res.status(502).json({ error: '無法連接測站 API。請檢查網址和網路連線。' });
+    res.status(502).json({ error: '無法連接測站資料來源，請檢查網址和網路連線。' });
   }
 });
 
@@ -1104,17 +1213,17 @@ async function normalizeImage(file) {
 function requireUserOrDevice(req, res, next) {
   req.user = currentUser(req);
   if (req.user || isDevice(req)) return next();
-  res.status(401).json({ error: '登入已過期。請重新登入。' });
+  res.status(401).json({ error: '登入已過期，請重新登入。' });
 }
 
 app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: '沒有選擇檔案。' });
+  if (!req.file) return res.status(400).json({ error: '尚未選擇檔案。' });
   try {
     await normalizeImage(req.file);
   } catch (e) {
     log.warn('upload', `上傳圖片轉檔失敗：${e.message}`, { ...actorOf(req), rid: req.id });
     try { fs.unlinkSync(path.join(UPLOAD_DIR, req.file.filename)); } catch { /* ignore */ }
-    return res.status(400).json({ error: '無法使用這張圖片。機器不支援這種圖片格式，請改成 JPG 或 PNG 再上傳。' });
+    return res.status(400).json({ error: '機器不支援此圖片格式，請轉換成 JPG 或 PNG 後再上傳。' });
   }
   const id = path.parse(req.file.filename).name;
   await db.getPool().request()
@@ -1133,7 +1242,7 @@ app.post('/api/upload', requireUserOrDevice, upload.single('file'), async (req, 
 // 只收共用金鑰、而且這台還沒確認過專屬金鑰；發出去的這把要等機器第一次用它連上才算數（見 src/device-keys.js）。
 app.post('/api/devices/:deviceId/key', async (req, res) => {
   if (deviceKeys.identify(req.get('X-Device-Key'))?.kind !== 'shared' || !isDevice(req)) {
-    return res.status(401).json({ error: '金鑰不正確。' });
+    return res.status(401).json({ error: '連線金鑰不正確。' });
   }
   const deviceKey = await deviceKeys.issue(req.params.deviceId, { confirmed: false, source: 'exchange' });
   log.info('device', '機器用共用金鑰換到專屬金鑰', { device: req.params.deviceId, rid: req.id });
@@ -1151,9 +1260,9 @@ app.post('/api/devices/:deviceId/key/reset', requireAdmin, async (req, res) => {
 
 // ---- 機器事件（2026-09-10）：App 定期把本機記的事件批次送上來；後台不做頁面，只存 DB（查詢限管理員）----
 app.post('/api/devices/:deviceId/events', async (req, res) => {
-  if (!isDevice(req)) return res.status(401).json({ error: '金鑰不正確。' });
+  if (!isDevice(req)) return res.status(401).json({ error: '連線金鑰不正確。' });
   const list = Array.isArray(req.body?.events) ? req.body.events : null;
-  if (!list) return res.status(400).json({ error: '要求的格式不正確。' });
+  if (!list) return res.status(400).json({ error: '送出的資料不正確，請重新整理頁面後再試一次。' });
   const accepted = await events.insertBatch(req.params.deviceId, list);
   log.debug('events', `收到機器事件 ${accepted} 筆`, { device: req.params.deviceId, rid: req.id });
   res.json({ ok: true, accepted });
@@ -1262,13 +1371,13 @@ app.use((err, req, res, _next) => {
   // body-parser 的 JSON 壞掉等「要求本身有問題」的錯（帶 statusCode 4xx）：回 400，記 warn 就好
   if (err && err.statusCode >= 400 && err.statusCode < 500) {
     log.warn('http', `要求無效：${err.message}`, { method: req.method, path: req.originalUrl, ...actorOf(req), rid: req.id });
-    return res.status(err.statusCode).json({ error: '要求的格式不正確。', requestId: req.id });
+    return res.status(err.statusCode).json({ error: '送出的資料不正確，請重新整理頁面後再試一次。', requestId: req.id });
   }
   // 原始錯誤（含 stack、哪支 API、誰、送了什麼）只留在伺服器 log；畫面上一律給中性說法，
   // detail 帶 requestId 供回報時對照（DevTools 看得到）。
   log.error('http', err, { method: req.method, path: req.originalUrl, ...actorOf(req), body: log.redactBody(req.body), rid: req.id });
   if (res.headersSent) return; // 已經回了一半才出錯（例如串流中）：只能記 log，別再往壞掉的回應寫東西
-  res.status(500).json({ error: '伺服器暫時無法處理這項要求。請稍後再試一次。', detail: String(err.message || err), requestId: req.id });
+  res.status(500).json({ error: '伺服器暫時無法處理這項要求，請稍後再試一次。', detail: String(err.message || err), requestId: req.id });
 });
 
 // async route 裡沒接住的錯（Express 4 不會轉給錯誤中介層）與零星背景錯誤：

@@ -26,7 +26,7 @@
     download.removeAttribute('href');
     try {
       const response = await fetch('/api/app/releases/latest', { cache: 'no-store', signal: controller.signal });
-      if (!response.ok) throw new Error(response.status === 404 ? '尚未發布 App 版本。' : '暫時無法取得版本資訊，請稍後重試。');
+      if (!response.ok) throw new Error(response.status === 404 ? '尚未發布 App 版本。' : '目前無法取得版本資訊，請稍後再試一次。');
       const release = await response.json();
       if (request !== controller || !overlay.classList.contains('is-visible')) return;
       const version = release.versionName;
@@ -34,7 +34,7 @@
       if (!/^\d+\.\d+(?:\.\d+)?$/.test(version) || release.packageName !== 'com.kioskapp' ||
           release.apkUrl !== expectedPath || !Number.isSafeInteger(release.fileSize) || release.fileSize <= 0 ||
           !Number.isFinite(Date.parse(release.releasedAt)) || !Array.isArray(release.changelog) ||
-          !release.changelog.every(item => typeof item === 'string')) throw new Error('版本資訊格式不正確，請稍後重試。');
+          !release.changelog.every(item => typeof item === 'string')) throw new Error('無法讀取版本資訊，請稍後再試一次。');
       byId('appReleaseVersion').textContent = `版本 ${version}`;
       const date = new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeZone: 'Asia/Taipei' }).format(new Date(release.releasedAt));
       byId('appReleaseMeta').textContent = `${date} · ${(release.fileSize / 1024 / 1024).toFixed(1)} MB · Android APK`;
@@ -58,7 +58,7 @@
       status.hidden = true;
     } catch (error) {
       if (request !== controller || !overlay.classList.contains('is-visible')) return;
-      status.textContent = error.name === 'AbortError' ? '連線逾時，請檢查網路後重新載入。' : error.message;
+      status.textContent = error.name === 'AbortError' ? '連線逾時，請檢查網路連線後重新載入。' : error.message;
       status.classList.add('is-error');
       retry.hidden = false;
     } finally { clearTimeout(timeout); }

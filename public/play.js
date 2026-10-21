@@ -18,6 +18,7 @@
   const RETRY_MS = 15_000;
   const STATION_ROTATE_MS = 10_000;
   const DEFAULT_PARK_API = (document.body.dataset.parkApi || '').trim(); // 站台的園區測站 API（.env PARK_API_URL；沒設＝園區資訊頁只當導覽圖）
+  // 舊版後台（parkInfo 沒有 api 欄位）才用的內建卓也地圖；新版一律照後台「共用設定 › 園區測站」的地圖與測站位置（2026-10-20）
   const PARK_PRESET = { // App ParkPresets.Joye：內建園區地圖與測站位置（百分比）
     name: '卓也小屋', map: '../admin/img/joye-map.jpg', aspect: 1600 / 2253,
     nodes: [
@@ -151,7 +152,8 @@
   (function hiddenCorner() {
     let taps = 0, last = 0;
     document.addEventListener('pointerdown', (e) => {
-      if (e.clientX > 160 || e.clientY > 160 || !$('setup').hidden) return;
+      // 子頁／內頁開著時不算（左上角是返回鈕，連按返回不該跳出改名；同 App 只在主頁有隱藏角落）
+      if (e.clientX > 160 || e.clientY > 160 || !$('setup').hidden || subStack.length || overlayKind) return;
       const now = Date.now();
       taps = now - last <= 1500 ? taps + 1 : 1; last = now;
       if (taps >= 5) { taps = 0; openSetup(true); }
@@ -203,7 +205,8 @@
   }
 
   async function tick() {
-    const { version } = await api('GET', `/api/config/${encId}/version`);
+    const { version, parkInfo: pi } = await api('GET', `/api/config/${encId}/version`);
+    setParkInfo(pi); // 園區測站資訊卡（2026-10-20）：站台層級，不動設定版本，每輪對帳都看一次
     if (version === 0) { await pushInitial(); return; }
     if (version !== lastVersion || !config) await pull(version);
     else if (!screenReported) await reportScreenIfChanged();
@@ -224,9 +227,46 @@
   }
 
   let siteTheme = null; // 站台主題色（/api/config 回應的 themeColor，2026-09-14）：客服「自動」色用
+  // 園區測站資訊卡（2026-10-20 user）：後台「共用設定 › 園區測站」填的每站照片／說明／看更多連結／地圖位置，
+  // { stations: { 代號: { photos, desc, link, x?, y? } } }；跟 themeColor 一樣隨 /version、/config 回來（App ParkInfoScreen 同規則）
+  let parkInfo = { stations: {} };
+  function setParkInfo(pi) {
+    if (!pi || typeof pi !== 'object') return;
+    const changed = JSON.stringify(pi) !== JSON.stringify(parkInfo);
+    const was = parkLiveKey();
+    parkInfo = pi;
+    if (changed && overlayKind === 'park') refreshPark(); // 資訊卡內容跟著更新（地圖上新放的點等下次打開）
+    // 場域的測站資料來源設了／清了：天氣格與「園區資訊」格子要換樣子；訪客正在看別的畫面就等下次換頁再畫
+    if (was !== parkLiveKey() && config && !overlayKind && !subStack.length && !window.KioskAssist?.isOpen()) renderActive(activeIndex);
+  }
+  const parkLiveKey = () => (!parkInfo || !('api' in parkInfo) ? 'legacy' : parkInfo.api ? 'on' : 'off');
+  /** 場域清掉了測站資料來源（2026-10-20 user）：「園區資訊」格子不能點、不顯示提示；天氣格「園區測站」改顯示一般天氣（後台 liveHintOf、App 同規則） */
+  const parkOff = () => parkLiveKey() === 'off';
+  const tapOff = (cell) => cell.tap === 'OpenParkInfo' && parkOff();
+  const parkSt = (id) => (parkInfo && parkInfo.stations && parkInfo.stations[id]) || null;
+  const parkHasInfo = (id) => { const e = parkSt(id); return !!e && ((e.photos || []).length > 0 || !!String(e.desc || '').trim()); };
+  /** 後台有新版園區測站設定（parkInfo 帶 api 欄位）＝地圖、測站位置、資料來源都照它；舊版後台才退回內建卓也地圖 */
+  const parkSiteDriven = () => !!parkInfo && 'api' in parkInfo;
+  /** 園區地圖：{ src, aspect }；後台還沒上傳地圖＝null */
+  function parkMapOf() {
+    if (!parkSiteDriven()) return { src: PARK_PRESET.map, aspect: PARK_PRESET.aspect };
+    const m = parkInfo.map;
+    return m && m.src && m.w > 0 && m.h > 0 ? { src: mediaSrc(m.src), aspect: m.w / m.h } : null;
+  }
+  /** 地圖上的點：後台放上地圖的測站（名稱＝後台存下來的，讀數回來再補）；舊版後台＝內建 D1–D5 */
+  function parkNodes() {
+    if (!parkSiteDriven()) return PARK_PRESET.nodes;
+    const ok = (e) => e && e.x != null && e.y != null && Number.isFinite(Number(e.x)) && Number.isFinite(Number(e.y));
+    return Object.entries(parkInfo.stations || {}).filter(([, e]) => ok(e))
+      .map(([id, e]) => ({ id, name: e.name || '', x: Number(e.x), y: Number(e.y) }))
+      .sort((a, b) => a.id.localeCompare(b.id, 'zh-Hant', { numeric: true }));
+  }
+  /** 格子實際用的測站 API：新版後台一律照場域設定（清空＝沒有測站，不再拿格子裡抄給舊版 App 的網址備援）；舊版後台才用格子自己的 */
+  const parkApiOf = (cell) => (parkSiteDriven() ? parkInfo.api || '' : ((cell && cell.wStUrl) || '').trim() || DEFAULT_PARK_API);
   async function pull(version) {
     const root = await api('GET', `/api/config/${encId}`);
     if (typeof root.themeColor === 'string') siteTheme = root.themeColor;
+    setParkInfo(root.parkInfo);
     const cfg = root.config || {};
     const nextPages = Array.isArray(cfg.pages) && cfg.pages.length ? cfg.pages : [];
     const cloudActive = clamp(Number(cfg.activePage) || 0, 0, Math.max(0, nextPages.length - 1));
@@ -314,26 +354,11 @@
     clearRendered();
     closeOverlay(true);
     if (window.KioskAssist?.isOpen()) window.KioskAssist.close();
+    closeSub(true);
     const next = el('div', 'page');
     const blocks = page.blocks || [];
     const SW = stage.clientWidth, SH = stage.clientHeight;
     const totalW = blocks.reduce((s, b) => s + (b.w || 1), 0) || 1;
-    const splitChildPx = (px, node, second) => {
-      const ratio = clamp(Number(node.ratio) || 0.5, 0.1, 0.9);
-      const frac = second ? 1 - ratio : ratio;
-      return node.dir === 'Horizontal' ? { w: px.w, h: Math.round(px.h * frac) } : { w: Math.round(px.w * frac), h: px.h };
-    };
-    // 格子可以一直切下去（2026-10-12 排版更自由）：分割一層一層往下畫，跟 App LayoutRenderer 一樣
-    // （'Vertical'＝左右並排、'Horizontal'＝上下疊；a 在左／上，ratio＝a 佔的比例，夾在 0.1–0.9）
-    const nodeEl = (node, flex, px) => {
-      if (!node || node.t !== 'split') return cellEl(node || {}, flex, px);
-      const ratio = clamp(Number(node.ratio) || 0.5, 0.1, 0.9);
-      const s = el('div', 'split');
-      s.style.flex = String(flex);
-      s.style.flexDirection = node.dir === 'Vertical' ? 'row' : 'column';
-      s.append(nodeEl(node.a, ratio, splitChildPx(px, node, false)), nodeEl(node.b, 1 - ratio, splitChildPx(px, node, true)));
-      return s;
-    };
     if (!blocks.length) next.append(placeholder('尚未新增任何區塊'));
     blocks.forEach((block) => {
       const blockPx = { w: SW, h: Math.round((SH * (block.w || 1)) / totalW) };
@@ -351,6 +376,23 @@
     });
     // 字型載完再量一次（跑馬燈字寬、文字縮放都靠量測）
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (next.isConnected) fitAll(next); });
+  }
+
+  // 格子可以一直切下去（2026-10-12 排版更自由）：分割一層一層往下畫，跟 App LayoutRenderer 一樣
+  // （'Vertical'＝左右並排、'Horizontal'＝上下疊；a 在左／上，ratio＝a 佔的比例，夾在 0.1–0.9）。主頁與子頁共用
+  function splitChildPx(px, node, second) {
+    const ratio = clamp(Number(node.ratio) || 0.5, 0.1, 0.9);
+    const frac = second ? 1 - ratio : ratio;
+    return node.dir === 'Horizontal' ? { w: px.w, h: Math.round(px.h * frac) } : { w: Math.round(px.w * frac), h: px.h };
+  }
+  function nodeEl(node, flex, px) {
+    if (!node || node.t !== 'split') return cellEl(node || {}, flex, px);
+    const ratio = clamp(Number(node.ratio) || 0.5, 0.1, 0.9);
+    const s = el('div', 'split');
+    s.style.flex = String(flex);
+    s.style.flexDirection = node.dir === 'Vertical' ? 'row' : 'column';
+    s.append(nodeEl(node.a, ratio, splitChildPx(px, node, false)), nodeEl(node.b, 1 - ratio, splitChildPx(px, node, true)));
+    return s;
   }
 
   function placeholder(text, error) {
@@ -384,6 +426,7 @@
       const t = el('div', 'pv-text', cell.text);
       t.style.color = fg; t.style.textShadow = glowCss();
       t.dataset.size = cell.txtSize || 100;
+      if (cell.txtPos && cell.txtPos !== 'Center') t.dataset.pos = cell.txtPos; // 九宮格位置（play.css）
       c.append(t);
     } else if (cell.content === 'Marquee' && cell.text) {
       const wrap = el('div', 'pv-marquee');
@@ -419,7 +462,7 @@
     if (hintOf(cell) === 'Glow') renderHintGlow(c, cell);
 
     // ---- 點擊動作 ----
-    if (cell.tap && cell.tap !== 'None') {
+    if (cell.tap && cell.tap !== 'None' && !tapOff(cell)) {
       c.classList.add('tappable');
       c.addEventListener('click', () => onCellTap(cell));
     }
@@ -691,7 +734,7 @@
     c.dataset.weather = '1';
     const w = el('div', 'pv-weather2');
     const dyn = !!cell.wDynBg;
-    const stationMode = cell.wSrc === 'Station';
+    const stationMode = cell.wSrc === 'Station' && !parkOff(); // 場域沒有測站資料來源＝顯示一般天氣
     const locationSet = !(cell.wAuto === false && !cell.wCounty);
     let sky = null;
     if (dyn) { sky = new Sky(c); addTimer(sky); }
@@ -716,10 +759,10 @@
         else if (!forecast) renderHint('取得天氣資料中…');
         else if (forecast.error) renderHint('天氣資料暫時無法取得');
         else renderBar(forecast);
-      } else if (!cell.wStUrl) {
-        renderHint('尚未填寫測站 API 網址');
+      } else if (!parkApiOf(cell)) {
+        renderHint('尚未設定測站資料來源');
       } else {
-        const snap = getStations(cell.wStUrl);
+        const snap = getStations(parkApiOf(cell));
         if (!snap) renderHint('取得測站資料中…');
         else if (snap.error) renderHint('測站資料暫時無法取得');
         else if (!snap.stations.length) renderHint('測站 API 沒有回傳任何測站');
@@ -820,7 +863,7 @@
   // 沒點擊動作＝無；有設就照設的；沒設＝園區資訊走按鈕（沿用舊版面），其他一律無（user 2026-09-10：預設無、自己選）
   const HINTS = ['None', 'Badge', 'Glow', 'Button'];
   function hintOf(cell) {
-    if (!cell.tap || cell.tap === 'None') return 'None';
+    if (!cell.tap || cell.tap === 'None' || tapOff(cell)) return 'None';
     if (HINTS.includes(cell.tapHint)) return cell.tapHint;
     return cell.tap === 'OpenParkInfo' ? 'Button' : 'None';
   }
@@ -882,12 +925,14 @@
 
   // ---------- 點擊動作與「下一頁」 ----------
   function onCellTap(cell) {
-    if (cell.tap === 'OpenWeb') {
+    if (cell.tap === 'OpenSubPage') {
+      openSub(cell);
+    } else if (cell.tap === 'OpenWeb') {
       const url = normalizeUrl(cell.tapUrl);
       if (!url) { toast('這一格還沒有設定要開啟的網址。'); return; }
       openWeb(url);
     } else if (cell.tap === 'OpenParkInfo') {
-      openPark((cell.wStUrl || '').trim() || DEFAULT_PARK_API, (cell.parkHere || '').trim(), cell.parkInfoLayout !== 'Mobile');
+      openPark(parkApiOf(cell), (cell.parkHere || '').trim(), cell.parkInfoLayout !== 'Mobile');
     } else if (cell.tap === 'OpenAssistant') {
       // AI 智能客服（assist.js）：後台代理 /api/assist/…，用這台機器 config 裡的客服帳號；沒設帳號或沒選客服會顯示提示
       if (!window.KioskAssist) { toast('智能客服模組尚未載入。'); return; }
@@ -939,6 +984,7 @@
   function openOverlay(kind, title) {
     overlayKind = kind;
     $('ovTitle').textContent = title;
+    setBackIcon('arrow_back', '上一頁', false);
     const overlay = $('overlay');
     overlay.classList.toggle('park-page', kind === 'park');
     overlay.style.setProperty('--park-primary', siteTheme || '#E07800');
@@ -956,6 +1002,7 @@
     clearTimeout(overlayIdle);
     const kind = overlayKind; overlayKind = '';
     if (parkTimer) { clearInterval(parkTimer); parkTimer = 0; }
+    if (parkState && parkState.cardTimer) { clearInterval(parkState.cardTimer); parkState.cardTimer = 0; }
     if (parkState && parkState.ro) { parkState.ro.disconnect(); parkState.ro = null; }
     const ov = $('overlay');
     const hide = () => { ov.hidden = true; $('ovBody').innerHTML = ''; };
@@ -968,13 +1015,117 @@
     }
     if (!silent) logEvent('page.close', kind === 'web' ? '關閉網頁，回到展示' : '關閉園區資訊，回到展示');
   }
+  /** 左上角返回鈕換圖示（← ⇄ ✕）：舊的轉出去、新的轉進來（同後台的變形圖示）；animated=false 直接換 */
+  function setBackIcon(name, label, animated = true) {
+    const b = $('ovBack');
+    const ic = b.querySelector('.material-icons');
+    b.setAttribute('aria-label', label);
+    if ((ic.dataset.to || ic.textContent) === name) return;
+    ic.getAnimations().forEach((a) => a.cancel());
+    ic.dataset.to = name;
+    const done = () => { ic.textContent = name; delete ic.dataset.to; };
+    if (!animated || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { done(); return; }
+    ic.animate([{ transform: 'none', opacity: 1 }, { transform: 'rotate(90deg) scale(.5)', opacity: 0 }], { duration: 110, easing: 'cubic-bezier(.4, 0, 1, 1)' }).onfinish = () => {
+      done();
+      ic.animate([{ transform: 'rotate(-90deg) scale(.5)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 180, easing: 'cubic-bezier(.2, 0, 0, 1)' });
+    };
+  }
+  /** 園區資訊頁：資訊卡開著（而且沒開「查看更多」網頁）＝✕ 收起資訊卡，其他時候＝← 上一頁（user 2026-10-21：叉叉跟返回共用） */
+  function syncParkBack() {
+    const close = overlayKind === 'park' && !!parkState && !!parkState.sheet && !parkState.web;
+    setBackIcon(close ? 'close' : 'arrow_back', close ? '收起資訊卡' : '上一頁');
+  }
   $('ovBack').addEventListener('click', () => {
     // 網頁：能退就退一頁（跨網域的 iframe 無法得知歷史，退不了就回展示）；園區資訊：直接回展示
+    if (overlayKind === 'park' && parkState && parkState.web) { closeParkWeb(); return; } // 看更多開著：← 先回園區資訊、卡片還在
+    if (overlayKind === 'park' && parkState && parkState.sheet) { closeParkSheet(true); return; } // 資訊卡開著：← 先收卡
     const f = $('ovBody').querySelector('iframe');
     if (overlayKind === 'web' && f && f._navigated) { try { f.contentWindow.history.back(); } catch { closeOverlay(); } f._navigated = false; return; }
     closeOverlay();
   });
-  $('ovHome').addEventListener('click', () => closeOverlay());
+  $('ovHome').addEventListener('click', () => { closeOverlay(); closeSub(); }); // 首頁＝回主頁（從子頁開的內頁也直接回最外層，同 App）
+
+  // ---- 子頁（樹狀展示，2026-10-20 user）：格子點擊動作「進入子頁」→ 子頁滑進來，頂欄＝返回（上一層）／子頁名稱／首頁；
+  //      子頁裡還能再進子頁（主頁算第 1 層，最多 3 層）。子頁層壓在展示畫面上、網頁／園區資訊／客服之下，
+  //      從子頁開的內頁關掉會回到子頁。閒置秒數到了直接回主頁（同內頁的自動返回）。App KioskDisplayScreen 同規則。
+  const MAX_SUB_DEPTH = 2; // 主頁之下最多 2 層子頁
+  let subStack = [];       // 一路點進來的格子，最後一個＝目前顯示的子頁
+  let subTimers = [];      // 子頁格子的輪播／天氣計時器（關子頁就停，不跟主頁的混在一起）
+  let subIdle = 0;
+  let subLayer = null;
+  const stopTimers = (list) => list.forEach((t) => (typeof t === 'number' ? clearInterval(t) : t.stop && t.stop()));
+  function subLayerEl() {
+    if (subLayer) return subLayer;
+    subLayer = el('div', 'overlay sub-layer');
+    subLayer.hidden = true;
+    subLayer.innerHTML = '<div class="topbar">'
+      + '<button type="button" class="topbar-btn sub-back" aria-label="上一頁"><span class="material-icons">arrow_back</span></button>'
+      + '<div class="topbar-title"></div>'
+      + '<button type="button" class="topbar-btn sub-home" aria-label="回首頁"><span class="material-icons">home</span></button>'
+      + '</div><div class="sub-body"></div>';
+    subLayer.querySelector('.sub-back').addEventListener('click', () => popSub());
+    subLayer.querySelector('.sub-home').addEventListener('click', () => closeSub());
+    $('navClip').insertBefore(subLayer, $('overlay')); // 同一層 z-index，排在 #overlay 前面＝內頁蓋在子頁上
+    return subLayer;
+  }
+  const subName = (cell) => ((cell.sub && cell.sub.name) || '').trim() || '子頁';
+  function renderSub() {
+    const layer = subLayerEl();
+    const cell = subStack[subStack.length - 1];
+    layer.querySelector('.topbar-title').textContent = subName(cell);
+    // 頂欄同園區資訊（2026-10-20 user 選 A）：主題色圓形返回／首頁鈕＋大標題；KIOSK 放大、手機模式一般大小
+    layer.style.setProperty('--park-primary', siteTheme || '#E07800');
+    for (const v of ['--park-tb', '--park-fs']) { if (cell.sub && cell.sub.layout === 'Mobile') layer.style.setProperty(v, '1'); else layer.style.removeProperty(v); }
+    stopTimers(subTimers); subTimers = [];
+    const body = layer.querySelector('.sub-body');
+    body.innerHTML = '';
+    layer.hidden = false; // 先顯示才量得到內容區尺寸
+    const px = { w: body.clientWidth || stage.clientWidth, h: body.clientHeight || stage.clientHeight };
+    const before = cellTimers.length;
+    const b = el('div', 'block');
+    b.style.flex = '1';
+    b.append(nodeEl((cell.sub && cell.sub.node) || { t: 'cell' }, 1, px));
+    body.append(b);
+    fitAll(body);
+    subTimers = cellTimers.splice(before);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (body.isConnected) fitAll(body); });
+  }
+  function openSub(cell) {
+    if (!cell.sub || subStack.length >= MAX_SUB_DEPTH) return;
+    const first = !subStack.length;
+    subStack.push(cell);
+    renderSub();
+    const layer = subLayerEl();
+    if (first) KioskNav.enter(layer);
+    else { layer.classList.remove('nav-enter'); void layer.offsetWidth; layer.classList.add('nav-enter'); } // 再往下一層：子頁層重新滑進來
+    armSubIdle();
+    logEvent('page.open', `開啟子頁：${subName(cell)}`);
+  }
+  function popSub() {
+    if (subStack.length <= 1) { closeSub(); return; }
+    subStack.pop();
+    renderSub();
+    armSubIdle();
+  }
+  function closeSub(silent) {
+    clearTimeout(subIdle);
+    if (!subStack.length) return;
+    subStack = [];
+    stopTimers(subTimers); subTimers = [];
+    const layer = subLayer;
+    const hide = () => { layer.hidden = true; layer.querySelector('.sub-body').innerHTML = ''; };
+    if (silent) { KioskNav.restore(layer); hide(); }
+    else {
+      KioskNav.leave(layer, () => { if (!subStack.length) hide(); });
+      logEvent('page.close', '關閉子頁，回到展示');
+    }
+  }
+  function armSubIdle() {
+    clearTimeout(subIdle);
+    const ms = idleReturnMs();
+    if (ms > 0) subIdle = setTimeout(() => { closeOverlay(); if (window.KioskAssist?.isOpen()) window.KioskAssist.close(); closeSub(); }, ms);
+  }
+  document.addEventListener('pointerdown', () => { if (subStack.length) armSubIdle(); }, { capture: true, passive: true });
 
   function openWeb(url) {
     let host = '';
@@ -992,25 +1143,29 @@
   function openPark(apiUrl, hereId, kiosk = true) {
     openOverlay('park', '園區資訊');
     // 版面（2026-09-23 user）：手機操作模式不放大頂欄（--park-tb 在 applyStageVars 依舞台寬算，這裡覆蓋成 1）
-    if (kiosk) $('overlay').style.removeProperty('--park-tb'); else $('overlay').style.setProperty('--park-tb', '1');
+    for (const v of ['--park-tb', '--park-fs']) { if (kiosk) $('overlay').style.removeProperty(v); else $('overlay').style.setProperty(v, '1'); }
     // 目前位置（2026-09-22）：後台指定這台機器站在哪個測站點；地圖上那一站多一個「目前位置」標籤，數值也預設先看那一站
-    const here = PARK_PRESET.nodes.some((n) => n.id === hereId) ? hereId : '';
+    const nodes = parkNodes();
+    const here = nodes.some((n) => n.id === hereId) ? hereId : '';
     const body = $('ovBody');
     const map = el('div', 'park-map');
     const img = document.createElement('img');
-    img.src = PARK_PRESET.map; img.alt = `${PARK_PRESET.name}園區導覽圖`; img.width = 1600; img.height = 2253;
-    map.append(img);
+    const pmap = parkMapOf();
+    const aspect = pmap ? pmap.aspect : 9 / 16;
+    if (pmap) { img.src = pmap.src; img.alt = '園區導覽圖'; map.append(img); }
+    else map.append(el('div', 'park-hint park-nomap', '這個場域還沒有園區地圖。'));
     const panel = el('div', 'park-panel');
     panel.setAttribute('aria-live', 'polite');
     panel.setAttribute('aria-atomic', 'true');
     // 2026-09-10 user 指示：儀表板在上、地圖在下；地圖先填滿（寬滿、依比例），面板拿剩下的高度、字級縮到放得下
     body.append(panel, map);
     $('ovHome').hidden = true; $('ovMeta').hidden = false; // 園區資訊頁：首頁鈕換成右上角的更新時間
-    parkState = { apiUrl, here, selectedId: here || PARK_PRESET.nodes[0]?.id || '', map, panel };
+    // sheet＝資訊卡（一進來不自動開，點有資料的站才從上方滑下）；web＝看更多開著的網頁層
+    parkState = { apiUrl, here, nodes, kiosk, selectedId: here || nodes[0]?.id || '', sheet: null, web: null, cardTimer: 0, map, panel };
     const PANEL_MIN = 130; // 面板最少留這麼高（字級 0.45 時放得下標題＋數字）
     const fitLayout = () => {
       const W = body.clientWidth, H = body.clientHeight;
-      let mh = Math.round(W / PARK_PRESET.aspect);
+      let mh = Math.round(W / aspect);
       if (mh > H - PANEL_MIN) mh = Math.max(0, H - PANEL_MIN);
       map.style.height = `${mh}px`;
       const avail = H - mh;
@@ -1023,9 +1178,9 @@
         panel.style.setProperty('--ps', s.toFixed(3));
       }
     };
-    parkState.fitLayout = fitLayout;
+    parkState.fitLayout = () => { fitLayout(); if (parkState.sheet) parkSheetScale(); };
     fitLayout();
-    PARK_PRESET.nodes.forEach((n) => {
+    nodes.forEach((n) => {
       const m = el('button', 'park-marker');
       m.type = 'button';
       m.dataset.id = n.id;
@@ -1034,17 +1189,18 @@
       m.setAttribute('aria-label', `${isHere ? '目前位置，' : ''}查看 ${n.id} ${n.name} 的環境資訊`);
       m.innerHTML = (isHere ? '<div class="park-here"><span class="material-icons" aria-hidden="true">my_location</span>目前位置</div>' : '')
         + `<div class="halo"></div><div class="dot">${esc(n.id)}</div>`;
-      m.addEventListener('click', () => { parkState.selectedId = n.id; refreshPark(); });
+      // 點測站：讀數換成這一站；有資料（照片或說明）的站，資訊卡再從上方滑下來
+      m.addEventListener('click', () => { parkState.selectedId = n.id; refreshPark(); if (parkHasInfo(n.id)) openParkSheet(n.id); });
       map.append(m);
     });
     const place = () => {
       const W = map.clientWidth, H = map.clientHeight;
       let dw, dh;
-      if (W / H > PARK_PRESET.aspect) { dh = H; dw = H * PARK_PRESET.aspect; } else { dw = W; dh = W / PARK_PRESET.aspect; }
+      if (W / H > aspect) { dh = H; dw = H * aspect; } else { dw = W; dh = W / aspect; }
       const left = (W - dw) / 2, top = (H - dh) / 2;
       const k = parseFloat(getComputedStyle(map).getPropertyValue('--k')) || 1;
       map.querySelectorAll('.park-marker').forEach((m) => {
-        const n = PARK_PRESET.nodes.find((x) => x.id === m.dataset.id);
+        const n = parkState.nodes.find((x) => x.id === m.dataset.id);
         const cx = left + dw * n.x / 100;
         m.style.left = `${cx}px`; m.style.top = `${top + dh * n.y / 100}px`;
         // 「目前位置」標籤：不管圓點落在地圖哪裡都要完整看得到（不是只修某一站）——
@@ -1076,8 +1232,197 @@
     }
     parkTimer = setInterval(refreshPark, 30_000);
   }
+  /** 資訊卡＝從頂欄下方滑下來的 sheet（2026-10-20 user：蓋在內容上、不壓縮頁面；App ParkInfoScreen 同規則）。
+      下面半透明遮罩；點遮罩、✕、← 或往上滑都收起（收起後讀數就是這一站的）。內容：照片（多張每 5 秒淡入換下一張＋小圓點）、
+      名稱＋✕、完整說明、看更多；最高 78% 內容區，再長就在 sheet 裡捲。 */
+  const parkReduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const parkRev = (id) => id + JSON.stringify(parkSt(id));
+  function parkSheetScale() {
+    const st = parkState && parkState.sheet;
+    if (!st) return;
+    // 資訊卡大小跟著版面（user 2026-10-21，同 App）：手機操作模式＝一般大小（基準 0.45），KIOSK＝跟頂欄一樣放大
+    // （寬度倍率 × 1.6，文字再 × 1.45）；比 FHD 寬的舞台整體再等比放大（kScale）。--ps＝版面尺寸、--pt＝文字
+    const ws = Math.min(1080 / 820, Math.max(1, (stage.clientWidth || window.innerWidth) / 820));
+    const ps = 0.45 * (parkState.kiosk ? ws * 1.6 : 1) * kScale();
+    st.layer.style.setProperty('--ps', ps.toFixed(3));
+    st.layer.style.setProperty('--pt', (ps * (parkState.kiosk ? 1.45 : 1)).toFixed(3));
+    requestAnimationFrame(() => st.scroll.classList.toggle('is-scrollable', st.scroll.scrollHeight > st.scroll.clientHeight + 1));
+  }
+  function openParkSheet(id) {
+    if (!parkState) return;
+    if (parkState.sheet) closeParkSheet(false);
+    const layer = el('div', 'park-sheet-layer');
+    const scrim = el('div', 'park-scrim');
+    const sheet = el('div', 'park-sheet');
+    sheet.setAttribute('role', 'dialog');
+    const scroll = el('div', 'park-sheet-scroll');
+    const foot = el('div', 'park-sheet-foot'); // 「查看更多」固定在底部、不跟內容捲（user 2026-10-21）；這一條也能往上拉收起
+    foot.hidden = true;
+    const grip = el('div', 'park-sheet-grip');
+    grip.setAttribute('aria-hidden', 'true');
+    sheet.append(scroll, foot, grip);
+    layer.append(scrim, sheet);
+    $('ovBody').append(layer);
+    parkState.sheet = { id, layer, sheet, scroll, foot, rev: '' };
+    fillParkSheet();
+    syncParkBack();
+    scrim.addEventListener('click', () => closeParkSheet(true));
+    dragParkSheet(sheet, scroll);
+    if (!parkReduced()) {
+      sheet.animate([{ transform: 'translateY(-100%)' }, { transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.2, 0, 0, 1)' });
+      scrim.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 320 });
+    }
+  }
+  function fillParkSheet() {
+    const st = parkState.sheet;
+    const id = st.id;
+    const e = parkSt(id) || {};
+    const node = parkState.nodes.find((n) => n.id === id);
+    const name = (node && node.name) || st.name || id;
+    if (parkState.cardTimer) { clearInterval(parkState.cardTimer); parkState.cardTimer = 0; }
+    st.rev = parkRev(id);
+    st.scroll.replaceChildren();
+    st.foot.replaceChildren();
+    st.sheet.setAttribute('aria-label', `${id} ${name}`);
+    const photos = (e.photos || []).filter((u) => typeof u === 'string' && u);
+    if (photos.length) {
+      // 照片滿寬（user 2026-10-21：以寬度為主）：框的比例跟第一張照片走（4:3～21:9，直式照片裁成 4:3 免得卡片太高），其他張照這個框裁切
+      const ph = el('div', 'park-card-photo');
+      const imgs = photos.map((u, i) => { const img = document.createElement('img'); img.src = mediaSrc(u); img.alt = ''; img.draggable = false; if (!i) img.classList.add('on'); ph.append(img); return img; });
+      const fitRatio = () => {
+        const im = imgs[0];
+        if (!im.naturalWidth || !im.naturalHeight) return;
+        ph.style.aspectRatio = String(clamp(im.naturalWidth / im.naturalHeight, 4 / 3, 21 / 9));
+        parkSheetScale(); // 高度變了：重新判斷要不要在卡裡捲
+      };
+      if (imgs[0].complete) fitRatio(); else imgs[0].addEventListener('load', fitRatio, { once: true });
+      if (photos.length > 1) {
+        const dots = el('div', 'park-card-dots');
+        const ds = photos.map((_, i) => { const d = el('span', i ? '' : 'on'); dots.append(d); return d; });
+        ph.append(dots);
+        let at = 0;
+        parkState.cardTimer = setInterval(() => {
+          imgs[at].classList.remove('on'); ds[at].classList.remove('on');
+          at = (at + 1) % imgs.length;
+          imgs[at].classList.add('on'); ds[at].classList.add('on');
+        }, 5000);
+      }
+      st.scroll.append(ph);
+    }
+    // 站名已經在頂欄（user 2026-10-21：照片下面不再重複）；✕ 也改成頂欄的返回鈕（syncParkBack）
+    // 介紹：後台有簡易格式（descRich，2026-10-21）就照格式畫（park-rich.js 先跳脫再套格式），裡面的連結在園區資訊頁裡開；沒有就是純文字
+    if (String(e.descRich || '').trim() && window.ParkRich) {
+      const d = el('div', 'park-card-desc is-rich');
+      d.innerHTML = window.ParkRich.toHtml(e.descRich);
+      d.addEventListener('click', (ev) => { const a = ev.target.closest('a[data-rich-link]'); if (!a) return; ev.preventDefault(); openParkWeb(a.getAttribute('href')); });
+      st.scroll.append(d);
+    } else if (String(e.desc || '').trim()) st.scroll.append(el('div', 'park-card-desc', e.desc));
+    if (e.link) {
+      const more = el('button', 'park-card-more');
+      more.type = 'button';
+      more.innerHTML = '查看更多<span class="material-icons" aria-hidden="true">chevron_right</span>';
+      more.addEventListener('click', () => openParkWeb(e.link));
+      st.foot.append(more);
+    }
+    // 有「查看更多」：固定在底部那一條，sheet 下緣圓角跟膠囊同心（.has-foot）；沒有就是原本的底部拖曳區
+    st.foot.hidden = !e.link;
+    st.sheet.classList.toggle('has-foot', !!e.link);
+    parkSheetScale();
+  }
+  /** 收起資訊卡：往上滑出、遮罩淡出（fromY＝手指拉到的位置，從那裡接著滑走）。 */
+  function closeParkSheet(animated, fromY = 0) {
+    const st = parkState && parkState.sheet;
+    if (!st) return;
+    parkState.sheet = null;
+    syncParkBack();
+    if (parkState.cardTimer) { clearInterval(parkState.cardTimer); parkState.cardTimer = 0; }
+    const { layer, sheet } = st;
+    layer.style.pointerEvents = 'none';
+    if (!animated || parkReduced()) { layer.remove(); return; }
+    const scrim = layer.querySelector('.park-scrim');
+    sheet.animate([{ transform: `translateY(${fromY}px)` }, { transform: 'translateY(-100%)' }], { duration: 220, easing: 'cubic-bezier(.3, 0, .8, .15)', fill: 'forwards' }).onfinish = () => layer.remove();
+    scrim.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: 'forwards' });
+  }
+  /** 往上滑收起：拉超過 sheet 高度的 1/4 或往上甩就收；不夠就彈回。往下拉完全不動（user 2026-10-20：不能跟頂欄分開）。
+      內容長到能捲時，捲動區交給捲動，從底下的抓手才能拉。 */
+  function dragParkSheet(sheet, scroll) {
+    let g = null;
+    const shown = (dy) => Math.min(0, dy);
+    sheet.addEventListener('pointerdown', (e) => {
+      sheet._dragged = false;
+      if (e.button > 0) return;
+      if (!e.target.closest('.park-sheet-grip, .park-sheet-foot') && scroll.classList.contains('is-scrollable')) return;
+      g = { id: e.pointerId, y: e.clientY, dy: 0, moving: false, trail: [{ y: e.clientY, t: e.timeStamp }] };
+    });
+    sheet.addEventListener('pointermove', (e) => {
+      if (!g || e.pointerId !== g.id) return;
+      const dy = e.clientY - g.y;
+      if (!g.moving) {
+        if (Math.abs(dy) < 6) return;
+        g.moving = true;
+        sheet._dragged = true;
+        try { sheet.setPointerCapture(e.pointerId); } catch { /* 已經放開 */ }
+      }
+      g.dy = dy;
+      sheet.style.transform = `translateY(${shown(dy)}px)`;
+      g.trail.push({ y: e.clientY, t: e.timeStamp });
+      if (g.trail.length > 5) g.trail.shift();
+    });
+    const end = (e) => {
+      if (!g || e.pointerId !== g.id) return;
+      const d = g; g = null;
+      if (!d.moving) return;
+      const a = d.trail[0], b = d.trail[d.trail.length - 1];
+      const v = (b.y - a.y) / Math.max(1, b.t - a.t); // px/ms，負＝往上
+      if (d.dy < -sheet.offsetHeight * 0.25 || (d.dy < 0 && v < -0.5)) { closeParkSheet(true, shown(d.dy)); return; }
+      sheet.style.transform = '';
+      if (!parkReduced()) sheet.animate([{ transform: `translateY(${shown(d.dy)}px)` }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2, 0, 0, 1)' });
+    };
+    sheet.addEventListener('pointerup', end);
+    sheet.addEventListener('pointercancel', end);
+    sheet.addEventListener('click', (e) => { if (sheet._dragged) { e.stopPropagation(); e.preventDefault(); sheet._dragged = false; } }, true); // 拉完放開不算按到 ✕／看更多
+  }
+  /** 看更多：在園區資訊頁裡疊一層網頁（頂欄標題換成網址），← 回園區資訊、卡片還開著；閒置一樣整個關掉。 */
+  function openParkWeb(link) {
+    const url = normalizeUrl(link);
+    if (!url || !parkState) return;
+    let host = '';
+    try { host = new URL(url).host; } catch { host = url; }
+    const w = el('div', 'park-web');
+    const f = document.createElement('iframe');
+    f.src = url; f.setAttribute('allow', 'autoplay; fullscreen; geolocation');
+    w.append(f);
+    $('ovBody').append(w);
+    parkState.web = w;
+    syncParkBack(); // 網頁開著：← 回園區資訊
+    $('ovTitle').textContent = host || '網頁瀏覽';
+    $('ovMeta').hidden = true;
+    parkWebNav(w, true);
+    logEvent('page.open', `開啟網頁：${host}`);
+  }
+  /** 「查看更多」網頁進出（user 2026-10-21：用換頁的方式，不要突然出現）：同內頁的推入式（KioskNav）——
+   *  網頁從右側整頁滑進來、左緣帶陰影，底下的園區資訊稍微變暗；返回反向，滑出去才移除。 */
+  function parkWebNav(w, entering) {
+    const under = [...$('ovBody').children].filter((x) => x !== w && !x.classList.contains('park-web'));
+    if (parkReduced()) { if (!entering) w.remove(); return; }
+    w.classList.remove('nav-enter', 'nav-leave');
+    void w.offsetWidth; // 重新觸發動畫
+    w.classList.add(entering ? 'nav-enter' : 'nav-leave');
+    for (const u of under) u.animate([{ opacity: entering ? 1 : 0.8 }, { opacity: entering ? 0.8 : 1 }], { duration: NAV_MS - 50, easing: 'cubic-bezier(.32, .72, 0, 1)', fill: entering ? 'forwards' : 'none' });
+    if (!entering) {
+      setTimeout(() => w.remove(), NAV_MS - 50);
+      for (const u of under) u.getAnimations().filter((a) => a.effect && a.effect.getComputedTiming().fill === 'forwards').forEach((a) => a.cancel()); // 進場時留著的變暗拿掉（上面那段接著從 .8 回到 1）
+    }
+  }
+  function closeParkWeb() {
+    if (!parkState || !parkState.web) return;
+    parkWebNav(parkState.web, false);
+    parkState.web = null;
+    syncParkBack(); // 回到資訊卡：又是 ✕
+    refreshPark();
+  }
   function refreshPark() {
-    if (!parkState || overlayKind !== 'park') return;
+    if (!parkState || overlayKind !== 'park' || parkState.web) return; // 看更多開著時頂欄是網頁的，回來再更新
     const { apiUrl, selectedId, map, panel } = parkState;
     const snap = apiUrl ? getStations(apiUrl) : null;
     const readings = new Map((snap && !snap.error ? snap.stations : []).map((s) => [s.id, s]));
@@ -1089,7 +1434,8 @@
       m.classList.toggle('selected', m.dataset.id === selectedId);
       m.setAttribute('aria-pressed', m.dataset.id === selectedId ? 'true' : 'false');
     });
-    const node = PARK_PRESET.nodes.find((n) => n.id === selectedId);
+    const node = parkState.nodes.find((n) => n.id === selectedId);
+    const nodeName = (n) => (n && (n.name || readings.get(n.id)?.name)) || '';
     const r = node ? readings.get(node.id) : null;
     let hint = null;
     if (!apiUrl) hint = '尚未設定測站 API，地圖僅供導覽。';
@@ -1097,7 +1443,7 @@
     else if (snap.error) hint = '測站資料暫時無法取得。';
     else if (!r) hint = '這一站目前沒有回傳資料。';
     else if (!r.online) hint = '這一站目前離線。';
-    $('ovTitle').textContent = node ? `${node.id}  ${node.name}` : '園區資訊';
+    $('ovTitle').textContent = node ? `${node.id}  ${nodeName(node)}`.trim() : '園區資訊';
     const meta = $('ovMeta');
     meta.className = 'topbar-meta park-topbar-meta';
     meta.replaceChildren();
@@ -1123,6 +1469,13 @@
       ).join('')}</div>`;
     }
     panel.innerHTML = html;
+    // 資訊卡開著：後台改了這一站就原地重畫（照片輪播不會每 30 秒重來）；這一站沒資料了就收起
+    const sh = parkState.sheet;
+    if (sh) {
+      sh.name = nodeName(parkState.nodes.find((n) => n.id === sh.id));
+      if (!parkHasInfo(sh.id)) closeParkSheet(true);
+      else if (sh.rev !== parkRev(sh.id)) fillParkSheet();
+    }
     if (parkState.fitLayout) parkState.fitLayout();
     if (parkState.place) parkState.place();
   }
@@ -1149,7 +1502,7 @@
     if (on !== sleeping) {
       sleeping = on;
       $('sleep').hidden = !on;
-      if (on) { closeOverlay(true); if (window.KioskAssist?.isOpen()) window.KioskAssist.close(); }
+      if (on) { closeOverlay(true); if (window.KioskAssist?.isOpen()) window.KioskAssist.close(); closeSub(true); }
       logEvent(on ? 'sleep.enter' : 'sleep.exit', on ? '依排程進入休眠畫面' : '休眠時段結束，恢復展示');
     }
   }

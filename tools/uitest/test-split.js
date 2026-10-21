@@ -101,7 +101,7 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol;
     check('新頁面＝一個區塊、一整格、沒有分隔線；畫布上沒有＋', st.blocks === 1 && st.cells === 1 && st.divs === 0 && st.handles === 0, st);
     await clickCell('');
     check('選取一整格 → 十字四邊都能按、畫布上沒有＋', (await handleSides()) === 'bottom,left,right,top' && (await page.$$('#canvas .cv-handle')).length === 0, await handleSides());
-    check('右側十字四邊都能按、格數 1', JSON.stringify(await cross()) === JSON.stringify({ top: true, left: true, right: true, bottom: true }) && (await page.$eval('#cellPanel .split-count', (e) => e.textContent)).includes('目前 1 格（最多 12 格；太小的格子不能再切）'));
+    check('右側十字四邊都能按、格數 1', JSON.stringify(await cross()) === JSON.stringify({ top: true, left: true, right: true, bottom: true }) && (await page.$eval('#cellPanel .split-count', (e) => e.textContent)).includes('目前 1 格（最多 12 格，過小的格子無法再分割）'));
     check('只有一格：刪除這格、平均分配都不能按', (await panelBtnDisabled('刪除這格')) === true && (await panelBtnDisabled('平均分配')) === true);
     await shot('01-selected-handles', await canvasClip());
 
@@ -256,7 +256,7 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol;
         const root = document.querySelector('#canvas .cv-root').getBoundingClientRect();
         return [...document.querySelectorAll('#canvas .cv-ghost.is-even')].map((g) => { const r = g.getBoundingClientRect(); return { text: g.textContent, x: +((r.left - root.left) / root.width).toFixed(3), w: +(r.width / root.width).toFixed(3), dashed: getComputedStyle(g).borderTopStyle }; }).sort((p, q) => p.x - q.x);
       });
-      check('滑到「平均分配」→ 畫布框出三個「一樣寬」的虛線框、三等分（扣掉格子間的縫）', pv.length === 3 && pv.every((g) => g.text === '一樣寬' && g.dashed === 'dashed' && near(g.w, 1 / 3, 0.04)) && near(pv[1].x, 1 / 3, 0.02) && near(pv[2].x, 2 / 3, 0.02), pv);
+      check('滑到「平均分配」→ 畫布框出三個「一樣寬」的虛線框、三等分（扣掉格子間的縫）', pv.length === 3 && pv.every((g) => g.text === '等寬' && g.dashed === 'dashed' && near(g.w, 1 / 3, 0.04)) && near(pv[1].x, 1 / 3, 0.02) && near(pv[2].x, 2 / 3, 0.02), pv);
       await shot('05c-even-preview', await canvasClip());
       await page.mouse.move(eb.x, eb.y + 140); await sleep(200);
       check('移開 → 預覽框收掉', (await page.$$('#canvas .cv-ghost.is-even')).length === 0);
@@ -312,7 +312,7 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol;
       await page.mouse.move(hb2.x, hb2.y); await sleep(200);
       check('滑到變灰的方向鈕不出預覽', await page.$eval('#canvas .cv-ghost', (e) => e.hidden));
     }
-    check('變灰的按鈕有說明', (await page.$eval('#cellPanel .split-dir[data-side="right"]', (e) => e.title)).includes('太小'));
+    check('變灰的按鈕有說明', (await page.$eval('#cellPanel .split-dir[data-side="right"]', (e) => e.title)).includes('過小'));
     for (let i = 0; i < 4; i++) { m = await model(); await clickCell(m.filter((c) => near(c.h, 1, 1e-6))[0].path); await clickHandle('bottom'); }
     m = await model();
     check('再往下切 4 次 → 12 格', m.length === 12, m.length);

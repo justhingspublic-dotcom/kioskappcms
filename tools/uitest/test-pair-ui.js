@@ -139,14 +139,14 @@ async function enterCode(page, code, title) {
   await page.click(`${DLG} .b-alert-foot button:last-child`); // 下一步
   await sleep(160);
   await page.screenshot({ path: path.join(OUT, '3a-transition.png') });
-  await page.waitForFunction(() => document.querySelector('.pair-dlg .b-alert-title')?.textContent === '幫這台機器取個名字', { timeout: 5000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('.pair-dlg .b-alert-title')?.textContent === '為這台機器命名', { timeout: 5000 }).catch(() => {});
   s = await state(page);
-  check('按下一步 → 過場 → 取名（顯示機型）', s.title === '幫這台機器取個名字' && !s.otpShown && s.nameShown && /機型：/.test(s.desc) && s.ok === '新增', JSON.stringify(s));
+  check('按下一步 → 過場 → 取名（顯示機型）', s.title === '為這台機器命名' && !s.otpShown && s.nameShown && /機型：/.test(s.desc) && s.ok === '新增', JSON.stringify(s));
   await page.screenshot({ path: path.join(OUT, '3-name.png') });
 
   await page.click(`${DLG} .b-alert-foot button:last-child`); // 空白名稱
   s = await state(page);
-  check('沒取名：提示「請幫這台機器取個名字」', /請幫這台機器取個名字/.test(s.desc), s.desc);
+  check('沒取名：提示「請輸入機器名稱」', /請輸入機器名稱/.test(s.desc), s.desc);
 
   await page.type(`${DLG} .pair-name`, NAME);
   const t0 = Date.now();
@@ -227,7 +227,7 @@ async function enterCode(page, code, title) {
 
     // 機器連在別的場域：取名時提醒
     const r3 = await startPair({ currentSite: '揚昇高爾夫球場' });
-    const h2 = await enterCode(page, r3.code, '幫這台機器取個名字');
+    const h2 = await enterCode(page, r3.code, '為這台機器命名');
     s = await state(page);
     const h3 = await dlgHeight(page);
     await page.screenshot({ path: path.join(OUT, '8-other-site.png') });

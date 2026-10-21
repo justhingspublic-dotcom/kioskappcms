@@ -183,6 +183,13 @@
 .b-dd-sm .b-dd-trigger { min-height: 30px; height: 30px; padding: 0 8px; font-size: 12px; }
 .b-dd-sm .b-dd-item { padding: 5px 8px; font-size: 12px; }
 .b-dd-sm .b-dd-menu { min-width: 110px; }
+/* 選項狀態小標（<option data-badge>）：淺灰、無邊框膠囊；觸發鈕上貼在箭頭左邊、選單裡靠最右邊；停用的選項小標顏色不跟著變灰 */
+.b-dd-badge {
+  flex: none; display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+  background: var(--neutral-secondary-medium); color: var(--text-body-subtle);
+  font-size: 12px; font-weight: 500; line-height: 1.4; white-space: nowrap; cursor: default;
+}
+.b-dd-item .b-dd-badge { margin-left: auto; }
 
 /* --------------------------------------------------------------------------
    4. 表格
@@ -562,6 +569,24 @@ body.b-modal-lock { overflow: hidden; }
   .b-toast { animation: b-toast-fade 4.4s ease both; }
   @keyframes b-toast-fade { 0%{opacity:0} 8%{opacity:1} 90%{opacity:1} 100%{opacity:0} }
 }
+/* 進度 toast（BToast.progress，2026-10-20 上傳照片）：底色照進度由左往右填綠；完成補滿、失敗整條轉紅。
+   進退場由 JS（Web Animations）播，這裡把一般 toast 的自動播放關掉 */
+.b-toast.b-toast-progress, .b-toast.b-toast-progress:hover { animation: none; }
+.b-toast-progress { position: relative; overflow: hidden; isolation: isolate; } /* 不吃滑鼠：下面的「儲存」等按鈕照樣按得到 */
+.b-toast-fill {
+  position: absolute; inset: 0; z-index: -1; transform-origin: left center; transform: scaleX(0);
+  background: color-mix(in srgb, var(--fg-success, #047857) 16%, transparent);
+  transition: background-color .25s ease; /* 進度由 JS 每格畫（最快 1 秒填滿），不再疊 transition */
+}
+.b-toast-progress.is-danger .b-toast-fill { background: color-mix(in srgb, var(--fg-danger, #C30F16) 16%, transparent); transition-duration: .2s; }
+.b-toast-progress .b-toast-icon { color: var(--fg-success, #047857); transition: color .25s ease; }
+.b-toast-progress.is-danger .b-toast-icon { color: var(--fg-danger, #C30F16); }
+.b-toast-progress .b-toast-desc[hidden] { display: none; }
+/* 百分比：第一排右邊（user 2026-10-20：不要放第二排） */
+.b-toast-pct { flex: none; align-self: flex-start; min-width: 3.2em; text-align: right; font-size: 13px; font-weight: 600; line-height: 20px; color: var(--text-body-subtle); font-variant-numeric: tabular-nums; }
+.b-toast-pct[hidden] { display: none; }
+[data-color-mode="dark"] .b-toast-fill { background: color-mix(in srgb, var(--fg-success, #34D399) 24%, transparent); }
+[data-color-mode="dark"] .b-toast-progress.is-danger .b-toast-fill { background: color-mix(in srgb, var(--fg-danger, #F87171) 24%, transparent); }
 
 /* --------------------------------------------------------------------------
    12. 小型資料元件：待辦列／佔用率長條／快速動作

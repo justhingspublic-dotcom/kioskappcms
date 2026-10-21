@@ -251,8 +251,8 @@
     modeBtn.classList.toggle('is-dark', mode === 'dark');
     modeBtn.classList.toggle('is-system', mode === 'system');
     var label = '外觀：' + MODE_LABEL[mode];
-    if (mode === 'system') label += '，目前' + (document.documentElement.getAttribute('data-color-mode') === 'dark' ? '深色' : '淺色');
-    label += '（點擊切換）';
+    if (mode === 'system') label += '，目前為' + (document.documentElement.getAttribute('data-color-mode') === 'dark' ? '深色' : '淺色');
+    label += '（按一下以切換）';
     modeBtn.title = label;
     modeBtn.setAttribute('aria-label', label);
   }

@@ -31,7 +31,7 @@
   {{SITE_THEME_STYLE}}<!-- 站台主題色（共用設定 themeColor → theme-color.js 推出的整組變數；後台 nav「主題色」可改，展示機 App 同色） -->
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <a href="#main-content" class="skip-link">跳至主要內容</a>
 
   <!-- 登入（覆蓋整個殼層；登入成功後移除） -->
   <div id="loginView" class="login-wrap hidden">
@@ -54,14 +54,14 @@
       </label>
       <!-- tiri 同款：icon＋<span> 文字（文字必須包元素才能壓在 ::before 填色層之上） -->
       <button type="submit" class="btn-login"><i data-lucide="log-in" aria-hidden="true"></i><span>登入</span></button>
-      <p id="loginError" class="login-error hidden">帳號或密碼錯誤</p>
+      <p id="loginError" class="login-error hidden">帳號或密碼不正確。</p>
     </form>
   </div>
 
   <div id="mainView" class="hidden">
     <header class="top-header" role="banner">
       <div class="header-logo">
-        <button class="mobile-menu-btn" title="開啟選單"><i data-lucide="menu"></i><span class="sr-only">Open menu</span></button>
+        <button class="mobile-menu-btn" title="開啟選單"><i data-lucide="menu"></i><span class="sr-only">選單</span></button>
         <span class="logo-icon"><img src="img/JustDisplay-logo.svg" alt="JustDisplay"></span>
       </div>
       <div class="header-right">
@@ -71,11 +71,11 @@
           </button>
           <div class="header-fs-panel" hidden>
             <div class="header-fs-title">字體大小</div>
-            <input type="range" class="header-fs-range" min="0" max="2" step="1" value="1" aria-label="字體大小（中/大/特大）">
+            <input type="range" class="header-fs-range" min="0" max="2" step="1" value="1" aria-label="字體大小（中／大／特大）">
             <div class="header-fs-marks"><span>中</span><span class="on">大</span><span>特大</span></div>
           </div>
         </div>
-        <button type="button" class="header-icon-btn header-mode-btn" title="外觀：跟隨裝置（點擊切換）" aria-label="外觀：跟隨裝置（點擊切換）">
+        <button type="button" class="header-icon-btn header-mode-btn" title="外觀：跟隨裝置（按一下以切換）" aria-label="外觀：跟隨裝置（按一下以切換）">
           <span class="mode-ic mode-ic-sun"><i data-lucide="sun"></i></span>
           <span class="mode-ic mode-ic-moon"><i data-lucide="moon"></i></span>
           <span class="mode-ic mode-ic-auto"><i data-lucide="sun-moon"></i></span>
@@ -152,6 +152,10 @@
             <button type="button" class="menu-item submenu-item nav-item" data-view="sharedSettings">
               <span class="menu-text">機器設定</span>
             </button>
+            <!-- 園區測站（2026-10-20）：站台有設園區測站 API（.env PARK_API_URL）才出現，app.js loadConnInfo 決定 -->
+            <button type="button" class="menu-item submenu-item nav-item hidden" data-view="parkInfo" id="parkNav">
+              <span class="menu-text">園區測站</span>
+            </button>
           </div>
         </div>
         <button type="button" class="menu-item nav-item hidden" data-view="users" id="usersNav">
@@ -168,9 +172,9 @@
             <div class="b-pop page-help conn-help">
               <button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>
               <div class="b-pop-panel page-help-panel">
-                <p>在要當作螢幕的電腦上，用瀏覽器開啟展示頁網址，這面螢幕就會加入「機器總覽」。所有螢幕都使用同一個網址。</p>
-                <p id="connPlayNaming">第一次開啟時，請輸入這面螢幕的名稱，之後會自動記住。若要更改名稱，請在畫面左上角連續點按五下。</p>
-                <p>Android 展示機不需要這個網址，請使用配對碼連線：在機器管理頁點一下右上角的連線圖示，再到「機器總覽」選擇「新增機器」。</p>
+                <p>在要作為螢幕的電腦上以瀏覽器開啟展示頁網址，這面螢幕就會加入「機器總覽」；所有螢幕都使用同一個網址。</p>
+                <p id="connPlayNaming">第一次開啟時請輸入這面螢幕的名稱，之後會自動記住；如需更改名稱，請在畫面左上角連續點按五下。</p>
+                <p>Android 展示機不需要此網址，請改用配對碼連線：在機器管理頁點一下右上角的連線圖示，再到「機器總覽」按一下「新增機器」。</p>
               </div>
             </div>
           </div>
@@ -196,7 +200,7 @@
             <rect class="panel-left-fill" x="3" y="3" width="6" height="18" rx="2" fill="currentColor" stroke="none"/>
             <path d="M9 3v18"/>
           </svg>
-          <span class="sr-only">Toggle sidebar</span>
+          <span class="sr-only">收合或展開側邊欄</span>
         </button>
       </div>
     </nav>
@@ -215,11 +219,13 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
-                <p>點「新增機器」，輸入機器畫面上的 6 位數配對碼並取個名字，機器幾秒內就會出現在清單裡。</p>
-                <p>點「內容管理」進入該機器的版面與設定。</p>
-                <p>點右上角「批量調整展示畫面」，先勾選機器、再挑一個共用版面，就能一次讓這幾台切換到同一個版面並進入展示模式；還沒加入那個版面的機器會先把版面接在現有頁面後面再切換。</p>
-                <p>點「更名」可直接修改機器名稱，會同步回機器。沒有名稱時顯示編號。</p>
-                <p>「狀態」欄第二行是連線設定檢查：「連到別的伺服器」表示機器填的位址不是本站，在這裡做的變更送不到機器；「金鑰不符」表示機器填的連線金鑰錯了。兩種都到機器的「雲端同步」重新連線到本站即可。</p>
+                <p>按一下「新增機器」，輸入機器畫面上的 6 位數配對碼並為機器命名，機器會在幾秒內出現在清單中。</p>
+                <p>按一下「內容管理」，即可編輯該機器的版面與設定。</p>
+                <p>按一下右上角的「批量調整展示畫面」，勾選機器並選擇一個共用版面，即可讓這些機器一次切換到同一個版面並進入展示模式。</p>
+                <p>尚未加入該版面的機器，會先將版面接在現有頁面之後再切換。</p>
+                <p>按一下「更名」可直接修改機器名稱，變更會同步到機器；機器沒有名稱時會顯示編號。</p>
+                <p>「狀態」欄的第二行為連線設定檢查：「連到別的伺服器」表示機器設定的位址不是本站，在此所做的變更無法送達機器；「金鑰不符」表示機器的連線金鑰不正確。</p>
+                <p>出現以上任一情況時，請在機器的「雲端同步」重新配對，連線至本站。</p>
               </div>
             </div>
           </div>
@@ -253,10 +259,10 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
-                <p>設計一次、一次塞進多台：在這裡做好版面，按「加入機器」勾選機器，就不用一台台進去畫。</p>
-                <p>「加入機器」＝複製一份接在該機現有頁面的後面並立即發布，不會覆蓋機器原本的頁面。</p>
-                <p>加進去之後各機獨立：到機器裡改那一頁不會動到這裡的版面；這裡改了也不會動到已加入的機器，要更新就再加入一次。</p>
-                <p>版面是全公司共用的清單。一般帳號只能把版面加入機器；新增、編輯、更名與刪除限管理員。</p>
+                <p>版面只需設計一次，即可加入多台機器：在此完成版面後，按一下「加入機器」並勾選機器，無須逐台編輯。</p>
+                <p>「加入機器」會複製一份版面，接在該機器現有頁面之後並立即發布，不會覆蓋機器原有的頁面。</p>
+                <p>加入後各機器即獨立運作：在機器中修改該頁不會影響此處的版面，在此修改也不會影響已加入的機器；如需更新，請再加入一次。</p>
+                <p>版面清單由全公司共用，一般帳號僅能將版面加入機器；新增、編輯、更名與刪除僅限管理員。</p>
               </div>
             </div>
           </div>
@@ -283,10 +289,10 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">使用說明</p>
-                <p>設定一次、一次套到多台：在這裡填好客服帳號與休眠時段，按「套用到機器」勾選機器。</p>
-                <p>「套用到機器」＝以這裡的設定覆蓋所選機器目前的客服帳號、休眠時段、管理 PIN 與閒置回展示頁秒數並立即發布，版面不受影響。</p>
-                <p>套用之後各機獨立：到機器裡改設定不會動到這裡；這裡改了也不會動到已套用的機器，要更新就再套用一次。</p>
-                <p>這份範本是全公司共用的。一般帳號只能修改休眠時段；客服帳號、管理 PIN 與閒置回展示頁秒數限管理員。</p>
+                <p>設定只需填寫一次，即可套用到多台機器：在此填寫客服帳號與休眠時段後，按一下「套用到機器」並勾選機器。</p>
+                <p>「套用到機器」會以此處的設定覆蓋所選機器目前的客服帳號、休眠時段、管理 PIN 與閒置返回，並立即發布，版面不受影響。</p>
+                <p>套用後各機器即獨立運作：在機器中修改設定不會影響此處，在此修改也不會影響已套用的機器；如需更新，請再套用一次。</p>
+                <p>此範本由全公司共用，一般帳號僅能修改休眠時段；客服帳號、管理 PIN 與閒置返回僅限管理員修改。</p>
               </div>
             </div>
           </div>
@@ -296,6 +302,33 @@
           </div>
         </div>
         <div id="sharedBody" class="settings-body"></div>
+      </div>
+
+      <!-- 共用設定 › 園區測站（2026-10-20）：頁首只有「資料來源」按鈕（app.js renderParkHeader，資料來源在 modal 裡設）；
+           下面一張卡＝上排測站頁籤、左這一站的介紹、右園區地圖，右下角「儲存」存這一站；整個場域共用（一套多場域用，不寫死） -->
+      <div id="parkInfoView" class="hidden">
+        <div class="page-header">
+          <div class="page-title-wrap">
+            <h1 class="page-title">園區測站</h1>
+            <div class="b-pop page-help">
+              <button type="button" class="page-help-btn" data-pop aria-label="使用說明">
+                <i data-lucide="circle-help"></i>
+              </button>
+              <div class="b-pop-panel page-help-panel">
+                <p class="b-pop-panel-title">使用說明</p>
+                <p>按一下右上角的「資料來源」，填寫此場域測站平台的網址，測站清單與即時數值皆由此讀取。</p>
+                <p>尚未設定或無法連線時，版面格子中的「園區資訊」與「園區測站」會呈灰色，無法選取。</p>
+                <p>上方為各個測站，選擇測站後即可編輯該站的照片、說明與「看更多」連結。</p>
+                <p>在展示機上，訪客點一下地圖上的測站，畫面上方就會滑出該站的資訊卡。</p>
+                <p>右側為園區地圖，目前測站的位置點會亮起；地圖預設為鎖定，按一下「編輯位置」後，即可拖曳位置點或點按地圖來調整此測站的位置。</p>
+                <p>卓也原有的測站可使用「回到預設位置」；如需更換地圖圖片，請按一下右上角的「更換地圖」。</p>
+                <p>這些設定由整個場域的機器共用，無須套用到機器，且僅限管理員修改。</p>
+                <p>修改後須按一下右下角的「儲存」才會生效，機器會在一分鐘內更新。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="parkBody" class="park-admin"></div>
       </div>
 
       <!-- 帳號管理（限管理員）：新增改 modal 流程（頁首右上入口鈕＋置中表單），
@@ -311,7 +344,7 @@
               </button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">權限對照</p>
-                <p>管理員可以做所有事；一般帳號負責日常上架，不能動到帳號、刪除機器與安全相關設定。</p>
+                <p>管理員可使用所有功能；一般帳號負責日常內容上架，無法管理帳號、刪除機器或變更安全相關設定。</p>
                 <!-- 完整表格：外框由 .help-tbl-wrap 畫（圓角要靠 wrapper，collapse 表格本身畫不出圓角） -->
                 <div class="help-tbl-wrap">
                 <table class="help-tbl" aria-label="管理員與一般帳號權限對照">
@@ -323,7 +356,7 @@
                     <tr><td>機器設定：管理 PIN、閒置返回</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr><td>刪除機器</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr class="grp"><td colspan="3">共用設定</td></tr>
-                    <tr><td>把版面加到機器</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+                    <tr><td>將版面加入機器</td><td class="yes">✓</td><td class="yes">✓</td></tr>
                     <tr><td>新增、編輯、更名、刪除版面</td><td class="yes">✓</td><td class="no">—</td></tr>
                     <tr><td>共用休眠排程</td><td class="yes">✓</td><td class="yes">✓</td></tr>
                     <tr><td>共用智能客服、管理 PIN、閒置返回</td><td class="yes">✓</td><td class="no">—</td></tr>
@@ -383,8 +416,8 @@
             <div id="emptyState" class="b-card hidden">
               <div class="b-empty">
                 <span class="b-empty-icon"><i data-lucide="monitor-off"></i></span>
-                <p class="b-empty-title">這台機器還沒有上傳過設定</p>
-                <p class="b-empty-sub">請先在 kiosk 機器上開啟「雲端同步」，App 會自動把目前的版面上傳上來。</p>
+                <p class="b-empty-title">這台機器尚未上傳設定</p>
+                <p class="b-empty-sub">請先在機器上開啟「雲端同步」，App 會自動上傳目前的版面。</p>
               </div>
             </div>
 
@@ -449,7 +482,7 @@
           </div>
         </div>
         <div class="b-modal-foot">
-          <p class="app-release-hint" id="appReleaseHint" hidden>已安裝 App 的裝置，也可以從「設定 → 軟體更新」直接更新，原有場域與展示設定會保留。</p>
+          <p class="app-release-hint" id="appReleaseHint" hidden>已安裝 App 的裝置也可以在「設定」＞「軟體更新」直接更新，原有的場域與展示設定會保留。</p>
           <button type="button" class="b-btn" id="appDownloadRetry" hidden>重新載入</button>
           <a class="b-btn b-btn-primary" id="appDownloadFile" download hidden>下載 APK</a>
         </div>
@@ -466,8 +499,8 @@
               <button type="button" class="page-help-btn" data-pop aria-label="說明"><i data-lucide="circle-help"></i></button>
               <div class="b-pop-panel page-help-panel">
                 <p class="b-pop-panel-title">主題色</p>
-                <p>後台與展示機 App 都用這個顏色。選好按「儲存」才會生效，展示機會在幾秒內跟著換。</p>
-                <p>顏色在白底上對比不足時，文字會自動改用較深的同色階；按鈕與圖示維持原色。</p>
+                <p>後台與展示機 App 皆使用此顏色，選好後按一下「儲存」才會生效，展示機會在幾秒內同步更新。</p>
+                <p>顏色在白色背景上對比不足時，文字會自動改用較深的同色階；按鈕與圖示則維持原色。</p>
               </div>
             </div>
           </div>
@@ -515,168 +548,173 @@
 
             <section id="gd-sec-start">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="compass" aria-hidden="true"></i></span><h4>開始使用</h4></div>
-              <p class="gd-lead">後台是展示機的遠端控制中心。把機器連上來之後，版面與設定都在這裡改，按「儲存並發布」機器就會立即更新。螢幕有兩種接法：裝了 App 的 Android 展示機，或用瀏覽器開的網頁螢幕（見<span class="gd-ui">網頁螢幕</span>一章）。</p>
+              <p class="gd-lead">後台是展示機的遠端控制中心：機器連線後，版面與設定都在此修改，按一下「儲存並發布」後機器會立即更新。</p>
+              <p class="gd-lead">螢幕有兩種連接方式：安裝 App 的 Android 展示機，或以瀏覽器開啟的網頁螢幕（請參閱<span class="gd-ui">網頁螢幕</span>一章）。</p>
               <ol class="gd-steps">
-                <li>到機器上打開 App 管理頁，按右上角的連線圖示（橘色＝還沒連線），畫面會出現 6 位數配對碼和倒數時間，10 分鐘內有效。</li>
-                <li>回到後台的<span class="gd-ui">機器總覽</span>按<span class="gd-ui">新增機器</span>，在 6 個格子輸入配對碼（打滿會自動往下），再幫機器取個名字。在哪個場域的後台輸入，機器就連到哪個場域；原本連在別的場域的機器，會自動從那邊移除。已經在這個場域的機器，按下一步會以橘字提示「此機器已在清單中」，不會重複新增。</li>
-                <li>對話框顯示「已新增」就完成了，機器已經連上、出現在<span class="gd-ui">機器總覽</span>，連線圖示變成綠色。不用在機器上打位址或金鑰。</li>
-                <li>點該列的<span class="gd-ui">內容管理</span>進入工作區編排版面，按<span class="gd-ui">儲存並發布</span>。</li>
+                <li>在機器上開啟 App 的管理頁，點一下右上角的連線圖示（橘色表示尚未連線），畫面會顯示 6 位數配對碼與倒數時間，配對碼在 10 分鐘內有效。</li>
+                <li>回到後台的<span class="gd-ui">機器總覽</span>，按一下<span class="gd-ui">新增機器</span>，在 6 個欄位輸入配對碼（每輸入一碼會自動跳到下一格），再為機器命名。<br>機器會連線至輸入配對碼的場域；原本連線至其他場域的機器，會自動從該場域移除。<br>已在此場域的機器，按一下「下一步」時會以橘色文字提示「此機器已在清單中」，不會重複新增。</li>
+                <li>對話框顯示「已新增」即表示完成，機器已連線並出現在<span class="gd-ui">機器總覽</span>，連線圖示會變成綠色，無須在機器上輸入位址或金鑰。</li>
+                <li>按一下該列的<span class="gd-ui">內容管理</span>進入工作區編排版面，完成後按一下<span class="gd-ui">儲存並發布</span>。</li>
               </ol>
               <div class="gd-shot-row">
-                <figure class="gd-shot is-phone"><img src="img/manual/kiosk-pairing.png" alt="機器上的配對碼" loading="lazy"><figcaption class="gd-shot-cap">步驟 1：機器管理頁按連線圖示，下方升起配對碼。</figcaption></figure>
-                <figure class="gd-shot is-sm"><img src="img/manual/add-device.png" alt="後台新增機器" loading="lazy"><figcaption class="gd-shot-cap">步驟 2：機器總覽「新增機器」，6 格輸入配對碼。</figcaption></figure>
+                <figure class="gd-shot is-phone"><img src="img/manual/kiosk-pairing.png" alt="機器上的配對碼" loading="lazy"><figcaption class="gd-shot-cap">步驟 1：在機器管理頁點一下連線圖示，下方會顯示配對碼。</figcaption></figure>
+                <figure class="gd-shot is-sm"><img src="img/manual/add-device.png" alt="後台新增機器" loading="lazy"><figcaption class="gd-shot-cap">步驟 2：在機器總覽按一下「新增機器」，輸入 6 位數配對碼。</figcaption></figure>
               </div>
               <p class="gd-sub">右上角的工具</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>字體大小</b><span>後台文字分中／大／特大，只影響自己這台電腦。</span></div>
-                <div class="gd-row"><b>外觀</b><span>淺色、深色或跟隨裝置，點一下輪流切換。</span></div>
-                <div class="gd-row"><b>主題色</b><span>限管理員。後台與展示機 App 共用同一個顏色，選好按<span class="gd-ui">儲存</span>才生效，機器幾秒內跟著換。</span></div>
-                <div class="gd-row"><b>開啟展示頁</b><span>用瀏覽器開這個站台的展示畫面，當成一面螢幕用。</span></div>
-                <div class="gd-row"><b>下載 App</b><span>取得最新版的 Android 展示機 App，附這一版的更新內容。已經裝好的機器不必用這裡，在機器上<span class="gd-ui">設定</span>＞<span class="gd-ui">軟體更新</span>就能更新。</span></div>
-                <div class="gd-row"><b>通知</b><span>「下載 App」右邊的鈴鐺。機器加入、中斷連線、被刪除、離線超過 10 分鐘（休眠時段不算）、恢復連線、連線金鑰不正確，以及其他帳號發布內容、切換畫面、修改共用版面或共用設定時，會出現在這裡；有未讀時鈴鐺上會出現紅色的未讀數量，打開就算全部已讀。點一則會跳到那台機器。只保留最近 30 天。</span></div>
+                <div class="gd-row"><b>字體大小</b><span>後台文字分為中、大、特大三種，只會套用在目前這台電腦。</span></div>
+                <div class="gd-row"><b>外觀</b><span>淺色、深色或跟隨裝置，按一下即可依序切換。</span></div>
+                <div class="gd-row"><b>主題色</b><span>後台與展示機 App 共用同一個顏色，選好後按一下<span class="gd-ui">儲存</span>才會生效，機器會在幾秒內同步更新（僅限管理員）。</span></div>
+                <div class="gd-row"><b>開啟展示頁</b><span>以瀏覽器開啟此站台的展示畫面，作為一面螢幕使用。</span></div>
+                <div class="gd-row"><b>下載 App</b><span>取得最新版的 Android 展示機 App 與此版本的更新內容；已安裝 App 的機器，可直接在機器上的<span class="gd-ui">設定</span>＞<span class="gd-ui">軟體更新</span>進行更新。</span></div>
+                <div class="gd-row"><b>通知</b><span>「下載 App」右側的鈴鐺會列出以下事件：機器加入、中斷連線、被刪除、離線超過 10 分鐘（休眠時段不計）、恢復連線、連線金鑰不正確，以及其他帳號發布內容、切換畫面、修改共用版面或共用設定。<br>有未讀通知時，鈴鐺上會顯示紅色的未讀數量，開啟通知即全部標示為已讀。<br>按一下通知即可前往該機器，通知只保留最近 30 天。</span></div>
               </div>
-              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>左側選單可以收合；各頁標題旁的問號有該頁的簡要說明。</span></div>
+              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>左側選單可以收合；各頁標題旁的問號提供該頁的簡要說明。</span></div>
             </section>
 
             <section id="gd-sec-devices">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="monitor" aria-hidden="true"></i></span><h4>機器總覽</h4></div>
-              <p class="gd-lead">登入後的第一個畫面。一列代表一台機器，縮圖是它目前展示中的頁面。</p>
+              <p class="gd-lead">這是登入後的第一個畫面，每一列代表一台機器，縮圖為該機器目前展示中的頁面。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>尺寸與解析度</b><span>機器自己回報的螢幕吋數與像素。網頁螢幕量不到實體大小，尺寸顯示<span class="gd-ui">不支援</span>；舊版 App 還沒回報過則顯示「—」。</span></div>
-                <div class="gd-row"><b>狀態</b><span>綠點「在線」表示機器正在連線；「離線」會標示多久沒回報；「尚未回報」是伺服器啟動後還沒連線過的機器。</span></div>
-                <div class="gd-row"><b>連線檢查</b><span>狀態下方出現<span class="gd-ui">連到別的伺服器</span>表示機器填的位址不是本站，在這裡做的變更送不到它；<span class="gd-ui">金鑰不符</span>表示機器的連線金鑰不對。兩種都到機器的<span class="gd-ui">雲端同步</span>按<span class="gd-ui">重新配對</span>即可。</span></div>
-                <div class="gd-row"><b>更名</b><span>按<span class="gd-ui">更名</span>直接修改機器名稱，會同步回機器。</span></div>
-                <div class="gd-row"><b>內容管理</b><span>按<span class="gd-ui">內容管理</span>進入該機器的工作區，編排版面與修改設定。</span></div>
-                <div class="gd-row"><b>批量調整展示畫面</b><span>右上角的按鈕：先勾要調整的機器，再挑一個共用版面，這幾台就會一起切到那個版面並進入展示模式。還沒有那個版面的機器，會先把版面接在現有頁面後面再切過去。</span></div>
-                <div class="gd-row"><b>自動更新</b><span>清單每 30 秒會自動更新，右上角的「更新於」顯示最後一次更新的時間；點它可以立即更新。</span></div>
-                <div class="gd-row"><b>刪除機器</b><span>在工作區「機器設定」頁籤最下方的 Danger Zone，限管理員。</span></div>
+                <div class="gd-row"><b>尺寸與解析度</b><span>機器回報的螢幕吋數與像素；網頁螢幕無法偵測實體大小，尺寸會顯示<span class="gd-ui">不支援</span>，舊版 App 尚未回報時則顯示「—」。</span></div>
+                <div class="gd-row"><b>狀態</b><span>綠點「在線」表示機器正在連線；「離線」會標示機器已多久未回報；「尚未回報」表示伺服器啟動後尚未連線過的機器。</span></div>
+                <div class="gd-row"><b>連線檢查</b><span>狀態下方出現<span class="gd-ui">連到別的伺服器</span>，表示機器設定的位址不是本站，在此所做的變更無法送達該機器；出現<span class="gd-ui">金鑰不符</span>，表示機器的連線金鑰不正確。<br>以上兩種情況，請在機器的<span class="gd-ui">雲端同步</span>點一下<span class="gd-ui">重新配對</span>。</span></div>
+                <div class="gd-row"><b>更名</b><span>按一下<span class="gd-ui">更名</span>即可直接修改機器名稱，變更會同步到機器。</span></div>
+                <div class="gd-row"><b>內容管理</b><span>按一下<span class="gd-ui">內容管理</span>進入該機器的工作區，以編排版面及修改設定。</span></div>
+                <div class="gd-row"><b>批量調整展示畫面</b><span>位於右上角，勾選要調整的機器並選擇一個共用版面後，這些機器會一起切換到該版面並進入展示模式。<br>尚未加入該版面的機器，會先將版面接在現有頁面之後再切換。</span></div>
+                <div class="gd-row"><b>自動更新</b><span>清單每 30 秒自動更新一次，右上角的「更新於」會顯示最後更新時間，按一下即可立即更新。</span></div>
+                <div class="gd-row"><b>刪除機器</b><span>位於工作區「機器設定」頁籤最下方的 Danger Zone，僅限管理員使用。</span></div>
               </div>
               <div class="gd-shot-row">
                 <figure class="gd-shot"><img src="img/manual/devices.png" alt="機器總覽" loading="lazy"><figcaption class="gd-shot-cap">機器總覽：縮圖、尺寸、狀態、更名與內容管理。</figcaption></figure>
-                <figure class="gd-shot"><img src="img/manual/show-layout.png" alt="批量調整展示畫面" loading="lazy"><figcaption class="gd-shot-cap">批量調整展示畫面：勾機器、挑版面，一次切過去。</figcaption></figure>
+                <figure class="gd-shot"><img src="img/manual/show-layout.png" alt="批量調整展示畫面" loading="lazy"><figcaption class="gd-shot-cap">批量調整展示畫面：勾選機器並選擇版面，一次完成切換。</figcaption></figure>
               </div>
             </section>
 
             <section id="gd-sec-layout">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="layout-template" aria-hidden="true"></i></span><h4>版面編排</h4></div>
-              <p class="gd-lead">工作區的「版面」頁籤。畫布是固定的直式外框，裡面依這台機器的真實螢幕比例置中顯示，操作方式與機器上的管理頁相同。</p>
+              <p class="gd-lead">在工作區的「版面」頁籤中，畫布為固定的直式外框，內容會依這台機器的實際螢幕比例置中顯示，操作方式與機器上的管理頁相同。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>展示頁面</b><span>上方頁籤列是這台機器的頁面（最多 8 頁），可新增、更名、刪除。</span></div>
-                <div class="gd-row"><b>複製頁面</b><span>畫布下方的<span class="gd-ui">本機複製頁面</span>把目前這一頁複製一份接在最後面，適合做版本微調。</span></div>
-                <div class="gd-row"><b>在機器上展示此頁</b><span>複製鈕右邊的圖示鈕：按下去機器就切到這一頁並進入展示模式，不必走到機器前面。機器正在展示的那一頁，圖示會標示出來。</span></div>
-                <div class="gd-row"><b>分割</b><span>點選一格，再按右側面板「版面」的上方／左邊／右邊／下方，新格子就加在那一邊（滑上去會先在畫布上預覽）；同一排的格子原本一樣大時會自動平均（大小不一時只切選的那一格，要拉平可按「平均分配」）。每一格都能再切，一頁最多 12 格，太小的格子不能再切。</span></div>
-                <div class="gd-row"><b>調整比例</b><span>拖曳格子之間的分隔線，靠近 1/2、1/3、1/4 會自動對齊，角落會即時顯示實際像素。右側面板的<span class="gd-ui">平均分配</span>把同一排調回一樣大，<span class="gd-ui">刪除這格</span>把位置交給旁邊的格子。</span></div>
-                <div class="gd-row"><b>刪錯了</b><span>刪掉頁籤、格子或圖片後，右下角會出現<span class="gd-ui">復原</span>，幾秒內按一下就能救回來（之後又改了別的就不能復原）。</span></div>
-                <div class="gd-row"><b>快捷鍵</b><span>工作區裡按 ⌘S（Windows 是 Ctrl+S）＝<span class="gd-ui">儲存並發布</span>。</span></div>
-                <div class="gd-row"><b>交換位置</b><span>按住格子拖到另一格放開，兩格的設定互換，格位大小不變。</span></div>
-                <div class="gd-row"><b>儲存並發布</b><span>只影響這一台，機器幾秒內更新。<span class="gd-ui">重新載入</span>會放棄未儲存的修改，拉回伺服器目前版本。</span></div>
+                <div class="gd-row"><b>展示頁面</b><span>上方頁籤列為這台機器的頁面（最多 8 頁），可新增、更名與刪除。</span></div>
+                <div class="gd-row"><b>複製頁面</b><span>畫布下方的<span class="gd-ui">本機複製頁面</span>會複製目前的頁面並接在最後，適合用來微調不同版本。</span></div>
+                <div class="gd-row"><b>在機器上展示此頁</b><span>複製按鈕右側的圖示按鈕，按一下後機器會切換到此頁並進入展示模式，無須到機器前操作；機器正在展示的頁面，圖示會加以標示。</span></div>
+                <div class="gd-row"><b>分割</b><span>選取一格後，按一下右側面板「版面」中的上方／左邊／右邊／下方，新格子會加在該側（滑鼠移到按鈕上時，畫布會先顯示預覽）。<br>同一排的格子原本大小相同時會自動平均分配；大小不一時只會分割選取的格子，如需調整為相同大小，請按一下「平均分配」。<br>每一格都能再分割，一頁最多 12 格，過小的格子無法再分割。</span></div>
+                <div class="gd-row"><b>調整比例</b><span>拖曳格子之間的分隔線，靠近 1/2、1/3、1/4 時會自動對齊，角落會即時顯示實際像素。<br>右側面板的<span class="gd-ui">平均分配</span>可將同一排調整為相同大小，<span class="gd-ui">刪除這格</span>則會將空間讓給相鄰的格子。</span></div>
+                <div class="gd-row"><b>復原刪除</b><span>刪除頁籤、格子或圖片後，右下角會出現<span class="gd-ui">復原</span>，在幾秒內按一下即可還原（之後若進行了其他修改，則無法復原）。</span></div>
+                <div class="gd-row"><b>快捷鍵</b><span>在工作區按下 ⌘S（Windows 為 Ctrl+S）即可<span class="gd-ui">儲存並發布</span>。</span></div>
+                <div class="gd-row"><b>交換位置</b><span>按住格子並拖曳到另一格後放開，兩格的設定會互換，格子大小不變。</span></div>
+                <div class="gd-row"><b>儲存並發布</b><span>只會影響這一台機器，機器會在幾秒內更新；<span class="gd-ui">重新載入</span>會放棄尚未儲存的修改，並載入伺服器上的目前版本。</span></div>
               </div>
-              <figure class="gd-shot"><img src="img/manual/workspace.png" alt="機器工作區" loading="lazy"><figcaption class="gd-shot-cap">工作區：頁籤列、畫布與右側面板，「儲存並發布」在右下。</figcaption></figure>
-              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>圖片依角落標示的像素準備，上傳時尺寸與格子不符會提醒。</span></div>
+              <figure class="gd-shot"><img src="img/manual/workspace.png" alt="機器工作區" loading="lazy"><figcaption class="gd-shot-cap">工作區：頁籤列、畫布與右側面板，「儲存並發布」位於右下角。</figcaption></figure>
+              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>請依格子角落標示的像素準備圖片，上傳的圖片尺寸與格子不符時會出現提示。</span></div>
             </section>
 
             <section id="gd-sec-cell">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="square-pen" aria-hidden="true"></i></span><h4>編輯格子</h4></div>
-              <p class="gd-lead">在畫布上點任一格，右側面板就是這一格的設定。</p>
+              <p class="gd-lead">在畫布上按一下任一格，右側面板就會顯示該格的設定。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>背景</b><span>純色（色票或自訂色）或輪播圖片（每格最多 12 張、每張 3–30 秒）。天氣格另有<span class="gd-ui">天氣背景</span>，依即時天氣顯示動畫天空。</span></div>
-                <div class="gd-row"><b>圖片顯示方式</b><span><span class="gd-ui">填滿裁切</span>把圖撐滿格子；<span class="gd-ui">完整顯示</span>保留整張圖，留白處鋪同一張圖的模糊底，可再開<span class="gd-ui">邊緣融合</span>讓圖的邊漸淡融進去，或用<span class="gd-ui">模糊</span>調整背景的模糊程度。</span></div>
-                <div class="gd-row"><b>內容</b><span>無、跑馬燈（速度 50%–300%）、天氣（一般天氣：自動定位或選縣市鄉鎮；園區測站：見下一章）、文字、網頁、影片（靜音循環）、園區資訊。</span></div>
-                <div class="gd-row"><b>文字顏色</b><span>「自動」依背景亮暗選黑或白，也可指定顏色。需要時可再開<span class="gd-ui">發光</span>，讓文字在複雜背景上也看得清楚。</span></div>
-                <div class="gd-row"><b>點擊動作</b><span>訪客點這一格要<span class="gd-ui">開啟網頁</span>、<span class="gd-ui">AI 智能客服</span>或<span class="gd-ui">園區資訊</span>。選客服時要指定客服代理人（從清單挑或貼上 ID），詳見<span class="gd-ui">申請 JustAI 帳號</span>。</span></div>
-                <div class="gd-row"><b>提示樣式</b><span>讓訪客看得出這一格可以點：<span class="gd-ui">無</span>、<span class="gd-ui">角落徽章</span>（右上角一個小小的「輕觸」記號）、<span class="gd-ui">閃爍</span>（內側邊框慢慢閃，顏色可選）、<span class="gd-ui">按鈕</span>（可改按鈕文字、動態效果與排版）。預設是「無」，一頁建議只用一種。</span></div>
+                <div class="gd-row"><b>背景</b><span>可選擇純色（色票或自訂色）或輪播圖片（每格最多 12 張，每張 3–30 秒）；天氣格另有<span class="gd-ui">天氣背景</span>，會依即時天氣顯示動態天空。</span></div>
+                <div class="gd-row"><b>圖片顯示方式</b><span><span class="gd-ui">填滿裁切</span>會讓圖片填滿格子；<span class="gd-ui">完整顯示</span>會保留整張圖片，並以同一張圖的模糊版本填滿留白處，可再開啟<span class="gd-ui">邊緣融合</span>讓圖片邊緣漸淡融入，或以<span class="gd-ui">模糊</span>調整背景的模糊程度。</span></div>
+                <div class="gd-row"><b>內容</b><span>無、跑馬燈（速度 50%–300%）、天氣（一般天氣：自動定位或選擇縣市鄉鎮；園區測站：請參閱下一章）、文字、網頁、影片（靜音循環播放）、園區資訊。</span></div>
+                <div class="gd-row"><b>文字顏色</b><span>「自動」會依背景亮暗選擇黑色或白色，也可以指定顏色；需要時可開啟<span class="gd-ui">發光</span>，讓文字在複雜背景上依然清晰。</span></div>
+                <div class="gd-row"><b>點擊動作</b><span>設定訪客點一下這一格時的動作：<span class="gd-ui">開啟網頁</span>、<span class="gd-ui">AI 智能客服</span>或<span class="gd-ui">園區資訊</span>；選擇客服時需指定客服代理人（從清單中選擇或貼上 ID），詳情請參閱<span class="gd-ui">申請 JustAI 帳號</span>。</span></div>
+                <div class="gd-row"><b>提示樣式</b><span>讓訪客知道這一格可以點按，選項有<span class="gd-ui">無</span>、<span class="gd-ui">角落徽章</span>（右上角的「輕觸」小標記）、<span class="gd-ui">閃爍</span>（內側邊框緩慢閃爍，可選擇顏色）與<span class="gd-ui">按鈕</span>（可修改按鈕文字、動態效果與排版）。<br>預設為「無」，建議一頁只使用一種提示樣式。</span></div>
               </div>
               <figure class="gd-shot is-md"><img src="img/manual/cell-panel.png" alt="格子設定面板" loading="lazy"><figcaption class="gd-shot-cap">右側面板：背景、內容、點擊動作與提示樣式。</figcaption></figure>
             </section>
 
             <section id="gd-sec-park">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="map" aria-hidden="true"></i></span><h4>園區資訊</h4></div>
-              <p class="gd-lead">園區裝了環境感測器時，可以讓訪客在機器上看園區地圖與各測站的即時數值。站台沒有設定園區測站 API 時，下面這些選項不會出現。</p>
+              <p class="gd-lead">園區設有環境感測器時，訪客可以在機器上查看園區地圖與各測站的即時數值。</p>
+              <p class="gd-lead">此場域尚未設定測站資料來源或無法連線時，下列選項會呈灰色，無法選取。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>放一格入口</b><span>格子的<span class="gd-ui">內容</span>選<span class="gd-ui">園區資訊</span>，這一格就只顯示「園區資訊」標題；<span class="gd-ui">點擊動作</span>也選<span class="gd-ui">園區資訊</span>，訪客點下去就進入園區地圖。</span></div>
-                <div class="gd-row"><b>測站 API</b><span>點擊動作下方的欄位，填客戶感測器的資料網址。留白時會用站台預設的網址。</span></div>
-                <div class="gd-row"><b>目前位置</b><span>選這台機器擺在哪一站，地圖上會標出<span class="gd-ui">目前位置</span>，訪客點進來也預設先看這一站的數值。選「無」就不標。</span></div>
-                <div class="gd-row"><b>園區資訊版面</b><span><span class="gd-ui">KIOSK展示模式</span>把頂欄與文字放大，給大螢幕看；小螢幕選<span class="gd-ui">手機操作模式</span>，維持一般大小。</span></div>
-                <div class="gd-row"><b>按鈕樣式</b><span>園區資訊格預設是按鈕式提示，可以改按鈕文字（預設「點我查看」）、動態效果與排版（自動／橫排／直排）。</span></div>
-                <div class="gd-row"><b>天氣格用測站數值</b><span>內容選<span class="gd-ui">天氣</span>時，來源改成<span class="gd-ui">園區測站</span>就能顯示某一站的即時數值，或輪播全部測站。測站只提供數字，晴雨圖示與動態天空仍依設定的地點判斷。</span></div>
+                <div class="gd-row"><b>放一格入口</b><span>將格子的<span class="gd-ui">內容</span>設為<span class="gd-ui">園區資訊</span>，這一格會只顯示「園區資訊」標題；<span class="gd-ui">點擊動作</span>也設為<span class="gd-ui">園區資訊</span>後，訪客點一下即可進入園區地圖。</span></div>
+                <div class="gd-row"><b>資料來源</b><span>測站資料來源、園區地圖與各測站介紹，都在<span class="gd-ui">共用設定</span>＞<span class="gd-ui">園區測站</span>設定，由整個場域的機器共用。</span></div>
+                <div class="gd-row"><b>目前位置</b><span>選擇這台機器所在的測站，地圖上會標示<span class="gd-ui">目前位置</span>，訪客進入時也會先顯示這一站的數值；選擇「無」則不標示。</span></div>
+                <div class="gd-row"><b>園區資訊版面</b><span><span class="gd-ui">KIOSK展示模式</span>會放大頂欄與文字，適合大螢幕；小螢幕請選擇<span class="gd-ui">手機操作模式</span>，維持一般大小。</span></div>
+                <div class="gd-row"><b>按鈕樣式</b><span>園區資訊格預設使用按鈕式提示，可修改按鈕文字（預設為「點我查看」）、動態效果與排版（自動／橫排／直排）。</span></div>
+                <div class="gd-row"><b>天氣格用測站數值</b><span>內容設為<span class="gd-ui">天氣</span>時，將來源改為<span class="gd-ui">園區測站</span>，即可顯示指定測站的即時數值或輪播所有測站。<br>測站只提供數值，晴雨圖示與動態天空仍依設定的地點判斷。</span></div>
               </div>
               <figure class="gd-shot"><img src="img/manual/park-info.png" alt="園區資訊頁" loading="lazy"><figcaption class="gd-shot-cap">園區資訊頁：地圖、目前位置與各測站的即時數值。</figcaption></figure>
-              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>測站數值每 30 秒更新一次；設成輪播時，機器每 10 秒換一站。</span></div>
+              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>測站數值每 30 秒更新一次；設為輪播時，機器每 10 秒切換一站。</span></div>
             </section>
 
             <section id="gd-sec-settings">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="settings-2" aria-hidden="true"></i></span><h4>機器設定</h4></div>
-              <p class="gd-lead">工作區的「機器設定」頁籤，內容與機器上的「設定」相同，儲存發布後同步到機器。</p>
+              <p class="gd-lead">工作區的「機器設定」頁籤與機器上的「設定」內容相同，儲存並發布後會同步到機器。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>智能客服 API</b><span>填 JustAI 帳號的 Email 與密碼，按<span class="gd-ui">測試連線並載入客服清單</span>確認可用。申請帳號見下一章。</span></div>
-                <div class="gd-row"><b>管理 PIN</b><span>從展示畫面回到管理頁時要輸入的驗證碼。只能是數字、最長 8 碼，留空＝預設 0000。限管理員。</span></div>
-                <div class="gd-row"><b>閒置返回</b><span>訪客在智能客服、園區資訊或網頁頁多久沒碰就自動回到展示畫面，App 與網頁螢幕都照這個值。從 30 秒到 1 小時挑一個，預設 90 秒；選「永不」就不會自動返回。限管理員。</span></div>
-                <div class="gd-row"><b>休眠時段</b><span>啟用排程後逐日設定停止播放、顯示黑畫面的時段。開始時間晚於結束時間代表跨午夜。網頁螢幕不支援休眠。</span></div>
-                <div class="gd-row"><b>刪除機器</b><span>頁面最下方的 Danger Zone，限管理員。刪掉之後機器上的畫面會停止更新。</span></div>
+                <div class="gd-row"><b>智能客服 API</b><span>填寫 JustAI 帳號的 Email 與密碼，按一下<span class="gd-ui">測試連線並載入客服清單</span>確認可以使用；申請帳號的方式請參閱下一章。</span></div>
+                <div class="gd-row"><b>管理 PIN</b><span>從展示畫面返回管理頁時須輸入的驗證碼，僅限數字、最長 8 碼，留空時為預設的 0000（僅限管理員）。</span></div>
+                <div class="gd-row"><b>閒置返回</b><span>設定訪客在智能客服、園區資訊或網頁頁面閒置多久後自動返回展示畫面，App 與網頁螢幕都依此設定。<br>可選擇 30 秒到 1 小時，預設為 90 秒；選擇「永不」則不會自動返回（僅限管理員）。</span></div>
+                <div class="gd-row"><b>休眠時段</b><span>啟用排程後，可逐日設定停止播放並顯示黑畫面的時段。<br>開始時間晚於結束時間表示跨越午夜；網頁螢幕不支援休眠。</span></div>
+                <div class="gd-row"><b>刪除機器</b><span>位於頁面最下方的 Danger Zone（僅限管理員），刪除後機器上的畫面會停止更新。</span></div>
               </div>
               <figure class="gd-shot"><img src="img/manual/settings-tab.png" alt="機器設定頁籤" loading="lazy"><figcaption class="gd-shot-cap">機器設定：智能客服 API、休眠時段、管理 PIN 與閒置返回。</figcaption></figure>
             </section>
 
             <section id="gd-sec-justai">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="bot" aria-hidden="true"></i></span><h4>申請 JustAI 帳號</h4></div>
-              <p class="gd-lead">AI 智能客服由 JustAI 平台提供。機器用一組 JustAI 帳號登入，就能使用該帳號底下訓練好的客服。建議用公司共用信箱申請。</p>
+              <p class="gd-lead">AI 智能客服由 JustAI 平台提供，機器以一組 JustAI 帳號登入後，即可使用該帳號下訓練完成的客服。</p>
+              <p class="gd-lead">建議使用公司共用信箱申請。</p>
               <ol class="gd-steps">
-                <li>前往 <a class="gd-link" href="https://chat.justhings.ai/login" target="_blank" rel="noopener">chat.justhings.ai</a>，在登入頁點<span class="gd-ui">立即註冊</span>，用 Email 建立帳號。</li>
-                <li>在 JustAI 後台<b>建立客服代理人</b>並上傳知識庫訓練。需要讓訪客傳圖片或檔案時，在代理人設定開啟上傳權限。完成後<b>發布</b>。</li>
-                <li>回到本後台，進入機器的<span class="gd-ui">機器設定</span>＞<span class="gd-ui">智能客服 API</span>，填入 Email 與密碼，按<span class="gd-ui">測試連線並載入客服清單</span>。</li>
-                <li>到版面的格子，<span class="gd-ui">點擊動作</span>選<span class="gd-ui">AI 智能客服</span>，從清單挑要用的客服，然後儲存並發布。</li>
+                <li>前往 <a class="gd-link" href="https://chat.justhings.ai/login" target="_blank" rel="noopener">chat.justhings.ai</a>，在登入頁按一下<span class="gd-ui">立即註冊</span>，以 Email 建立帳號。</li>
+                <li>在 JustAI 後台<b>建立客服代理人</b>並上傳知識庫進行訓練。<br>如需讓訪客傳送圖片或檔案，請在代理人設定中開啟上傳權限，完成後<b>發布</b>。</li>
+                <li>回到本後台，進入機器的<span class="gd-ui">機器設定</span>＞<span class="gd-ui">智能客服 API</span>，填入 Email 與密碼後，按一下<span class="gd-ui">測試連線並載入客服清單</span>。</li>
+                <li>在版面中選取格子，將<span class="gd-ui">點擊動作</span>設為<span class="gd-ui">AI 智能客服</span>，從清單選擇要使用的客服，再按一下「儲存並發布」。</li>
               </ol>
               <div class="gd-shot-row">
-                <figure class="gd-shot"><img src="img/manual/justai-login.png" alt="JustAI 登入頁" loading="lazy"><figcaption class="gd-shot-cap">步驟 1：JustAI 登入頁，還沒有帳號就點「立即註冊」。</figcaption></figure>
-                <figure class="gd-shot"><img src="img/manual/chat-api-card.png" alt="智能客服 API 設定卡" loading="lazy"><figcaption class="gd-shot-cap">步驟 3：「智能客服 API」卡片，填帳密後測試連線。</figcaption></figure>
+                <figure class="gd-shot"><img src="img/manual/justai-login.png" alt="JustAI 登入頁" loading="lazy"><figcaption class="gd-shot-cap">步驟 1：JustAI 登入頁，尚未擁有帳號時請按一下「立即註冊」。</figcaption></figure>
+                <figure class="gd-shot"><img src="img/manual/chat-api-card.png" alt="智能客服 API 設定卡" loading="lazy"><figcaption class="gd-shot-cap">步驟 3：「智能客服 API」卡片，填寫帳號與密碼後測試連線。</figcaption></figure>
               </div>
-              <p class="gd-sub">挑好客服之後，同一個面板還能調整這一格的對話頁</p>
+              <p class="gd-sub">選好客服後，可在同一個面板調整這一格的對話頁</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>介面</b><span><span class="gd-ui">KIOSK展示模式</span>字大、按鈕大，給大螢幕用；小螢幕選<span class="gd-ui">手機操作模式</span>。</span></div>
-                <div class="gd-row"><b>主題色</b><span>對話頁的主色（頭像、按鈕、游標）。<span class="gd-ui">自動</span>跟隨站台主題色，<span class="gd-ui">JustAI</span>用客服後台設定的顏色，也可以指定一個顏色。</span></div>
-                <div class="gd-row"><b>進入時預設朗讀</b><span>訪客進到這個客服時，要不要自動把回覆唸出來。訪客隨時能用對話頁上方的喇叭鈕切換；機器沒有中文語音時不會出現那顆鈕。</span></div>
-                <div class="gd-row"><b>語速</b><span>唸回覆的速度。不論預設開或關，訪客打開朗讀時都用這個速度。</span></div>
-                <div class="gd-row"><b>允許上傳圖片</b><span>關掉之後，客服輸入列不會出現上傳鈕，訪客只能打字或用說的。客服後台本身沒開放上傳時，這裡開了也不會出現。</span></div>
+                <div class="gd-row"><b>介面</b><span><span class="gd-ui">KIOSK展示模式</span>的文字與按鈕較大，適合大螢幕；小螢幕請選擇<span class="gd-ui">手機操作模式</span>。</span></div>
+                <div class="gd-row"><b>主題色</b><span>對話頁的主色（頭像、按鈕、游標）：<span class="gd-ui">自動</span>會跟隨站台主題色，<span class="gd-ui">JustAI</span>會使用客服後台設定的顏色，也可以指定一個顏色。</span></div>
+                <div class="gd-row"><b>進入時預設朗讀</b><span>設定訪客進入此客服時，是否自動朗讀回覆。<br>訪客可隨時使用對話頁上方的喇叭按鈕切換；機器沒有中文語音時，不會顯示此按鈕。</span></div>
+                <div class="gd-row"><b>語速</b><span>朗讀回覆的速度，無論預設為開啟或關閉，訪客開啟朗讀時都會使用此速度。</span></div>
+                <div class="gd-row"><b>允許上傳圖片</b><span>關閉後，客服輸入列不會顯示上傳按鈕，訪客只能以文字或語音輸入。<br>客服後台本身未開放上傳時，即使在此開啟也不會顯示。</span></div>
               </div>
-              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>清單裡沒有的客服可以直接貼 ID：JustAI 後台網址 agents/〔這一段〕/edit 就是 ID。多台機器共用同一組帳號時，用「共用設定」＞「機器設定」填一次、一次套用到多台。</span></div>
+              <div class="gd-tip"><i data-lucide="lightbulb" aria-hidden="true"></i><span>清單中沒有的客服可直接貼上 ID，JustAI 後台網址 agents/〔這一段〕/edit 中的這一段即為 ID。<br>多台機器共用同一組帳號時，可在「共用設定」＞「機器設定」填寫一次，再一次套用到多台機器。</span></div>
             </section>
 
             <section id="gd-sec-shared">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="layers" aria-hidden="true"></i></span><h4>共用設定</h4></div>
-              <p class="gd-lead">「設計一次、一次塞進多台」的工具。塞完各機獨立：機器裡改不動這裡，這裡改了也不動機器，要更新就再塞一次。</p>
+              <p class="gd-lead">版面與設定只需完成一次，即可套用到多台機器。</p>
+              <p class="gd-lead">套用後各機器即獨立運作：在機器中修改不會影響此處，在此修改也不會影響機器；如需更新，請再套用一次。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>版面設定</b><span>做好具名版面後按<span class="gd-ui">加入機器</span>勾選機器。加入＝複製一份<b>接在該機現有頁面後面</b>並立即發布，不會覆蓋原本的頁面。機器總覽的<span class="gd-ui">批量調整展示畫面</span>就是用這些版面。</span></div>
-                <div class="gd-row"><b>機器設定</b><span>填好客服帳號、休眠時段、管理 PIN 與閒置返回後按<span class="gd-ui">套用到機器</span>。套用＝<b>覆蓋</b>所選機器目前的這四項並立即發布，版面不受影響。</span></div>
-                <div class="gd-row"><b>權限</b><span>一般帳號可以把版面加入機器、修改共用休眠時段；新增／編輯版面、共用客服帳號、管理 PIN 與閒置返回限管理員。</span></div>
+                <div class="gd-row"><b>版面設定</b><span>完成具名版面後，按一下<span class="gd-ui">加入機器</span>並勾選機器。<br>加入機器會複製一份版面，<b>接在該機器現有頁面之後</b>並立即發布，不會覆蓋原有的頁面。<br>機器總覽的<span class="gd-ui">批量調整展示畫面</span>也是使用這些版面。</span></div>
+                <div class="gd-row"><b>機器設定</b><span>填寫客服帳號、休眠時段、管理 PIN 與閒置返回後，按一下<span class="gd-ui">套用到機器</span>。<br>套用會<b>覆蓋</b>所選機器目前的這四項設定並立即發布，版面不受影響。</span></div>
+                <div class="gd-row"><b>園區測站</b><span>設定測站資料來源、園區地圖與各測站介紹，由整個場域的機器共用，無須套用到機器（僅限管理員）。</span></div>
+                <div class="gd-row"><b>權限</b><span>一般帳號可以將版面加入機器及修改共用休眠時段；新增或編輯版面、共用客服帳號、管理 PIN 與閒置返回僅限管理員。</span></div>
               </div>
               <div class="gd-shot-row">
-                <figure class="gd-shot"><img src="img/manual/shared-layout.png" alt="共用版面設定" loading="lazy"><figcaption class="gd-shot-cap">版面設定：「加入機器」把版面接在機器頁面後面。</figcaption></figure>
-                <figure class="gd-shot"><img src="img/manual/shared-settings.png" alt="共用機器設定" loading="lazy"><figcaption class="gd-shot-cap">機器設定：「套用到機器」覆蓋所選機器的設定。</figcaption></figure>
+                <figure class="gd-shot"><img src="img/manual/shared-layout.png" alt="共用版面設定" loading="lazy"><figcaption class="gd-shot-cap">版面設定：「加入機器」會將版面接在機器頁面之後。</figcaption></figure>
+                <figure class="gd-shot"><img src="img/manual/shared-settings.png" alt="共用機器設定" loading="lazy"><figcaption class="gd-shot-cap">機器設定：「套用到機器」會覆蓋所選機器的設定。</figcaption></figure>
               </div>
             </section>
 
             <section id="gd-sec-users">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="users" aria-hidden="true"></i></span><h4>帳號管理</h4></div>
-              <p class="gd-lead">限管理員。右上角<span class="gd-ui">新增帳號</span>填帳號、名稱、密碼與權限。</p>
+              <p class="gd-lead">此功能僅限管理員使用，按一下右上角的<span class="gd-ui">新增帳號</span>，即可填寫帳號、名稱、密碼與權限。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>管理員</b><span>可以做所有事，包含主題色、帳號管理與刪除機器。</span></div>
-                <div class="gd-row"><b>一般帳號</b><span>負責日常上架，只看得到分配給自己的機器；不能動帳號、刪除機器與安全相關設定（管理 PIN、閒置返回、共用客服帳號）。</span></div>
-                <div class="gd-row"><b>機器分配</b><span>在帳號列按<span class="gd-ui">編輯</span>調整。完整的權限對照表在帳號管理頁標題旁的問號。</span></div>
+                <div class="gd-row"><b>管理員</b><span>可使用所有功能，包含主題色、帳號管理與刪除機器。</span></div>
+                <div class="gd-row"><b>一般帳號</b><span>負責日常內容上架，可管理所有機器；無法管理帳號、刪除機器或變更安全相關設定（管理 PIN、閒置返回、共用客服帳號）。</span></div>
+                <div class="gd-row"><b>編輯帳號</b><span>在帳號列按一下<span class="gd-ui">編輯</span>即可修改名稱與權限；完整的權限對照表位於帳號管理頁標題旁的問號。</span></div>
               </div>
-              <figure class="gd-shot"><img src="img/manual/users.png" alt="帳號管理" loading="lazy"><figcaption class="gd-shot-cap">帳號管理：新增帳號、權限與機器分配。</figcaption></figure>
+              <figure class="gd-shot"><img src="img/manual/users.png" alt="帳號管理" loading="lazy"><figcaption class="gd-shot-cap">帳號管理：帳號、名稱與權限。</figcaption></figure>
             </section>
 
             <section id="gd-sec-kiosk">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="tablet" aria-hidden="true"></i></span><h4>機器現場</h4></div>
-              <p class="gd-lead">機器上的 App 管理頁。雲端同步關閉時機器完全獨立運作；開啟後網頁發布幾秒內生效。</p>
+              <p class="gd-lead">機器上的 App 管理頁：雲端同步關閉時，機器會完全獨立運作；開啟後，在後台發布的內容會在幾秒內生效。</p>
               <div class="gd-tbl">
-                <div class="gd-row"><b>開始展示</b><span>按<span class="gd-ui">開始展示</span>進入全螢幕播放；左右滑動預覽可切換要播的頁面。後台按<span class="gd-ui">在機器上展示此頁</span>也會切。</span></div>
-                <div class="gd-row"><b>回到管理頁</b><span>進入展示後 6 秒內點右上角齒輪、左上角連點 5 下、或按系統返回，都要輸入管理 PIN。</span></div>
-                <div class="gd-row"><b>訪客動線</b><span>訪客點格子開啟的網頁、客服與園區資訊頁，閒置到設定的時間就自動回到展示畫面，客服對話同時重置。時間在後台的<span class="gd-ui">閒置返回</span>調整。</span></div>
-                <div class="gd-row"><b>客服朗讀</b><span>對話頁上方的喇叭鈕可以隨時開關朗讀；預設開或關由後台那一格的設定決定。</span></div>
-                <div class="gd-row"><b>連線狀態</b><span>管理頁右上角的連線圖示：綠色＝已連線、橘色＝未連線、紅色斷開＝暫時無法同步（恢復後自動同步）。點一下可查看連線、重新配對或中斷連線。後台發布的內容會自動套用，不需要手動同步。</span></div>
-                <div class="gd-row"><b>軟體更新</b><span><span class="gd-ui">設定</span>＞<span class="gd-ui">軟體更新</span>檢查並安裝新版，有新版時會標示。原有的場域與展示設定都會保留。</span></div>
-                <div class="gd-row"><b>休眠診斷</b><span>休眠時段沒有關螢幕時，到<span class="gd-ui">休眠時段</span>執行「硬體診斷」與「測試關閉螢幕」確認機器支援。</span></div>
+                <div class="gd-row"><b>開始展示</b><span>點一下<span class="gd-ui">開始展示</span>即可進入全螢幕播放，左右滑動預覽可切換要播放的頁面；在後台按一下<span class="gd-ui">在機器上展示此頁</span>也會切換。</span></div>
+                <div class="gd-row"><b>回到管理頁</b><span>進入展示後 6 秒內點一下右上角的齒輪、在左上角連續點按 5 下，或按下系統的返回鍵，都需要輸入管理 PIN。</span></div>
+                <div class="gd-row"><b>訪客動線</b><span>訪客點按格子開啟的網頁、客服與園區資訊頁，閒置達設定時間後會自動返回展示畫面，客服對話也會同時重置；時間可在後台的<span class="gd-ui">閒置返回</span>調整。</span></div>
+                <div class="gd-row"><b>客服朗讀</b><span>對話頁上方的喇叭按鈕可隨時開啟或關閉朗讀；預設狀態由後台該格的設定決定。</span></div>
+                <div class="gd-row"><b>連線狀態</b><span>管理頁右上角的連線圖示：綠色表示已連線、橘色表示未連線、紅色斷開表示暫時無法同步（恢復後會自動同步）。<br>點一下即可查看連線、重新配對或中斷連線；後台發布的內容會自動套用，無須手動同步。</span></div>
+                <div class="gd-row"><b>軟體更新</b><span>在<span class="gd-ui">設定</span>＞<span class="gd-ui">軟體更新</span>檢查並安裝新版本，有新版本時會加以標示，原有的場域與展示設定都會保留。</span></div>
+                <div class="gd-row"><b>休眠診斷</b><span>休眠時段未關閉螢幕時，請到<span class="gd-ui">休眠時段</span>執行「硬體診斷」與「測試關閉螢幕」，確認機器是否支援。</span></div>
               </div>
               <div class="gd-shot-row">
                 <figure class="gd-shot is-phone"><img src="img/manual/kiosk-admin.png" alt="機器管理頁" loading="lazy"><figcaption class="gd-shot-cap">機器管理頁：預覽、開始展示與設定入口。</figcaption></figure>
@@ -686,36 +724,37 @@
 
             <section id="gd-sec-web">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="monitor-play" aria-hidden="true"></i></span><h4>網頁螢幕</h4></div>
-              <p class="gd-lead">沒有 Android 展示機也可以：用瀏覽器全螢幕開展示頁，任何電腦或播放盒接的螢幕都能當展示機。版面與設定的做法跟一般機器完全一樣。</p>
+              <p class="gd-lead">沒有 Android 展示機時，也可以用瀏覽器以全螢幕開啟展示頁，讓任何電腦或播放盒連接的螢幕作為展示機。</p>
+              <p class="gd-lead">版面與設定的操作方式與一般機器完全相同。</p>
               <ol class="gd-steps">
-                <li>在要當螢幕的電腦上，開側欄<span class="gd-ui">網頁螢幕</span>裡的<span class="gd-ui">展示頁網址</span>（自己的電腦按頂欄<span class="gd-ui">開啟展示頁</span>也是同一個網址）。</li>
-                <li>第一次開會先問這面螢幕的名字，填好就開始展示；站台有預設名稱時會直接展示。</li>
-                <li>回到<span class="gd-ui">機器總覽</span>，這面螢幕會跟其他機器一起出現，點<span class="gd-ui">內容管理</span>編排版面。</li>
-                <li>瀏覽器按 F11 全螢幕。要開機就自動播放，把這個網址設成瀏覽器的啟動頁。</li>
+                <li>在要作為螢幕的電腦上，開啟側欄<span class="gd-ui">網頁螢幕</span>中的<span class="gd-ui">展示頁網址</span>（在目前的電腦上按一下頂欄的<span class="gd-ui">開啟展示頁</span>，也會開啟同一個網址）。</li>
+                <li>第一次開啟時會先詢問這面螢幕的名稱，輸入後即開始展示；站台已設定預設名稱時會直接展示。</li>
+                <li>回到<span class="gd-ui">機器總覽</span>，這面螢幕會與其他機器一起列出，按一下<span class="gd-ui">內容管理</span>即可編排版面。</li>
+                <li>在瀏覽器按下 F11 即可全螢幕顯示；如需開機後自動播放，請將此網址設為瀏覽器的啟動頁。</li>
               </ol>
               <div class="gd-tbl">
-                <div class="gd-row"><b>指定機器</b><span>網址後面加 <span class="gd-ui">?device=機器名稱</span> 就直接指定這面螢幕是哪一台，不必手動填。</span></div>
-                <div class="gd-row"><b>改名字</b><span>展示中左上角連點 5 下可以改這面螢幕的名字。</span></div>
-                <div class="gd-row"><b>與 App 的差異</b><span>網頁螢幕沒有設定頁、沒有管理 PIN，也不支援休眠時段與螢幕吋數回報（機器總覽的尺寸欄顯示「不支援」）。</span></div>
-                <div class="gd-row"><b>斷線</b><span>右上角會出現小提示，畫面保持在最後收到的內容，網路回來就自動接上。</span></div>
+                <div class="gd-row"><b>指定機器</b><span>在網址後方加上 <span class="gd-ui">?device=機器名稱</span>，即可直接指定這面螢幕對應的機器，無須手動輸入。</span></div>
+                <div class="gd-row"><b>更改名稱</b><span>展示時在左上角連續點按 5 下，即可更改這面螢幕的名稱。</span></div>
+                <div class="gd-row"><b>與 App 的差異</b><span>網頁螢幕沒有設定頁與管理 PIN，也不支援休眠時段與螢幕吋數回報（機器總覽的尺寸欄會顯示「不支援」）。</span></div>
+                <div class="gd-row"><b>斷線</b><span>右上角會出現提示，畫面會維持最後收到的內容，網路恢復後會自動重新連線。</span></div>
               </div>
-              <figure class="gd-shot is-md"><img src="img/manual/play-setup.png" alt="網頁螢幕填名畫面" loading="lazy"><figcaption class="gd-shot-cap">第一次開啟展示頁：填一個名字，這面螢幕就成為一台機器。</figcaption></figure>
+              <figure class="gd-shot is-md"><img src="img/manual/play-setup.png" alt="網頁螢幕填名畫面" loading="lazy"><figcaption class="gd-shot-cap">第一次開啟展示頁：輸入名稱後，這面螢幕即成為一台機器。</figcaption></figure>
             </section>
 
             <section id="gd-sec-faq">
               <div class="gd-h"><span class="gd-h-ic"><i data-lucide="circle-help" aria-hidden="true"></i></span><h4>常見問題</h4></div>
               <div class="gd-tbl">
-                <div class="gd-row"><b>機器顯示離線</b><span>檢查機器網路，以及機器的雲端同步是否連到這個場域。機器每半分鐘會回報一次。</span></div>
-                <div class="gd-row"><b>連線圖示變紅</b><span>多半是機器的網路暫時中斷，網路恢復後會自動同步，不需要處理。點連線圖示可看原因；只有顯示「請重新配對」時才需要重新配對。</span></div>
-                <div class="gd-row"><b>狀態下方有提示字</b><span>「連到別的伺服器」或「金鑰不符」表示機器的連線設定不對，在機器的雲端同步按「重新配對」即可。</span></div>
-                <div class="gd-row"><b>發布後沒變</b><span>確認機器在線，並在機器上按過「開始展示」。仍沒變就檢查機器的網路，或點連線圖示確認連線狀態。</span></div>
-                <div class="gd-row"><b>客服無法連線</b><span>到機器設定按「測試連線」確認帳密。憑證錯誤時，測試結果會附上機器時間與憑證資訊。</span></div>
-                <div class="gd-row"><b>沒有附件按鈕</b><span>該格的「允許上傳圖片」關著，或該代理人在 JustAI 後台沒開啟圖片／檔案上傳權限。</span></div>
-                <div class="gd-row"><b>客服不會唸出回覆</b><span>先確認對話頁上方的喇叭鈕是開的。整顆鈕都沒出現，表示那台機器沒有安裝中文語音。</span></div>
-                <div class="gd-row"><b>找不到園區資訊選項</b><span>這個站台還沒有設定園區測站 API，整組選項會隱藏起來。</span></div>
-                <div class="gd-row"><b>忘記 PIN</b><span>管理員在這裡的機器設定重設一組並儲存發布即可。</span></div>
-                <div class="gd-row"><b>影片只有圖示</b><span>後台的預覽畫布不播放影片，機器與網頁螢幕上都會正常播放。</span></div>
-                <div class="gd-row"><b>同時編輯</b><span>兩個人同時改同一台，以最後儲存的人為準。建議先「重新載入」再改。</span></div>
+                <div class="gd-row"><b>機器顯示離線</b><span>請檢查機器的網路，以及機器的雲端同步是否連線至此場域；機器每 30 秒會回報一次。</span></div>
+                <div class="gd-row"><b>連線圖示變紅</b><span>通常是機器的網路暫時中斷，網路恢復後會自動同步，無須處理。<br>點一下連線圖示即可查看原因，只有顯示「請重新配對」時才需要重新配對。</span></div>
+                <div class="gd-row"><b>狀態下方出現提示</b><span>「連到別的伺服器」或「金鑰不符」表示機器的連線設定不正確，請在機器的雲端同步點一下「重新配對」。</span></div>
+                <div class="gd-row"><b>發布後畫面未更新</b><span>請確認機器在線，且已在機器上點過「開始展示」。<br>如果畫面仍未更新，請檢查機器的網路，或點一下連線圖示確認連線狀態。</span></div>
+                <div class="gd-row"><b>客服無法連線</b><span>請到機器設定按一下「測試連線」確認帳號與密碼；發生憑證錯誤時，測試結果會附上機器時間與憑證資訊。</span></div>
+                <div class="gd-row"><b>沒有附件按鈕</b><span>可能是該格的「允許上傳圖片」已關閉，或該代理人在 JustAI 後台未開啟圖片／檔案上傳權限。</span></div>
+                <div class="gd-row"><b>客服未朗讀回覆</b><span>請先確認對話頁上方的喇叭按鈕已開啟；如果沒有顯示喇叭按鈕，表示該機器未安裝中文語音。</span></div>
+                <div class="gd-row"><b>園區資訊選項呈灰色</b><span>此場域尚未設定測站資料來源，或目前無法連線；請到<span class="gd-ui">共用設定</span>＞<span class="gd-ui">園區測站</span>按一下<span class="gd-ui">資料來源</span>確認。</span></div>
+                <div class="gd-row"><b>忘記 PIN</b><span>管理員可在後台的機器設定重設 PIN，再按一下「儲存並發布」。</span></div>
+                <div class="gd-row"><b>影片只有圖示</b><span>後台的預覽畫布不會播放影片，機器與網頁螢幕上會正常播放。</span></div>
+                <div class="gd-row"><b>同時編輯</b><span>多人同時修改同一台機器時，以最後儲存的內容為準；建議先按一下「重新載入」再修改。</span></div>
               </div>
             </section>
 
@@ -748,13 +787,44 @@
                 <button type="button" class="seg active" data-role="user" role="radio" aria-checked="true">一般</button>
                 <button type="button" class="seg" data-role="admin" role="radio" aria-checked="false">管理員</button>
               </div>
-              <p class="b-hint">一般帳號可管理所有機器，但看不到帳號管理。</p>
+              <p class="b-hint">一般帳號可管理所有機器，但無法使用帳號管理。</p>
             </div>
           </div>
           <div class="b-modal-foot">
             <button type="submit" id="addUserSubmit" class="b-btn b-btn-text" disabled>新增</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- 園區測站 › 資料來源（2026-10-20 user：從頁籤拿出來，頁首單獨按鈕開這個 modal；測試連線結果用 toast；
+         各站連線狀態收進右上角按鈕，hover 展開垂直清單，同 page-help 的開合：hover 展開、點擊釘住；圖示顏色＝連線狀態） -->
+    <div class="b-modal-overlay" id="parkSourceModal" data-modal-vue>
+      <div class="b-modal is-wide" role="dialog" aria-modal="true" aria-labelledby="parkSourceTitle">
+        <div class="b-modal-head">
+          <h3 class="b-modal-title" id="parkSourceTitle">測站資料來源</h3>
+          <div class="park-src-head-end">
+            <div class="b-pop page-help park-conn is-end" id="parkConnPop">
+              <button type="button" class="page-help-btn" data-pop aria-label="測站連線狀態" aria-haspopup="true">
+                <i data-lucide="activity"></i>
+              </button>
+              <div class="b-pop-panel page-help-panel park-conn-panel">
+                <p class="b-pop-panel-title">測站連線狀態</p>
+                <div id="parkConnBody"></div>
+              </div>
+            </div>
+            <button type="button" class="b-modal-close" id="parkSourceClose" aria-label="關閉"><i data-lucide="x"></i></button>
+          </div>
+        </div>
+        <div class="b-modal-body">
+          <label class="b-label">測站 API 網址
+            <input id="parkApiInput" type="url" class="b-input" placeholder="https://…/api/telemetry/current" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <div class="b-modal-foot">
+          <button type="button" id="parkApiTestBtn" class="b-btn b-btn-text">測試連線</button>
+          <button type="button" id="parkApiSaveBtn" class="b-btn b-btn-text" disabled>儲存</button>
+        </div>
       </div>
     </div>
 
@@ -779,7 +849,7 @@
                 <button type="button" class="seg active" data-role="user" role="radio" aria-checked="true">一般</button>
                 <button type="button" class="seg" data-role="admin" role="radio" aria-checked="false">管理員</button>
               </div>
-              <p class="b-hint" id="editUserRoleHint">一般帳號可管理所有機器，但看不到帳號管理。</p>
+              <p class="b-hint" id="editUserRoleHint">一般帳號可管理所有機器，但無法使用帳號管理。</p>
             </div>
           </div>
           <div class="b-modal-foot">
@@ -798,6 +868,7 @@
   <script src="admin-kit/js/dialogs.js"></script>
   <script src="tw-locations.js"></script>
   <script src="theme-color.js"></script>
+  <script src="park-rich.js"></script>
   <script src="app.js"></script>
   <script src="app-update.js"></script>
 </body>

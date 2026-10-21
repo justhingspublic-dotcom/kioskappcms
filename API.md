@@ -43,6 +43,7 @@ Body：`{ "username": "...", "password": "..." }` → `{ "token": "...", "user":
 ### GET /api/config/{deviceId}/version
 
 回應多帶 `themeColor`（#RRGGBB，站台主題色，2026-09-14）；`/wait` 與 `GET /api/config/{deviceId}` 也帶。機器每輪對帳讀到就套用；後台改色會把掛在 /wait 的機器全部叫醒。
+同樣三支也帶 `parkInfo`（2026-10-20，園區測站，整個場域共用）：`{ api, map: { src: "/files/…", w, h } | null, stations: { 測站代號: { name, photos: ["/files/…"], desc, link, x?, y? } } }`。api＝測站 API 網址（空＝這個場域沒有測站，格子沒填網址時也用它）；map＝後台上傳的園區地圖與像素大小；x／y＝測站在地圖圖片上的位置（寬／高百分比，沒有＝不在地圖上）；name＝存檔時從測站 API 抄下的名稱；photos 最多 6 張、desc 400 字內、link 為 http(s) 或空字串。後台「共用設定 › 園區測站」改了也會叫醒 /wait 的機器。第一次啟動新版時，舊站台的 .env PARK_API_URL 與內建卓也地圖、D1–D5 位置會自動寫進來。
 
 → `{ "version": 3 }`（該機器沒設定過則 `0`）
 kiosk 每 30–60 秒輪詢這支；版本比本機記錄的大才抓整份設定。
@@ -59,6 +60,7 @@ Body：`{ "config": { ... } }` → `{ "version": 4 }`（版本自動 +1；第一
 ### GET / PUT /api/shared-settings（限管理網頁，**全站一份**）
 
 settings.themeColor（#RRGGBB）＝站台主題色（2026-09-14）：後台深淺色與展示機 App 共用；只有管理員能改（nav 調色盤鈕），沒設＝ #E07800。
+settings.parkInfo＝園區測站資訊卡（2026-10-20，格式同上）：只有管理員能改，伺服器整理過才存；送來的 settings 沒有這個欄位＝不動、保留現值。
 
 共用範本（版面清單＋客服帳號＋休眠排程＋管理 PIN），2026-09-07 定案改為全站一份、不分帳號（資料列 `UserId='_global'`）。
 GET → `{ "settings": {...}|null, "updatedAt" }`；
@@ -120,9 +122,9 @@ Body：`{ "baseUrl": "...", "email": "...", "password": "..." }`（即 config �
 
 cell 欄位（與 App 的 `LayoutTree.kt` 序列化一致）：
 `bg`(Solid/Image)、`bgColor`(ARGB 十進位)、`bgImgs`(字串陣列)、`scale`(Crop/Fit)、`dur`(秒)、
-`content`(None/Marquee/Weather/Text/Web/Video)、`txtColor`、`mqSpeed`、`video`、`web`、`text`、
+`content`(None/Marquee/Weather/Text/Web/Video)、`txtColor`、`mqSpeed`、`video`、`web`、`text`、`txtPos`(TopStart/TopCenter/TopEnd/CenterStart/Center/CenterEnd/BottomStart/BottomCenter/BottomEnd，文字位置，省略=Center)、
 `wAuto`/`wCounty`/`wDistrict`/`wDynBg`(天氣)、`wSrc`(Standard/Station，天氣資料來源)、
-`wStUrl`(園區測站 API 網址)/`wStation`(測站代號，空＝輪播全部)、`tap`(None/OpenWeb/OpenAssistant)、`tapUrl`、
+`wStUrl`(園區測站 API 網址)/`wStation`(測站代號，空＝輪播全部)、`tap`(None/OpenWeb/OpenAssistant/OpenParkInfo/OpenSubPage)、`tapUrl`、`sub`(tap=OpenSubPage 的子頁 `{ name, node, layout }`，node 跟頁面的版面樹同格式、layout＝Kiosk/Mobile 頂欄大小（省略＝Kiosk）；主頁算第 1 層，最多 3 層)、
 `agentId`/`agentName`/`agentAccent`(ARGB 十進位，省略=自動)/`assistantLayout`(AI 客服)/`agentInputPos`(Bottom/Top，客服輸入區位置，省略=Top)。
 
 `sleep` 欄位（與 App DataStore 的 `sleep_schedule_json` 同格式）：`periods[].day` 用

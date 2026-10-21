@@ -5,6 +5,14 @@
   var openDD = null;
 
   function optText(opt) { return (opt.textContent || '').trim(); }
+  // <option data-badge="…">：選項最右邊多一個狀態小標（例：園區資訊「連線失敗」）；選單裡與選中時的觸發鈕上都顯示。
+  // 小標只是說明，點它不算選這個選項（選單不會被關掉）
+  function badgeEl(text) {
+    var b = document.createElement('span');
+    b.className = 'b-dd-badge';
+    b.textContent = text;
+    return b;
+  }
 
   function buildMenu(dd, select) {
     var menu = dd.querySelector('.b-dd-menu');
@@ -14,10 +22,11 @@
       item.type = 'button';
       item.className = 'b-dd-item' + (opt.value === select.value ? ' active' : '');
       item.textContent = optText(opt);
+      if (opt.dataset.badge) item.appendChild(badgeEl(opt.dataset.badge));
       item.dataset.value = opt.value;
       if (opt.disabled) item.disabled = true;
-      item.addEventListener('click', function () {
-        if (opt.disabled) return;
+      item.addEventListener('click', function (e) {
+        if (opt.disabled || (e.target.closest && e.target.closest('.b-dd-badge'))) return;
         if (select.value !== opt.value) {
           select.value = opt.value;
           select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -34,6 +43,9 @@
     var opt = select.options[select.selectedIndex];
     valEl.textContent = opt ? optText(opt) : '';
     valEl.classList.toggle('placeholder', !opt || opt.value === '');
+    var old = dd.querySelector('.b-dd-trigger .b-dd-badge');
+    if (old) old.remove();
+    if (opt && opt.dataset.badge) valEl.after(badgeEl(opt.dataset.badge));
     Array.prototype.forEach.call(dd.querySelectorAll('.b-dd-item'), function (it) {
       it.classList.toggle('active', it.dataset.value === select.value);
     });

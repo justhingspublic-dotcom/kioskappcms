@@ -106,7 +106,7 @@ async function fromAudit(a, ev) {
     case 'device.delete':
       return add({ ...base, kind: 'device', type: 'deleted', text: `${who}刪除了${q(name)}` });
     case 'device.rename':
-      return add({ ...base, kind: 'content', type: 'renamed', text: `${who}${summaryAfter('把機器').replace(/^/, '把')}` });
+      return add({ ...base, kind: 'content', type: 'renamed', text: `${who}${summaryAfter('將機器').replace(/^/, '將')}` });
     case 'config.publish':
     case 'config.update':
       if (!(d.changed || []).length) return;   // 內容沒變的存檔不通知
@@ -116,10 +116,10 @@ async function fromAudit(a, ev) {
     case 'config.appendLayout':
       return add({ ...base, kind: 'content', type: 'appendLayout', text: `${who}${ev.summary}`, groupKey: `append:${user}:${d.layoutName || ''}` });
     case 'config.showLayout':
-      return add({ ...base, kind: 'content', type: 'showLayout', text: `${who}讓${q(name)}展示版面${q(d.layoutName)}`, groupKey: `show:${user}:${d.layoutName || ''}` });
+      return add({ ...base, kind: 'content', type: 'showLayout', text: `${who}將${q(name)}切換為展示版面${q(d.layoutName)}`, groupKey: `show:${user}:${d.layoutName || ''}` });
     case 'config.applySettings':
       if (!(d.changed || []).length) return;
-      return add({ ...base, kind: 'content', type: 'applySettings', text: `${who}把共用機器設定套用到${q(name)}`, groupKey: `apply:${user}` });
+      return add({ ...base, kind: 'content', type: 'applySettings', text: `${who}將共用機器設定套用到${q(name)}`, groupKey: `apply:${user}` });
     case 'shared.layout.create':
     case 'shared.layout.rename':
     case 'shared.layout.delete':

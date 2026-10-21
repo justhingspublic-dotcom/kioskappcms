@@ -51,6 +51,11 @@ body {
 
 /* 內容 */
 .pv-text { position: relative; z-index: 1; text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; line-height: 1.25; max-width: 100%; box-sizing: border-box; }
+/* 文字九宮格位置（沒 data-pos＝置中）：格子是置中的 flex，上下用 align-self、左右用 auto margin 推 */
+.pv-text[data-pos^="Top"] { align-self: flex-start; }
+.pv-text[data-pos^="Bottom"] { align-self: flex-end; }
+.pv-text[data-pos$="Start"] { margin-right: auto; text-align: left; }
+.pv-text[data-pos$="End"] { margin-left: auto; text-align: right; }
 .pv-marquee { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; }
 .pv-marquee span { white-space: nowrap; font-weight: 600; will-change: transform; }
 .pv-weather2 { position: absolute; inset: 0; display: flex; align-items: center; z-index: 1; }
@@ -152,7 +157,8 @@ body {
 .nav-clip { position: fixed; left: var(--stage-left, 0); top: 0; width: var(--stage-w, 100%); height: var(--stage-h, 100%); z-index: 30; pointer-events: none; contain: paint; }
 .nav-clip > * { pointer-events: auto; }
 .overlay { --tb: 1; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 1; display: flex; flex-direction: column; background: #f4f5f7; color: #1d1f22; }
-.overlay.park-page { --tb: var(--park-tb, 1.6); --park-surface: #fafafa; background: var(--park-surface); }
+/* KIOSK 頂欄的字另外放大 1.45 倍（--kfs；同 App KioskPresentation.FontScale，2026-10-20 對齊 App）；手機模式 --park-fs:1 */
+.overlay.park-page { --tb: var(--park-tb, 1.6); --kfs: var(--park-fs, 1.45); --park-surface: #fafafa; background: var(--park-surface); }
 .topbar { zoom: var(--k, 1); flex: none; height: calc(64px * var(--tb)); display: flex; align-items: center; gap: calc(4px * var(--tb)); padding: 0 calc(8px * var(--tb)); background: #fff; box-shadow: 0 1px 0 rgba(0,0,0,.08); box-sizing: border-box; }
 .park-page .topbar { background: var(--park-surface); box-shadow: none; }
 .topbar-btn { width: calc(56px * var(--tb)); height: calc(56px * var(--tb)); border: 0; background: transparent; color: #1d1f22; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
@@ -162,9 +168,9 @@ body {
 .park-page #ovBack { width: calc(44px * var(--tb)); height: calc(44px * var(--tb)); color: var(--park-primary); background: color-mix(in srgb, var(--park-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--park-primary) 28%, transparent); }
 .park-page #ovBack .material-icons { font-size: calc(24px * var(--tb)); }
 .topbar-title { flex: 1; min-width: 0; font-size: calc(22px * var(--tb)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 calc(8px * var(--tb)); }
-.park-page .topbar-title { font-size: calc(30px * var(--tb)); line-height: 1.2; font-weight: 700; padding-inline-start: calc(12px * var(--tb)); }
+.park-page .topbar-title { font-size: calc(30px * var(--tb) * var(--kfs)); line-height: 1.2; font-weight: 700; padding-inline-start: calc(12px * var(--tb)); }
 .topbar-meta { flex: none; font-size: calc(18px * var(--tb)); color: #5e646b; white-space: nowrap; padding: 0 calc(16px * var(--tb)); }
-.park-topbar-meta { align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: calc(3px * var(--tb)); padding-inline-end: calc(12px * var(--tb)); font-size: calc(14px * var(--tb)); line-height: 1.2; }
+.park-topbar-meta { align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: calc(3px * var(--tb)); padding-inline-end: calc(12px * var(--tb)); font-size: calc(14px * var(--tb) * var(--kfs)); line-height: 1.2; }
 .park-status-chip { display: inline-flex; align-items: center; gap: calc(5px * var(--tb)); padding: calc(4px * var(--tb)) calc(9px * var(--tb)); border: 1px solid currentColor; border-radius: 999px; font-weight: 500; }
 .park-status-chip .dot { width: calc(6px * var(--tb)); height: calc(6px * var(--tb)); border-radius: 50%; background: currentColor; }
 .park-status-chip.online { color: #2E7D32; background: rgba(46,125,50,.12); border-color: rgba(46,125,50,.4); }
@@ -172,6 +178,15 @@ body {
 .park-updated { color: #5e646b; }
 .overlay-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; container-type: inline-size; }
 .overlay-body iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+/* 子頁（樹狀展示，2026-10-20）：頂欄同園區資訊（淺底、主題色圓形返回／首頁鈕、大標題，KIOSK 放大 --park-tb、手機模式 1），
+   下面整塊照版面樹畫（同 .page 的畫法） */
+.overlay.sub-layer { --tb: var(--park-tb, 1.6); --kfs: var(--park-fs, 1.45); background: #fafafa; }
+.sub-layer .topbar { background: #fafafa; box-shadow: none; padding: 0 calc(12px * var(--tb)); } /* 圓鈕離邊 12×倍數（同 App） */
+.sub-layer .topbar-btn { width: calc(44px * var(--tb)); height: calc(44px * var(--tb)); color: var(--park-primary); background: color-mix(in srgb, var(--park-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--park-primary) 28%, transparent); }
+.sub-layer .topbar-btn .material-icons { font-size: calc(24px * var(--tb)); }
+.sub-layer .topbar-title { font-size: calc(30px * var(--tb) * var(--kfs)); line-height: 1.2; font-weight: 700; padding-inline-start: calc(12px * var(--tb)); }
+.sub-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; background: #000; }
+.sub-body > .block { flex: 1; }
 
 /* 園區資訊頁：地圖先填滿（寬滿、依比例，高度由 play.js fitLayout 設），上面的讀數面板拿剩下的高度，字級用 --ps 縮放 */
 .park-map { position: relative; flex: none; width: 100%; background: var(--park-surface, #fafafa); }
@@ -208,7 +223,64 @@ body {
 }
 .park-marker .park-here.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--park-here-color); }
 .park-panel { --ps: 1; flex: none; overflow: hidden; display: flex; flex-direction: column; padding: calc(12px * var(--ps)) calc(14px * var(--ps)); background: var(--park-surface, #fafafa); box-sizing: border-box; position: relative; z-index: 1; }
+/* 測站資訊卡（2026-10-20 user）：點有資料的測站，從頂欄下方滑下來的 sheet，蓋在內容上（不壓縮地圖與讀數），下面半透明遮罩；
+   點遮罩、往上滑或按頂欄左上角收起（卡開著時返回鈕變 ✕，2026-10-21）。照片滿寬（比例跟第一張照片）多張淡入輪播、完整說明、滿寬「查看更多」；
+   站名只在頂欄、卡裡不重複。最高 78% 內容區，再長在 sheet 裡捲。
+   App ParkInfoScreen 同規則 */
+.park-sheet-layer { --ps: 1; --pt: 1; position: absolute; inset: 0; z-index: 4; overflow: hidden; }
+.park-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.32); }
+.park-sheet {
+  position: absolute; left: 0; right: 0; top: 0; max-height: 78%; display: flex; flex-direction: column; box-sizing: border-box;
+  background: #fff; color: #1d1f22; border-radius: 0 0 calc(24px * var(--ps)) calc(24px * var(--ps));
+  box-shadow: 0 calc(8px * var(--ps)) calc(28px * var(--ps)) rgba(0,0,0,.22); touch-action: none; user-select: none;
+}
+.park-sheet-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: none; /* 捲到頂再往下拉不彈、不跟頂欄分開（user 2026-10-20） */ touch-action: none; scrollbar-width: none;
+  display: flex; flex-direction: column; gap: calc(18px * var(--ps)); padding: calc(20px * var(--ps)) calc(24px * var(--ps)) calc(4px * var(--ps));
+}
+.park-sheet-scroll::-webkit-scrollbar { display: none; }
+.park-sheet-scroll.is-scrollable { touch-action: pan-y; }
+.park-sheet-scroll > * { flex: none; }
+/* 底部拖曳區：不畫橫線（user 2026-10-21），留一條空白照樣能往上拉收起 */
+.park-sheet-grip { flex: none; height: calc(20px * var(--ps)); cursor: grab; touch-action: none; }
+/* 有「查看更多」：固定在底部、不跟內容捲（user 2026-10-21），四周內距 24；sheet 下緣圓角＝膠囊半徑 50＋24（同心） */
+.park-sheet-foot { flex: none; padding: calc(14px * var(--ps)) calc(24px * var(--ps)) calc(24px * var(--ps)); cursor: grab; touch-action: none; }
+.park-sheet.has-foot { border-radius: 0 0 calc(74px * var(--ps)) calc(74px * var(--ps)); }
+.park-sheet.has-foot .park-sheet-grip { display: none; }
+/* 照片滿寬（不含左右內距，user 2026-10-21）：比例由 play.js 照第一張照片設定（4:3～21:9），載入前 16:9；其他張照這個框裁切（同 App） */
+.park-card-photo { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: calc(16px * var(--ps)); overflow: hidden; background: #e8ebe9; }
+.park-card-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .6s ease; }
+.park-card-photo img.on { opacity: 1; }
+.park-card-dots { position: absolute; left: 0; right: 0; bottom: calc(10px * var(--ps)); display: flex; justify-content: center; gap: calc(6px * var(--ps)); }
+.park-card-dots span { width: calc(8px * var(--ps)); height: calc(8px * var(--ps)); border-radius: 50%; background: rgba(255,255,255,.55); box-shadow: 0 0 2px rgba(0,0,0,.4); transition: background-color .3s; }
+.park-card-dots span.on { background: #fff; }
+/* 介紹字放大（user 2026-10-21：23 → 30 → 40） */
+.park-card-desc { font-size: calc(40px * var(--pt)); line-height: 1.5; color: #3f454c; white-space: pre-line; overflow-wrap: anywhere; }
+/* 介紹的簡易格式（park-rich.js）：小標題、條列、粗體、連結；字型大小都跟著 --ps，由系統統一 */
+.park-card-desc.is-rich { white-space: normal; }
+.park-card-desc.is-rich h4 { margin: .5em 0 .15em; font-size: 1.08em; font-weight: 700; color: #1d1f22; }
+.park-card-desc.is-rich p { margin: 0 0 .5em; }
+.park-card-desc.is-rich ul { margin: 0 0 .5em; padding-left: 1.25em; }
+.park-card-desc.is-rich li { margin: .1em 0; }
+.park-card-desc.is-rich b { font-weight: 700; color: #1d1f22; }
+.park-card-desc.is-rich a { color: var(--park-primary); text-decoration: underline; text-underline-offset: .15em; }
+.park-card-desc.is-rich > :first-child { margin-top: 0; }
+.park-card-desc.is-rich > :last-child { margin-bottom: 0; }
+/* 查看更多：滿寬膠囊按鈕，配色同頂欄返回鈕（主題色字、12% 底、28% 邊框；user 2026-10-21） */
+.park-card-more {
+  display: flex; align-items: center; justify-content: center; gap: calc(4px * var(--ps)); width: 100%; height: calc(100px * var(--ps));
+  padding: 0 calc(24px * var(--ps)); box-sizing: border-box; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: calc(40px * var(--pt)); font-weight: 600; color: var(--park-primary);
+  background: color-mix(in srgb, var(--park-primary) 12%, transparent); border: 1px solid color-mix(in srgb, var(--park-primary) 28%, transparent);
+}
+.park-card-more .material-icons { font-size: calc(46px * var(--pt)); }
+.park-card-more:active { background: color-mix(in srgb, var(--park-primary) 20%, transparent); }
+.park-card-more:focus-visible { outline: 2px solid var(--park-primary); outline-offset: 2px; }
+/* 看更多：疊在園區資訊頁內容上的網頁（頂欄還在，← 回園區資訊） */
+.park-web { position: absolute; inset: 0; z-index: 5; display: flex; background: #fff; }
+.park-web iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 .park-hint { margin: auto 0; font-size: calc(26px * var(--ps)); line-height: 1.3; color: #5e646b; }
+.park-nomap { margin: auto; padding: 24px; text-align: center; font-size: 22px; } /* 後台還沒上傳園區地圖 */
 .park-metrics { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: calc(10px * var(--ps)); }
 .park-metric { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; padding: calc(8px * var(--ps)) calc(16px * var(--ps)); border-radius: calc(18px * var(--ps)); color: var(--metric); background: color-mix(in srgb, var(--metric) 10%, var(--park-surface, #fafafa)); box-sizing: border-box; }
 .park-metric-head { width: 100%; min-width: 0; display: flex; align-items: center; }

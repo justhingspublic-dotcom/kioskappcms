@@ -360,7 +360,9 @@ html:root[data-color-mode="dark"] {
   container-type: inline-size;
 }
 /* 框內畫布＝contain：寬取「框寬」與「框高×機器比例」的小者，高由 aspect-ratio（buildCanvas 寫入 --sr 與 inline aspect-ratio）推得 */
-.canvas-frame > .canvas { width: min(100cqw, calc(100cqh * var(--sr, 0.5625))); height: auto; }
+.canvas-frame > .canvas { width: min(100cqw, calc(100cqh * var(--sr, 0.5625))); height: auto; grid-area: 1 / 1; }
+/* 進出子頁的轉場：舊畫面的複製品疊在同一格陪著滑走（app.js navAnimate） */
+.canvas-frame > .cv-nav-ghost { pointer-events: none; }
 /* 格子照比例絕對定位（buildCanvas placeBox）；cv-root＝畫布內容區（扣掉 4px 內距） */
 .canvas .cv-root { flex: 1; min-height: 0; position: relative; }
 .canvas .cv-root > .cell { position: absolute; flex: none; box-sizing: border-box; }
@@ -433,6 +435,26 @@ html:root[data-color-mode="dark"] {
 
 /* 畫布內容真實預覽（模擬機器畫面；字級由 fitPreview 依格子尺寸套用） */
 .pv-text { position: relative; z-index: 1; text-align: center; font-weight: 700; white-space: pre-wrap; word-break: break-word; text-shadow: none; }
+/* 文字九宮格位置（同 play.css） */
+.pv-text[data-pos^="Top"] { align-self: flex-start; }
+.pv-text[data-pos^="Bottom"] { align-self: flex-end; }
+.pv-text[data-pos$="Start"] { margin-right: auto; text-align: left; }
+.pv-text[data-pos$="End"] { margin-left: auto; text-align: right; }
+/* 文字位置選擇器（側邊欄）：3×3 小方格，選中的格子主題色底＋白點 */
+.pos-grid {
+  display: inline-grid; grid-template-columns: repeat(3, 26px); gap: 3px; padding: 3px;
+  background: var(--neutral-secondary-soft); border: 1px solid var(--border-default); border-radius: 10px;
+}
+.pos-cell {
+  width: 26px; height: 22px; padding: 0; border: 0; border-radius: 7px; background: transparent; cursor: pointer;
+  display: grid; place-items: center; transition: background-color .12s;
+}
+.pos-cell::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--text-body-subtle); opacity: .55; transition: background-color .12s, opacity .12s; }
+.pos-cell:hover { background: var(--neutral-tertiary-medium); }
+.pos-cell:hover::before { opacity: 1; }
+.pos-cell.active, .pos-cell.active:hover { background: var(--brand); }
+.pos-cell.active::before { background: var(--b-on-primary, #fff); opacity: 1; }
+.pos-cell:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .pv-marquee { position: absolute; inset: 0; overflow: hidden; display: flex; align-items: center; }
 .pv-marquee span { white-space: nowrap; font-weight: 600; will-change: transform; }
 .pv-img-layer {
@@ -466,6 +488,60 @@ html:root[data-color-mode="dark"] {
 .canvas .cell:hover .pv-size-badge { opacity: 1; }
 .material-icons { vertical-align: middle; line-height: 1; }
 
+/* ── 子頁（樹狀展示，2026-10-20） ── */
+/* 有子頁的格子：左上角白底小圖示（一直顯示，看得出哪幾格點了會進去） */
+.pv-sub-chip {
+  position: absolute; top: 4px; left: 4px; z-index: 2; width: 20px; height: 20px; border-radius: 6px;
+  background: #fff; color: var(--brand); display: grid; place-items: center; box-shadow: 0 0 0 1px rgba(0,0,0,.12);
+}
+.pv-sub-chip .material-icons { font-size: 14px; }
+/* 子頁頂欄預覽（同園區資訊頂欄，2026-10-20 user 選 A）：淺底、主題色圓形返回／首頁鈕、粗標題；
+   字級基準＝30px×倍數（fitPreview 依畫布寬換算），圓鈕與間距用 em 跟著縮放；KIOSK 標題再乘 --kfs 1.45（同 App）。不能點、不能選 */
+.canvas .cv-subbar {
+  flex: none; display: flex; align-items: center; gap: calc(4em / 30); padding: 0 calc(12em / 30); margin-bottom: 2px;
+  background: #fafafa; color: #1d1f22; border-radius: 6px 6px 2px 2px; overflow: hidden; white-space: nowrap;
+  font-weight: 700; line-height: 1.2; pointer-events: none; box-sizing: border-box;
+}
+.cvb-btn {
+  flex: none; width: calc(44em / 30); height: calc(44em / 30); box-sizing: border-box; border-radius: 50%; display: grid; place-items: center;
+  color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.cvb-btn .material-icons { font-size: calc(24em / 30); }
+.cv-subbar-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: calc(1em * var(--kfs, 1)); padding-inline-start: calc(12em / 30 / var(--kfs, 1)); }
+/* 畫布標頭（2026-10-20 user 選「畫框標頭」，同 App 頂欄）：一直都在，跟下面的預覽畫框黏成一張卡 */
+.page-head {
+  flex: none; height: 52px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  margin-bottom: -10px; /* 吃掉欄間距，跟畫框貼在一起 */
+  background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-radius: 20px 20px 0 0;
+}
+.page-head[hidden] { display: none; }
+.page-head:not([hidden]) + .canvas-frame { border-top-left-radius: 0; border-top-right-radius: 0; height: calc(100% - 94px); } /* 52px 標頭＋42px 按鈕列 */
+/* 左邊同一顆鈕：主頁＝⌂（不能按），子頁＝←（回上一層）；外框不變，只有圖示變形 */
+.ph-lead {
+  flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 9px; display: grid; place-items: center;
+  color: var(--accent-text); background: color-mix(in srgb, var(--accent) 10%, transparent); cursor: pointer; transition: background-color .15s;
+}
+.ph-lead:disabled { cursor: default; opacity: 1; }
+.ph-lead:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.ph-lead :where(svg) { width: 18px; height: 18px; }
+.ph-lead:focus-visible, .ph-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.ph-stage { flex: 1; min-width: 0; display: grid; } /* 換字時新舊兩層疊在同一格 */
+.ph-stage > .ph-body { grid-area: 1 / 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.ph-stage > .ph-body.is-leaving { pointer-events: none; }
+.ph-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.ph-title { font-size: 14px; font-weight: 700; color: var(--text-heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-sub { display: flex; align-items: center; gap: 3px; min-width: 0; font-size: 12px; color: var(--text-body-subtle); white-space: nowrap; overflow: hidden; }
+.ph-link { padding: 0; border: 0; background: none; font: inherit; color: var(--accent-text); font-weight: 500; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.ph-link:hover { text-decoration: underline; }
+.ph-sep { color: var(--text-body-subtle); }
+.ph-chip {
+  flex: none; height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 9px; border-radius: 999px;
+  background: var(--neutral-secondary-medium); color: var(--text-body-subtle); font-size: 12px;
+}
+.ph-chip .material-icons { font-size: 14px; color: var(--accent-text); }
+.sub-enter-btn { display: inline-flex; align-items: center; gap: 2px; padding-right: 6px; color: var(--accent-text); }
+.sub-enter-btn .material-icons { font-size: 18px; }
+
 /* ── 右側：單格設定面板 ── */
 .cell-panel {
   /* 寬度由 .panel-col 決定；高度撐滿＝底部對齊左邊畫布，內容多時自己內部捲動。
@@ -478,6 +554,9 @@ html:root[data-color-mode="dark"] {
 /* 未選格子＝滿高空狀態（同卡框置中）；內容抽換＝輕量淡入（每次 renderPanel 重播） */
 .cell-panel.is-empty { display: flex; align-items: center; justify-content: center; }
 .cell-panel.is-faded { animation: panel-fade .14s ease-out; }
+/* 進出子頁轉場中：面板內容淡出，滑完才重建（app.js navAnimate，重建很重，不跟動畫搶時間） */
+.cell-panel.is-nav > * { opacity: 0; transition: opacity .12s ease-out; }
+.canvas-frame > .cv-nav-ghost { contain: layout paint; }
 @keyframes panel-fade { from { opacity: .35; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .cell-panel.is-faded { animation: none; } }
 .cell-panel .panel-head {
@@ -615,6 +694,8 @@ html:root[data-color-mode="dark"] {
 }
 .seg-row .seg:hover { color: var(--text-heading); background: var(--neutral-tertiary-medium); }
 .seg-row .seg.active, .seg-row .seg.active:hover { background: var(--brand); color: var(--b-on-primary, #fff); }
+/* 停用的段（例：園區測站目前不能用）：灰字、沒有 hover */
+.seg-row .seg:disabled, .seg-row .seg:disabled:hover { color: var(--fg-disabled); background: transparent; cursor: default; }
 
 /* 色票（規格對齊 tiri .b-color：radius-md、border-default-medium） */
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -826,10 +907,10 @@ html:root[data-color-mode="dark"] {
 .settings-fields input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .settings-fields input[type=time].b-input.sleep-time { width: 112px; flex: none; }
 .settings-card .card-title-wrap { display: flex; align-items: center; gap: 4px; }
-/* 動作列緊接在欄位下面（2026-10-14 精修）：原本 margin-top:auto 貼卡底，卡片被旁邊較高的卡撐高時，
-   「測試連線」離輸入框隔一大段；改成空白留在卡片最下面 */
+/* 動作列貼卡片底部（2026-10-20 user：卡片被旁邊較高的卡撐高時，「申請帳號／測試連線」要靠下對齊，不要飄在欄位下面；
+   推翻 10-14 精修的「緊接欄位」） */
 .settings-foot {
-  margin-top: 0; padding: 6px 20px 18px;
+  margin-top: auto; padding: 6px 20px 18px;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
 }
 .settings-foot .b-btn { flex: none; margin-left: auto; } /* 只有動作鈕時也靠右 */
@@ -1659,3 +1740,247 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .main-content.is-spa-entered { animation: jd-view-in .22s cubic-bezier(.22, 1, .36, 1) both; }
 @media (prefers-reduced-motion: reduce) { .main-content.is-spa-entered { animation: b-spa-fade-in .12s ease-out both; } }
 .ws-dirty-note.is-plain::before { display: none; } /* ⌘S 沒有修改時的提示：不帶圓點 */
+
+/* ── 共用設定 › 園區測站（2026-10-20 晚 user 重排）：一張卡＝上排測站頁籤（tiri 收件匣的頂部標籤＋segment 滑動指示塊）、
+   左邊這一站的照片／說明／看更多、右邊園區地圖（這一站的點亮起），右下角儲存＝存這一站 ── */
+.park-admin { display: flex; flex-direction: column; }
+/* 空狀態（沒設資料來源／連線失敗）：跟其他頁的空表格一樣，整張卡撐滿寬度與剩下的高度、內容上下左右置中 */
+.park-admin > .park-empty { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 360px; }
+.park-admin > .park-empty .b-empty { padding: 24px; }
+/* 連線失敗：圖示與動作變紅（圖示＝插頭拔開的動畫，morph-icons.js unplugApart） */
+.park-empty.is-danger .b-empty-icon { color: var(--fg-danger); background: var(--danger-soft); }
+.park-card { display: flex; flex-direction: column; min-width: 0; }
+/* 內滾（user 2026-10-20：一定要內滾）：頁首固定、文件層不捲；左邊欄位區在卡片裡捲、右邊地圖用滿剩下的高度 */
+@media (min-width: 901px) {
+  .main-content:has(> #parkInfoView:not(.hidden)) {
+    height: calc(100vh - var(--header-height));
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .main-content:has(> #parkInfoView:not(.hidden)) > #parkInfoView { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #parkInfoView > .page-header { flex: 0 0 auto; }
+  #parkInfoView > #parkBody { flex: 1 1 auto; min-height: 0; }
+  .park-card { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .park-card-body { flex: 1 1 auto; min-height: 0; }
+  .park-form { overflow-y: auto; }
+}
+@media (min-width: 1025px) {
+  html:has(#mainView:not(.hidden) #parkInfoView:not(.hidden)) { overflow: hidden; overscroll-behavior: none; }
+}
+/* 上排測站頁籤：撐滿卡片寬、每站均分（站多就橫捲），選中＝主題色實底白字，切換時底色滑過去（segRow 的 .seg-ind） */
+.seg-row.park-st-tabs {
+  display: flex; flex-wrap: nowrap; width: 100%; box-sizing: border-box; gap: 4px; padding: 8px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--border-default); border-radius: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+.park-st-tabs::-webkit-scrollbar { display: none; }
+.park-st-tabs .seg {
+  flex: 1 0 auto; min-width: 120px; height: 40px; padding: 0 16px; border-radius: var(--radius-md);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+  font-size: 14px; font-weight: 500; color: var(--text-heading);
+}
+.park-st-tabs .seg b { font-weight: 700; }
+/* 更換地圖中：還沒放到新地圖上的站，代號旁一個琥珀色小點（user 2026-10-21：全部放好才套用） */
+.park-st-tabs .seg.is-todo b::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%; background: var(--fg-warning, #b26a00); vertical-align: middle; transform: translateY(-1px); }
+.park-st-tabs .seg-ind { border-radius: var(--radius-md); }
+.park-st-tabs .seg:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--brand-medium); }
+/* 下面：左欄位、右地圖。地圖區寬度由 app.js parkFitMap 依圖片比例算（可用高度×比例＋內距），四周內距一樣 16px（user：左右要跟上下對齊） */
+.park-card-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.park-form { min-width: 0; scrollbar-width: none; }
+.park-form::-webkit-scrollbar { display: none; }
+.park-map-pane { display: flex; flex-direction: column; gap: 12px; width: 380px; min-width: 0; min-height: 360px; padding: 16px; border-left: 1px solid var(--border-default); box-sizing: border-box;
+  background: color-mix(in srgb, #111827 var(--park-map-shade, 1%), var(--neutral-primary-soft)); } /* 地圖區底色比卡片深一點點（user 2026-10-21：0.5%→1%、非純黑）；要調深淺改 --park-map-shade */
+@media (max-width: 900px) {
+  .park-card-body { grid-template-columns: minmax(0, 1fr); }
+  .park-map-pane { width: auto; border-left: 0; border-top: 1px solid var(--border-default); height: 70vh; }
+}
+/* 卡片底部（儲存那一列）跟上面的內容區用分隔線隔開（user） */
+.park-card .settings-foot { justify-content: flex-end; gap: 4px 12px; flex-wrap: wrap; margin-top: 0; padding: 12px 20px; border-top: 1px solid var(--border-default); }
+.park-card .settings-foot .b-btn { margin-left: 0; }
+.park-card .settings-foot .b-btn[hidden] { display: none; }
+.park-online { font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; background: var(--neutral-secondary-medium); color: var(--text-body-subtle); }
+.park-online[data-on="true"] { color: #2E7D32; background: rgba(46, 125, 50, .12); }
+[data-color-mode="dark"] .park-online[data-on="true"] { color: #81C784; background: rgba(129, 199, 132, .14); }
+/* 格子面板：園區測站不能用（沒設資料來源／連不上）時那一塊變灰、控件鎖住，設定照樣保留；原因＝下拉選單上的狀態小標（2026-10-20 user） */
+.ins-row.is-unavail { opacity: .45; pointer-events: none; }
+.ins-ctrl > .park-src-badge { margin-left: auto; } /* 天氣「來源」那一列的小標：靠最右邊 */
+/* 園區地圖：照比例用滿右半邊（container query 量可用寬高）；下面一列＝左狀態字、右按鈕 */
+.park-map-wrap { flex: 1 1 auto; min-height: 0; container-type: size; display: grid; place-items: center; }
+.park-map-empty { margin: auto; }
+.park-map-edit { position: relative; width: min(100cqw, calc(100cqh * var(--ar))); aspect-ratio: var(--ar); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-default); user-select: none; touch-action: none; }
+.park-map-edit img { width: 100%; height: 100%; display: block; object-fit: fill; pointer-events: none; }
+.park-map-edit.is-editing { cursor: crosshair; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 25%, transparent); }
+/* 地圖下方只放按鈕（不換行，地圖區至少放得下）；狀態一句話改成地圖左上角的小標籤 */
+/* 按鈕列固定高度（user 2026-10-21：進入編輯位置時地圖不能變大變小）：平常那一行有〔地圖｜資訊卡預覽〕切換比較高、編輯中那一行只有按鈕，兩行一樣高 */
+.park-map-bar { flex: none; position: relative; height: 36px; }
+.park-bar-row { display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-wrap: nowrap; height: 100%; }
+.park-map-bar .b-btn { height: 32px; min-height: 32px; line-height: 30px; padding: 0 12px; flex: none; }
+/* 編輯位置時左邊的圖示鈕（回到預設位置、從地圖拿掉＝紅）；右邊「取消」「完成」照舊靠右 */
+.park-bar-tools { display: flex; gap: 4px; margin-right: auto; flex: none; }
+.park-map-bar .park-bar-tools + .b-btn { margin-left: 12px; }
+.park-icon-btn { width: 32px; height: 32px; }
+.park-icon-btn :where(i, svg) { width: 18px; height: 18px; }
+.park-icon-btn.is-danger { color: var(--fg-danger); }
+.park-icon-btn.is-danger:hover { color: var(--fg-danger); background: var(--danger-soft); }
+.park-icon-btn:disabled, .park-icon-btn:disabled:hover { opacity: .38; background: transparent; cursor: default; }
+/* 圖示鈕的小標籤：一行字、比說明面板小 */
+/* 編輯位置 ⇄ 編輯中那一行（user 2026-10-21：整行式的捲動）：進入＝舊的一行往上捲走、新的一行從下面捲上來（.roll-up），
+   離開＝反過來往下捲（.roll-down）；捲動時按鈕列裁切成一行高。.park-bar-ghost＝捲走／捲回來的「編輯位置」那一行（只是畫面） */
+.park-map-bar.is-rolling { overflow: hidden; }
+.park-bar-ghost { position: absolute; inset: 0; pointer-events: none; }
+.park-map-bar.roll-up > .park-bar-row:not(.park-bar-ghost) { animation: park-roll-in-up .3s cubic-bezier(.22, 1, .36, 1) backwards; }
+.park-map-bar.roll-up > .park-bar-ghost { animation: park-roll-out-up .3s cubic-bezier(.22, 1, .36, 1) forwards; }
+.park-map-bar.roll-down > .park-bar-row:not(.park-bar-ghost) { animation: park-roll-out-down .26s cubic-bezier(.22, 1, .36, 1) forwards; }
+.park-map-bar.roll-down > .park-bar-ghost { animation: park-roll-in-down .26s cubic-bezier(.22, 1, .36, 1) backwards; }
+@keyframes park-roll-in-up { from { transform: translateY(100%); opacity: 0; } }
+@keyframes park-roll-out-up { to { transform: translateY(-100%); opacity: 0; } }
+@keyframes park-roll-out-down { to { transform: translateY(100%); opacity: 0; } }
+@keyframes park-roll-in-down { from { transform: translateY(-100%); opacity: 0; } }
+.park-map-edit { transition: box-shadow .22s ease; }
+.park-map-edit.is-editing.fx-in { animation: park-ring-in .3s ease backwards; }
+@keyframes park-ring-in { from { box-shadow: 0 0 0 0 transparent; } }
+.park-map-edit.fx-out { box-shadow: none; }
+.park-map-edit.fx-in .park-map-tip { animation: park-fade-in .25s ease .05s backwards; }
+@keyframes park-fade-in { from { opacity: 0; } }
+.park-map-edit.fx-out .park-map-tip { opacity: 0; transition: opacity .15s ease; }
+.b-tip.is-mini { min-width: 0; padding: 4px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; white-space: nowrap; transform-origin: bottom center; }
+.park-map-tip {
+  position: absolute; left: 8px; top: 8px; z-index: 2; max-width: calc(100% - 16px); padding: 3px 10px; border-radius: 999px;
+  background: rgb(0 0 0 / .62); color: #fff; font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+/* 更換地圖中：左下角「還有 N 個測站尚未放置」（全部處理完＝主題色） */
+.park-map-tip.is-count { top: auto; bottom: 8px; }
+.park-map-tip.is-count.is-done { background: color-mix(in srgb, var(--brand) 88%, #000); }
+.park-pin {
+  position: absolute; transform: translate(-50%, -50%); min-width: 26px; height: 26px; padding: 0 4px; border-radius: 999px; box-sizing: border-box;
+  display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; background: #8A94A3; border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .35); corner-shape: round; cursor: pointer; transition: background .15s;
+}
+.park-pin:not(.is-sel):hover { background: #5F6B7A; }
+/* 目前這一站的點亮起：主題色＋光暈，切過來時彈一下 */
+.park-pin.is-sel { background: var(--brand); box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 25%, transparent), 0 1px 3px rgb(0 0 0 / .35); z-index: 1; cursor: default; animation: park-pin-on .45s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes park-pin-on { from { transform: translate(-50%, -50%) scale(.6); } to { transform: translate(-50%, -50%) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .park-pin.is-sel { animation: none; } }
+.park-map-edit.is-editing .park-pin.is-sel { cursor: grab; }
+.park-pin.is-drag { cursor: grabbing; animation: none; }
+/* 資料來源 modal（2026-10-20）：標題列右邊＝連線狀態鈕＋✕；連線狀態鈕同 ✕ 的大小（不加底），
+   hover 展開垂直清單（page-help 那套開合，面板靠右對齊按鈕）；圖示本身上色＝綠全部在線／琥珀有站離線／紅連不上（user：不要圓點） */
+.park-src-head-end { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.park-conn .page-help-btn { position: relative; width: 32px; height: 32px; border-radius: var(--radius-md); }
+.park-conn .page-help-btn :where(i, .lucide, svg) { width: 18px; height: 18px; }
+.park-conn[data-tone="ok"] .page-help-btn { color: #2E7D32; }
+.park-conn[data-tone="warn"] .page-help-btn { color: #D97706; }
+.park-conn[data-tone="err"] .page-help-btn { color: var(--fg-danger, #C62828); }
+[data-color-mode="dark"] .park-conn[data-tone="ok"] .page-help-btn { color: #81C784; }
+[data-color-mode="dark"] .park-conn[data-tone="warn"] .page-help-btn { color: #FBBF24; }
+.park-conn-panel { min-width: 260px; }
+.park-conn-note { margin: 0; color: var(--text-body); }
+.park-conn-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.park-conn-list li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.park-conn-list li b { color: var(--text-heading); min-width: 2.4em; }
+.park-conn-list li span:not(.park-online) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-help.is-end .b-pop-panel { transform-origin: top right; }
+.page-help.is-end.is-up .b-pop-panel { transform-origin: bottom right; }
+.park-err { color: var(--fg-danger, #C62828) !important; }
+.park-err[hidden] { display: none; }
+.park-photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.park-photo { position: relative; width: 160px; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--neutral-secondary-medium); }
+.park-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.park-photo button { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgb(0 0 0 / .55); color: #fff; cursor: pointer; padding: 0; corner-shape: round; }
+.park-photo button:hover { background: rgb(0 0 0 / .72); }
+.park-photo button svg { width: 13px; height: 13px; }
+.park-photo-first { position: absolute; left: 6px; bottom: 6px; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgb(0 0 0 / .55); color: #fff; }
+.park-photo-add {
+  width: 160px; aspect-ratio: 16 / 9; border: 1px dashed var(--border-default-medium, var(--border-default)); border-radius: 10px; background: transparent;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font: inherit; font-size: 12px; color: var(--text-body); cursor: pointer;
+}
+.park-photo-add:hover { background: var(--neutral-tertiary-medium); }
+.park-photo-add svg { width: 18px; height: 18px; }
+/* 說明：固定高度、不能拉伸，內容多了在框裡捲（user 2026-10-20） */
+/* ── 園區測站左邊分區（2026-10-21 user：原本太陽春）：照片／介紹／看更多連結，每區小標題＋右邊數量，區與區之間一條細線 ── */
+.park-form.settings-fields { display: block; padding: 0; }
+.park-sec { padding: 16px 20px 18px; }
+.park-sec + .park-sec { border-top: 1px solid var(--border-default); }
+.park-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.park-sec-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-heading); }
+.park-sec-meta { font-size: 12px; color: var(--text-body-subtle); font-variant-numeric: tabular-nums; }
+.park-sec-meta.is-over { color: var(--fg-danger); font-weight: 600; }
+.park-sec .hint { margin: 8px 0 0; }
+.park-sec .park-err { margin-top: 6px; }
+/* 介紹的簡易格式編輯器：上面一排工具列（粗體、小標題、條列、連結；游標所在位置已套用的會亮），下面固定高度、內捲 */
+.park-rich { border: 1px solid var(--border-default); border-radius: var(--field-radius, 10px); background: var(--neutral-primary-soft); overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+.park-rich:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.park-rich-bar { display: flex; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--border-default); background: color-mix(in srgb, #111827 1.5%, var(--neutral-primary-soft)); }
+.park-rich-bar .park-icon-btn { width: 30px; height: 30px; }
+.park-rich-bar .park-icon-btn :where(i, svg) { width: 16px; height: 16px; }
+.park-rich-bar .park-icon-btn.is-on { color: var(--fg-brand); background: color-mix(in srgb, var(--brand) 12%, transparent); }
+.park-rich-ed { position: relative; height: 180px; overflow-y: auto; padding: 10px 12px; outline: none; font-size: 14px; line-height: 1.7; color: var(--text-heading); overflow-wrap: anywhere; }
+.park-rich-ed.is-empty::before { content: attr(data-placeholder); position: absolute; left: 12px; top: 10px; color: var(--text-body-subtle); pointer-events: none; }
+.park-rich-ed[contenteditable="false"] { opacity: .6; }
+.park-rich-ed h3 { margin: .35em 0 .1em; font-size: 15px; font-weight: 700; }
+/* 後台內容區把 <b> 降成一般字重（components.css .main-content b），編輯器裡要真的是粗體，瀏覽器的「粗體」開關才認得出來 */
+.park-rich-ed b, .park-rich-ed strong { font-weight: 700; }
+.park-rich-ed ul { margin: .15em 0; padding-left: 1.3em; }
+.park-rich-ed a, .park-rich-view a { color: var(--fg-brand); text-decoration: underline; text-underline-offset: .15em; }
+.park-rich-ed > :first-child { margin-top: 0; }
+.park-count { font-variant-numeric: tabular-nums; }
+/* 右邊〔地圖｜資訊卡預覽〕切換：靠左，地圖的按鈕照舊靠右 */
+.park-pane-tabs { margin-right: auto; flex: none; }
+.park-pane-tabs .seg { padding: 4px 12px; font-size: 13px; }
+/* 資訊卡預覽：照網頁播放頁的資訊卡（play.css .park-sheet／.park-card-*），尺寸乘 --ps 等比縮小（app.js 依寬度算，展示機以 640 寬為準） */
+/* 右半邊內容區：〔地圖｜資訊卡預覽〕兩面左右滑動（app.js parkSwitchPane；滑動中才裁切，平常不裁，地圖編輯外框不會被切掉） */
+.park-pane-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.park-pane-stage > * { flex: 1 1 auto; min-height: 0; }
+.park-pane-stage > .park-map-empty { margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+/* 資訊卡預覽（user 2026-10-21：同一張地圖，資訊卡像 App 一樣從上方掉下來）：蓋在地圖圖片上的一層＝半透明遮罩＋資訊卡，
+   動畫同播放頁 .park-sheet（掉下來 .32s、收回 .22s）；只能用〔地圖｜資訊卡預覽〕切換，點遮罩沒有作用（user 2026-10-21） */
+.park-pv-layer { position: absolute; inset: 0; z-index: 3; }
+.park-pv-layer > .park-pv-sheet { position: absolute; top: 0; left: 0; right: 0; max-height: 78%; overflow: hidden; cursor: default; user-select: text; }
+.park-pv-layer.is-entering > .park-pv-sheet { animation: park-pv-drop .32s cubic-bezier(.2, 0, 0, 1) both; }
+.park-pv-layer.is-entering > .park-pv-scrim { animation: park-pv-fade-in .32s ease both; }
+.park-pv-layer.is-leaving { pointer-events: none; }
+.park-pv-layer.is-leaving > .park-pv-sheet { animation: park-pv-lift .22s cubic-bezier(.4, 0, 1, 1) both; }
+.park-pv-layer.is-leaving > .park-pv-scrim { animation: park-pv-fade-out .22s ease both; }
+@keyframes park-pv-drop { from { transform: translateY(-100%); } }
+@keyframes park-pv-lift { to { transform: translateY(-100%); } }
+@keyframes park-pv-fade-in { from { opacity: 0; } }
+@keyframes park-pv-fade-out { to { opacity: 0; } }
+/* 資訊卡預覽：跟地圖那一面一樣大（container query 照地圖比例置中），後面是這張地圖＋展示機的半透明遮罩，資訊卡從上方蓋下來、最高 78%、太長在卡裡捲 */
+.park-pv { container-type: size; display: grid; place-items: center; }
+.park-pv-screen { position: relative; width: min(100cqw, calc(100cqh * var(--ar))); aspect-ratio: var(--ar); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-default); background: #dfe3e1; box-sizing: border-box; }
+.park-pv-screen > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: block; }
+.park-pv-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .35); }
+.park-pv-screen > .park-pv-sheet { position: absolute; top: 0; left: 0; right: 0; max-height: 78%; overflow: hidden; }
+.park-pv-sheet {
+  --ps: .5; display: flex; flex-direction: column;
+  background: #fff; color: #1d1f22; border-radius: 0 0 calc(24px * var(--ps)) calc(24px * var(--ps));
+  box-shadow: 0 calc(8px * var(--ps)) calc(28px * var(--ps)) rgba(0, 0, 0, .16);
+}
+/* 內容在這一塊裡捲（底部不畫拉把橫線，同展示機留 24）；「查看更多」在下面的 .park-pv-foot 固定不捲（user 2026-10-21） */
+.park-pv-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: calc(18px * var(--ps)); padding: calc(20px * var(--ps)) calc(24px * var(--ps)) calc(24px * var(--ps)); }
+.park-pv-body::-webkit-scrollbar { display: none; }
+.park-pv-sheet.has-foot .park-pv-body { padding-bottom: calc(4px * var(--ps)); }
+.park-pv-foot { flex: none; padding: calc(14px * var(--ps)) calc(24px * var(--ps)) calc(24px * var(--ps)); }
+.park-pv-sheet.has-foot { border-radius: 0 0 calc(74px * var(--ps)) calc(74px * var(--ps)); } /* 同心：膠囊半徑 50＋內距 24 */
+.park-pv-photo { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: calc(16px * var(--ps)); overflow: hidden; background: #e8ebe9; flex: none; }
+.park-pv-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.park-pv-dots { position: absolute; left: 0; right: 0; bottom: calc(10px * var(--ps)); display: flex; justify-content: center; gap: calc(6px * var(--ps)); }
+.park-pv-dots span { width: calc(8px * var(--ps)); height: calc(8px * var(--ps)); border-radius: 50%; background: rgba(255, 255, 255, .55); box-shadow: 0 0 2px rgba(0, 0, 0, .4); }
+.park-pv-dots span.on { background: #fff; }
+.park-pv-desc { font-size: calc(40px * var(--pt, var(--ps))); line-height: 1.5; color: #3f454c; overflow-wrap: anywhere; }
+.park-pv-desc.is-plain { white-space: pre-line; }
+.park-rich-view h4 { margin: .5em 0 .15em; font-size: 1.08em; font-weight: 700; color: #1d1f22; }
+.park-rich-view p { margin: 0 0 .5em; }
+.park-rich-view ul { margin: 0 0 .5em; padding-left: 1.25em; }
+.park-rich-view li { margin: .1em 0; }
+.park-rich-view b { font-weight: 700; color: #1d1f22; }
+.park-rich-view > :first-child { margin-top: 0; }
+.park-rich-view > :last-child { margin-bottom: 0; }
+/* 查看更多：滿寬膠囊、配色同展示機頂欄的返回鈕（同 play.css .park-card-more） */
+.park-pv-more {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: calc(4px * var(--ps)); height: calc(100px * var(--ps));
+  border-radius: 999px; box-sizing: border-box; font-size: calc(40px * var(--pt, var(--ps))); font-weight: 600; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.park-pv-more :where(i, svg) { width: calc(46px * var(--pt, var(--ps))); height: calc(46px * var(--pt, var(--ps))); }
+.park-pv-empty { margin: 0; font-size: 13px; color: var(--text-body-subtle); }

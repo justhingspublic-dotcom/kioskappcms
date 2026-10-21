@@ -102,8 +102,125 @@
         return t;
     }
 
+    /* 進度 toast（2026-10-20 JustDisplay 上傳照片）：一次上傳從頭到尾只有這一則。底色依進度由左往右填綠、
+       第一排右邊顯示百分比；完成時圖示從「上傳」變形成勾、失敗整條轉紅變形成叉，停一下再滑出。不吃滑鼠（底下的按鈕照樣按得到）。
+       填色看得到（user：實際太快、看不出在上傳）：畫面上的進度最快 1 秒填滿，真實進度比它快也照這個速度追；
+       真的傳完要等填滿才變成功。成功只有一行、寬度不變（user：完成後不要冒出第二行，高度會變）。
+       進退場用 Web Animations：CSS 動畫的 animationend 會冒泡，跟一般 toast 的自動移除攪在一起。
+       回傳 { el, progress(0–1, 標題?), success(標題) → Promise（填滿、變成功時 resolve）, fail(標題, 說明?) }。 */
+    var PROGRESS_FILL_MS = 1000; // 從 0 填到 100% 最少花的時間
+    function progressToast(message, opts) {
+        opts = opts || {};
+        var wrap = ensureToastWrap();
+        var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var off = 'translateX(calc(100% + 28px))';
+        var t = document.createElement('div');
+        t.className = 'b-toast b-toast-progress';
+        var fill = document.createElement('span');
+        fill.className = 'b-toast-fill';
+        fill.setAttribute('aria-hidden', 'true');
+        var ic = document.createElement('span');
+        ic.className = 'b-toast-icon';
+        ic.setAttribute('aria-hidden', 'true');
+        ic.innerHTML = '<i data-lucide="' + (opts.icon || 'upload') + '"></i>';
+        var msg = document.createElement('span');
+        msg.className = 'b-toast-msg';
+        var title = document.createElement('span');
+        var desc = document.createElement('span');
+        desc.className = 'b-toast-desc';
+        desc.hidden = true;
+        msg.appendChild(title);
+        msg.appendChild(desc);
+        var pct = document.createElement('span');
+        pct.className = 'b-toast-pct';
+        t.appendChild(fill);
+        t.appendChild(ic);
+        t.appendChild(msg);
+        t.appendChild(pct);
+        function setText(m, d) {
+            if (m != null) title.textContent = String(m);
+            if (d !== undefined) {
+                desc.textContent = d == null ? '' : String(d);
+                desc.hidden = !desc.textContent;
+                msg.classList.toggle('has-desc', !!desc.textContent);
+            }
+        }
+        var target = 0, shown = 0, last = 0, raf = 0, onFull = null;
+        function paint() {
+            fill.style.transform = 'scaleX(' + shown + ')';
+            pct.textContent = Math.floor(shown * 100) + '%';
+        }
+        function tick(now) {
+            raf = 0;
+            var dt = last ? now - last : 16;
+            last = now;
+            shown = Math.min(target, shown + dt / PROGRESS_FILL_MS);
+            paint();
+            if (shown < target) { raf = requestAnimationFrame(tick); return; }
+            last = 0;
+            if (shown >= 1 && onFull) { var f = onFull; onFull = null; f(); }
+        }
+        function setTarget(p) {
+            target = Math.max(target, Math.max(0, Math.min(1, Number(p) || 0)));
+            if (reduce) { shown = target; paint(); if (shown >= 1 && onFull) { var f = onFull; onFull = null; f(); } return; }
+            if (!raf && shown < target) raf = requestAnimationFrame(tick);
+        }
+        setText(message);
+        paint();
+        wrap.appendChild(t);
+        paintIcons();
+        if (t.animate && !reduce) t.animate([{ transform: off, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 350, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+
+        var closed = false;
+        function leave() {
+            if (!t.isConnected) return;
+            var gone = function () {
+                t.remove();
+                if (wrap.isConnected && !wrap.children.length) wrap.remove();
+            };
+            if (t.animate && !reduce) t.animate([{ transform: 'none', opacity: 1 }, { transform: off, opacity: 0 }], { duration: 300, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' }).onfinish = gone;
+            else gone();
+        }
+        function finish(type, icon, m, d, ms) {
+            t.style.width = t.getBoundingClientRect().width + 'px'; // 換字時寬度不跟著縮放
+            t.classList.add('is-' + type);
+            pct.hidden = true;
+            setText(m, d === undefined ? '' : d);
+            if (!(window.morphIcon && window.morphIcon(ic, icon))) {
+                ic.innerHTML = '<i data-lucide="' + icon + '"></i>';
+                paintIcons();
+            }
+            setTimeout(leave, ms);
+        }
+        return {
+            el: t,
+            progress: function (p, m) { if (!closed) { setTarget(p); setText(m); } },
+            // 成功：先把進度條填完（最快 1 秒），填滿才變綠勾
+            success: function (m) {
+                if (closed) return Promise.resolve();
+                closed = true;
+                return new Promise(function (resolve) {
+                    // 成功只留一行（不帶說明）；停短一點：右下角常有儲存鈕被它蓋住
+                    onFull = function () { finish('success', 'circle-check', m, '', 2200); resolve(); };
+                    setTarget(1);
+                    if (shown >= 1 && onFull) { var f = onFull; onFull = null; f(); }
+                });
+            },
+            // 失敗：不用等，整條馬上轉紅
+            fail: function (m, d) {
+                if (closed) return;
+                closed = true;
+                if (raf) { cancelAnimationFrame(raf); raf = 0; }
+                target = shown = 1;
+                fill.style.transform = 'scaleX(1)';
+                finish('danger', 'circle-x', m, d, 6000);
+            }
+        };
+    }
+
     window.BToast = {
         show: showToast,
+        progress: progressToast,
         success: function (m) { showToast(m, 'success'); },
         danger: function (m) { showToast(m, 'danger'); },
         warning: function (m) { showToast(m, 'warning'); },
@@ -128,7 +245,7 @@
             desc: opts.desc || '',
             variant: v,
             icon: kind !== "prompt" || !!opts.icon,
-            confirmText: opts.confirmText || (kind === 'alert' ? '知道了' : '確定'),
+            confirmText: opts.confirmText || (kind === 'alert' ? '好' : '確定'),
             cancelText: opts.cancelText || '取消',
             value: opts.value == null ? '' : String(opts.value),
             placeholder: opts.placeholder || '',

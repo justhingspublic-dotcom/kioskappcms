@@ -39,7 +39,7 @@ const BACK = `${MODAL} .b-modal-foot .b-btn-quiet`;
   const devName = (d) => d.DeviceName || d.DeviceId;
   // 起始狀態：把之前測試加進去的那頁拿掉（依 layoutId 或頁名），讓每台都是「會先加入」
   for (const d of devices) {
-    const cfg = await getConfig(H, d.DeviceId);
+    const cfg = (await getConfig(H, d.DeviceId)) || {}; // 還沒上傳設定的機器（例：配對測試留下的）沒有 config
     const pages = (cfg.pages || []).filter((p) => p.layoutId !== layout.id && (p.name || '').trim() !== lname.trim());
     if (pages.length !== (cfg.pages || []).length) {
       await fetch(`${BASE}/api/config/${encodeURIComponent(d.DeviceId)}`, { method: 'PUT', headers: H, body: JSON.stringify({ config: { pages, activePage: 0 } }) });

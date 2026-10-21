@@ -149,7 +149,43 @@
     const key = svg.closest('.b-empty')?.querySelector('.b-empty-title')?.textContent || '';
     if (Date.now() - (emptyLast.get(key) || 0) < 1500) return;
     emptyLast.set(key, Date.now());
+    if (svg.classList.contains('lucide-unplug') && unplugApart(svg)) return;
     window.drawIcon(svg, { duration: 900, again: true });
+  }
+  /** 插頭拔開（2026-10-20 user：園區測站資料來源連不上的空狀態）：Lucide unplug 的插頭（左下）跟插座（右上）先插在一起，
+      晃一下、被拉開時多拉過頭一點再回到原位（＝靜態的 unplug 圖示）；顏色從灰轉成空狀態設定的紅。
+      兩半各沿對角線移 3 單位剛好面貼面。認不出兩半（圖示改版）就照舊一筆畫。 */
+  function unplugApart(svg) {
+    if (!svg.animate) return false;
+    const NS = 'http://www.w3.org/2000/svg';
+    let plug = svg.querySelector('g.unplug-plug'), socket = svg.querySelector('g.unplug-socket');
+    if (!plug || !socket) {
+      const paths = [...svg.querySelectorAll('path')];
+      const sock = paths.filter((p) => /^m19 5|^m12 6/.test(p.getAttribute('d') || ''));
+      const rest = paths.filter((p) => !sock.includes(p));
+      if (sock.length !== 2 || rest.length !== 4) return false;
+      plug = document.createElementNS(NS, 'g'); plug.setAttribute('class', 'unplug-plug');
+      socket = document.createElementNS(NS, 'g'); socket.setAttribute('class', 'unplug-socket');
+      svg.append(socket, plug);
+      socket.append(...sock); plug.append(...rest);
+    }
+    keep(svg);
+    if (reduced()) return true;
+    svg.style.overflow = 'visible';
+    const timing = { duration: 950, delay: 120, easing: 'linear', fill: 'backwards' };
+    const frames = (dx) => [
+      { transform: `translate(${dx}px, ${-dx}px)`, easing: 'ease-in-out' }, // 插著
+      { transform: `translate(${dx * 0.82}px, ${-dx * 0.82}px)`, offset: 0.18, easing: 'ease-in-out' }, // 被扯一下
+      { transform: `translate(${dx}px, ${-dx}px)`, offset: 0.32, easing: 'cubic-bezier(.2, .9, .3, 1)' },
+      { transform: `translate(${-dx * 0.3}px, ${dx * 0.3}px)`, offset: 0.72, easing: 'ease-out' }, // 拔開、拉過頭
+      { transform: 'translate(0, 0)' },
+    ];
+    plug.animate(frames(3), timing); // 插頭往右上靠過去＝插著
+    socket.animate(frames(-3), timing); // 插座往左下靠過去
+    const grey = getComputedStyle(document.documentElement).getPropertyValue('--text-body-subtle').trim() || '#6B7280';
+    const red = getComputedStyle(svg).color;
+    svg.animate([{ color: grey }, { color: grey, offset: 0.34 }, { color: red, offset: 0.6 }, { color: red }], timing);
+    return true;
   }
   const emptyIO = window.IntersectionObserver && new IntersectionObserver((entries) => {
     for (const e of entries) {
