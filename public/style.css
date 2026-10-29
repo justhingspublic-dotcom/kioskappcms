@@ -1086,6 +1086,11 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   transform-origin: 0 0; pointer-events: none;
 }
 .layout-thumb .canvas.lt-canvas .cell, .layout-thumb .canvas.lt-canvas .cell:hover { border-color: transparent; }
+/* 靜止縮圖（2026-10-29 user：開後台電腦很燙）：縮圖裡的動態全停（按鈕呼吸／掃光／搖晃、閃爍邊框），掃光條與跑框不畫；
+   跑馬燈由 fitPreview 不開動畫、圖片輪播由 cellDiv 不排計時器。點開放大的預覽（.tp-canvas）照樣會動。 */
+.canvas.is-still *, .canvas.is-still *::before, .canvas.is-still *::after { animation: none !important; }
+.canvas.is-still .pv-park-btn::after { display: none; }
+.canvas.is-still .pv-marquee span { will-change: auto; }
 /* 帳號管理：操作鈕（更名/刪除）靠最右；刪除＝全站統一紅字文字鈕（hover 透明紅底走 kit 規則） */
 #userTable .user-ops { text-align: right; white-space: nowrap; }
 #userTable .user-ops .b-btn + .b-btn { margin-left: 4px; }

@@ -1291,6 +1291,7 @@ const halfRect = (r, side) => (side === 'left' ? { ...r, w: r.w / 2 } : side ===
 /**
  * 把一頁畫進 canvas 元素（編輯畫布與縮圖預覽共用）。
  * opts.readonly＝唯讀預覽：不畫分隔把手/角標、格子不可點；opts.timers＝輪播計時器要收進哪個陣列。
+ * opts.still＝靜止畫面（列表縮圖）：內容照畫，但跑馬燈、圖片輪播、提示動態都不動（CSS .is-still）。
  * 編輯畫布另外畫：每個分割的分隔線（任何深度）與新格子預覽框（右側十字滑上去時出現，canvas._preview）。
  * 拖分隔線時只重新定位（canvas._place），放開才整個重畫。
  */
@@ -1309,6 +1310,7 @@ function buildCanvas(canvas, pg, screen, opts) {
   canvas.style.setProperty('--sr', (SW / SH).toFixed(5)); // 底框內 contain 縮放用（CSS .canvas-frame > .canvas）
   canvas.classList.toggle('is-landscape', SW > SH); // 橫式（縮圖放大預覽 .tp-canvas 以寬度定尺寸）
   canvas.classList.toggle('is-readonly', !!opts.readonly); // 唯讀預覽：格子不亮框、不變手指（CSS .is-readonly）
+  canvas.classList.toggle('is-still', !!opts.still);
   const editable = !opts.readonly;
   const blocks = pg.blocks || [];
   // 舊版面（多個大區塊）在縮圖裡不改資料：照同一套換算成一棵樹來畫
@@ -1425,8 +1427,8 @@ function fitPreview(canvasEl) {
     }
 
     const mq = el.querySelector('.pv-marquee span');
-    if (mq) {
-      mq.style.fontSize = `${h * 0.55}px`;
+    if (mq) mq.style.fontSize = `${h * 0.55}px`;
+    if (mq && !canvas.classList.contains('is-still')) { // 靜止縮圖：跑馬燈停在開頭不跑
       const spanW = mq.offsetWidth;
       const pct = Math.max(Number(mq.dataset.speed || 100) / 100, 0.1);
       const speed = cw * 0.19 * pct; // App 為 90dp/s，約等於螢幕寬的 19%/秒
@@ -1742,7 +1744,7 @@ function cellDiv(cell, sel, sizePx, opts) {
       };
       const a = mkLayer(imgs[0]);
       el.appendChild(a);
-      if (imgs.length > 1) {
+      if (imgs.length > 1 && !opts.still) { // 靜止縮圖只放第一張
         const b = mkLayer(imgs[1]);
         b.style.opacity = '0';
         el.appendChild(b);
@@ -3694,7 +3696,8 @@ function openThumbPreview(thumbEl, pg, screen) {
 /** 列表縮圖（機器總覽／版面清單共用）＝該頁真實畫面的縮小版：
  *  同預覽用 buildCanvas 唯讀版畫在 480px 高的畫布上，再 transform 縮到 56px 高（2026-09-08 改；
  *  原本只照結構鋪底色，看不出機器實際顯示的文字/天氣/圖片，user 回報「縮圖沒有跟機器一樣，點開才有」）。
- *  輪播計時器收進 listThumbTimers，列表重畫時一起清；天氣更新時透過 el._rerender 重畫。 */
+ *  靜止畫面（2026-10-29 user：開後台電腦很燙）：每列都在播動態，放著不動也一直重畫；點開放大的預覽照樣會動。
+ *  天氣更新時透過 el._rerender 重畫。 */
 let listThumbTimers = [];
 function clearListThumbs() { listThumbTimers.forEach(clearInterval); listThumbTimers = []; }
 function sharedLayoutThumb(layout) {
@@ -3715,7 +3718,7 @@ function sharedLayoutThumb(layout) {
   canvas.style.transform = `translate(${(thumbW - VW * scale) / 2}px, ${(thumbH - VH * scale) / 2}px) scale(${scale})`;
   box.appendChild(canvas);
   const rerender = () => {
-    buildCanvas(canvas, pg, scr, { readonly: true, timers: listThumbTimers });
+    buildCanvas(canvas, pg, scr, { readonly: true, still: true, timers: listThumbTimers });
     canvas.style.aspectRatio = ''; // 尺寸已明確給定，不要讓 aspect-ratio 介入
     fitPreview(canvas);
   };
