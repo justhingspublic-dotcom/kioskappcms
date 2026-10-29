@@ -15,6 +15,9 @@
      cancelText   取消鈕文字(預設「取消」)
      value / placeholder / inputType / inputMode   prompt 專用(預設 text)
      icon         prompt 專用:預設不放圖示(取名/輸入框不該掛警示三角),傳 true 才顯示
+     maxLength    prompt 專用:輸入框字數上限
+     extra        prompt 專用:function(settle) → 元素,接在輸入框下面(例:可直接挑選的清單);
+                  呼叫 settle(值) 就以那個值關閉對話框(同按確定)
 
    疊層防護:overlay 標 data-modal-vue + 自帶 z-index,兩個 base 的共用 modal JS 不接管;
    Esc / 遮罩點擊 = 取消,以 capture 階段攔截避免關到底下頁面自己的 modal。 */
@@ -324,7 +327,12 @@
                 input.style.width = '100%';
                 input.style.textAlign = 'center';
                 input.setAttribute('aria-label', o.title);
+                if (rawOpts && rawOpts.maxLength > 0) input.maxLength = rawOpts.maxLength;
                 body.appendChild(input);
+                if (rawOpts && typeof rawOpts.extra === 'function') {
+                    var extraEl = rawOpts.extra(function (v) { settle(v); });
+                    if (extraEl) body.appendChild(extraEl);
+                }
             }
 
             var foot = document.createElement('div');

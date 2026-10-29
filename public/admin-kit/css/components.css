@@ -143,46 +143,58 @@
   background: var(--dd-surface, #fff); border: 1px solid var(--dd-border); border-radius: var(--dd-radius);
   box-shadow: var(--dd-trigger-shadow, none);
   font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
-  transition: border-color .15s, box-shadow .15s;
+  transition: border-color .2s ease-out, box-shadow .2s ease-out, background-color .2s ease-out;
 }
 .b-dd-trigger:hover { border-color: var(--dd-border-hover); }
-.b-dd.open .b-dd-trigger {
-  border-color: var(--dd-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dd-accent) 18%, transparent);
-}
+/* 打開＝觸發鈕變成選單的頂端（2026-10-29 user：同子頁收納匣，鈕跟清單連成一體）：外框與底色淡掉、疊在選單上面（選單 z 1200），
+   露出選單的底；不變藍 */
+.b-dd.open .b-dd-trigger { position: relative; z-index: 1201; background: transparent; border-color: transparent; box-shadow: none; }
 .b-dd-value { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .b-dd-value.placeholder { color: var(--dd-placeholder); }
-.b-dd-caret { color: var(--dd-caret); font-size: 11px; transition: transform .18s ease; flex-shrink: 0; }
+.b-dd-caret { color: var(--dd-caret); font-size: 11px; transition: transform .2s ease, color .15s; flex-shrink: 0; }
+.b-dd-trigger:hover .b-dd-caret, .b-dd.open .b-dd-caret { color: var(--text-heading); }
 .b-dd.open .b-dd-caret { transform: rotate(180deg); }
-/* 選單：position:fixed（JS 定位），逃離 overflow 裁切 */
+/* 選單：position:fixed（JS 定位），逃離 overflow 裁切。從鈕的上緣開始畫、跟鈕一樣寬，上內距＝鈕的高度（positionMenu 算）；
+   往上開（is-up）＝鈕在選單的底部。展開方式同子頁收納匣：框很快長開（grid 0fr→1fr），裡面一個接一個落下；收起＝倒著收回鈕裡 */
 .b-dd-menu {
-  position: fixed; z-index: 1200; min-width: 140px;
+  position: fixed; z-index: 1200; box-sizing: border-box;
   background: var(--dd-surface); border: 1px solid var(--dd-border); border-radius: var(--dd-radius);
   box-shadow: var(--dd-menu-shadow);
-  padding: 6px; max-height: 320px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 1px;
-  animation: bddIn .14s ease-out;
+  opacity: 0; transition: opacity .2s ease-out;
 }
 .b-dd-menu[hidden] { display: none; }
-@keyframes bddIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-/* 收起動畫 .14s。⚠️ 不能寫「bddIn reverse」：同名動畫已在進場時跑完，
-   換 direction 不會重播（動畫只認 animation-name 是否更換）→ 必須用獨立的 out keyframes。 */
-@keyframes bddOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px); } }
-.b-dd-menu.leaving { animation: bddOut .14s ease-in both; pointer-events: none; }
+.b-dd-menu.is-shown { opacity: 1; }
+.b-dd-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s cubic-bezier(.2, .8, .2, 1); }
+.b-dd-menu.is-shown .b-dd-body { grid-template-rows: 1fr; }
+/* 鈕與清單之間一條細線（左右各縮 field-pad-x，對齊文字） */
+.b-dd-inner {
+  min-height: 0; overflow: hidden;
+  background: linear-gradient(var(--border-default), var(--border-default)) no-repeat var(--field-pad-x) 0 / calc(100% - 2 * var(--field-pad-x)) 1px;
+}
+.b-dd-menu.is-up .b-dd-inner { background-position: var(--field-pad-x) 100%; }
+.b-dd-list { display: flex; flex-direction: column; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.b-dd-list.is-more { mask-image: linear-gradient(#000 calc(100% - 24px), transparent); } /* 下面還有：底部淡出，不會切一半 */
+.b-dd-menu.is-entering .b-dd-item { animation: bdd-drop .3s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 35ms + 40ms); }
+.b-dd-menu.is-up.is-entering .b-dd-item { animation-name: bdd-rise; } /* 往上開：從鈕那邊往上浮起 */
+@keyframes bdd-drop { from { opacity: 0; translate: 0 -8px; } }
+@keyframes bdd-rise { from { opacity: 0; translate: 0 8px; } }
 @media (prefers-reduced-motion: reduce) {
-  .b-dd-menu, .b-dd-menu.leaving { animation: none; }
+  .b-dd-menu, .b-dd-body, .b-dd-trigger { transition: none; }
+  .b-dd-menu.is-entering .b-dd-item { animation: none; }
 }
+/* 選項：不加底色（2026-10-29 user），平常灰字、滑過亮成系統文字色；選中＝主題色粗體。
+   左右內距＝觸發鈕的 field-pad-x，選項文字跟鈕上的字對齊 */
 .b-dd-item {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 10px 12px; border: none; background: transparent; text-align: left;
-  border-radius: var(--dd-radius); font: inherit; font-size: 14px; color: var(--dd-text); cursor: pointer; white-space: nowrap;
+  flex: none; display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  padding: 8px var(--field-pad-x); border: none; background: transparent; text-align: left;
+  font: inherit; font-size: 14px; color: var(--dd-item-text); cursor: pointer; white-space: nowrap;
+  transition: color .15s ease-out;
 }
-.b-dd-item:hover { background: var(--dd-item-hover); color: var(--dd-item-hover-text, inherit); }
-.b-dd-item.active { background: var(--dd-item-active-bg); color: var(--dd-item-active-text); font-weight: 600; }
+.b-dd-item:hover:not(:disabled) { color: var(--dd-item-hover-text); }
+.b-dd-item.active, .b-dd-item.active:hover { color: var(--dd-item-active-text); font-weight: 600; }
 .b-dd-item:disabled { color: var(--dd-disabled); cursor: default; }
 .b-dd-sm .b-dd-trigger { min-height: 30px; height: 30px; padding: 0 8px; font-size: 12px; }
 .b-dd-sm .b-dd-item { padding: 5px 8px; font-size: 12px; }
-.b-dd-sm .b-dd-menu { min-width: 110px; }
 /* 選項狀態小標（<option data-badge>）：淺灰、無邊框膠囊；觸發鈕上貼在箭頭左邊、選單裡靠最右邊；停用的選項小標顏色不跟著變灰 */
 .b-dd-badge {
   flex: none; display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
@@ -490,7 +502,7 @@ body.b-modal-lock { overflow: hidden; }
   border: 1px solid var(--border-default);
   border-radius: 10px; box-shadow: none;
 }
-.b-modal.is-soft .b-dd.open .b-dd-trigger { border-color: var(--border-brand); box-shadow: none; }
+.b-modal.is-soft .b-dd.open .b-dd-trigger { background: transparent; border-color: transparent; box-shadow: none; } /* 打開＝選單的頂端（同上方 .b-dd.open） */
 
 /* alert/確認 modal：精簡置中小框（取代原生 confirm） */
 .b-modal.is-alert { width: 100%; max-width: 340px; border-radius: 16px; }

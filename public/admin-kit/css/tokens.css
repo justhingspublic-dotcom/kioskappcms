@@ -146,6 +146,7 @@
   --dd-trigger-shadow: var(--shadow-xs);
   --dd-menu-shadow: var(--float-shadow);
   --dd-item-hover: var(--neutral-tertiary-medium);
+  --dd-item-text: var(--text-body-subtle);   /* 選項平常灰字，滑過亮成 --dd-item-hover-text（2026-10-29 user：不加底色） */
   --dd-item-hover-text: var(--text-heading);
   --dd-item-active-bg: var(--brand-softer);
   --dd-item-active-text: var(--fg-brand-strong);

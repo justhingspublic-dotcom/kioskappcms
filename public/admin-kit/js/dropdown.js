@@ -15,9 +15,9 @@
   }
 
   function buildMenu(dd, select) {
-    var menu = dd.querySelector('.b-dd-menu');
-    menu.innerHTML = '';
-    Array.prototype.forEach.call(select.options, function (opt) {
+    var list = dd.querySelector('.b-dd-list');
+    list.innerHTML = '';
+    Array.prototype.forEach.call(select.options, function (opt, i) {
       var item = document.createElement('button');
       item.type = 'button';
       item.className = 'b-dd-item' + (opt.value === select.value ? ' active' : '');
@@ -25,6 +25,7 @@
       if (opt.dataset.badge) item.appendChild(badgeEl(opt.dataset.badge));
       item.dataset.value = opt.value;
       if (opt.disabled) item.disabled = true;
+      item.style.setProperty('--i', Math.min(i, 8)); // 打開時一個接一個落下（太後面的不必再等）
       item.addEventListener('click', function (e) {
         if (opt.disabled || (e.target.closest && e.target.closest('.b-dd-badge'))) return;
         if (select.value !== opt.value) {
@@ -34,7 +35,7 @@
         syncLabel(dd, select);
         closeDD();
       });
-      menu.appendChild(item);
+      list.appendChild(item);
     });
   }
 
@@ -51,29 +52,46 @@
     });
   }
 
-  function positionMenu(dd) {
+  // 清單下面還有沒捲到的：底部淡出（同子頁收納匣）
+  function listMore(list) {
+    list.classList.toggle('is-more', list.scrollTop + list.clientHeight < list.scrollHeight - 2);
+  }
+
+  // 觸發鈕就是選單的頂端（2026-10-29 user：同子頁收納匣，鈕跟清單連成一體）：選單從鈕的上緣開始畫、跟鈕一樣寬，
+  // 上內距＝鈕的高度，鈕打開時變透明疊在上面。decide＝打開當下才決定開向（捲動途中只跟著鈕移動，不會突然翻面）：
+  // 依「選單實際高度」決定（2026-09-08：原本用固定 260px 猜，選項一多就超出視窗底）：
+  // 下方放得下→往下；否則上方放得下→往上（鈕變成選單的底部）；兩邊都不夠→選較大的一邊並把清單壓到可用高度（內部捲動）
+  function positionMenu(dd, decide) {
     var trigger = dd.querySelector('.b-dd-trigger');
     var menu = dd.querySelector('.b-dd-menu');
+    var list = menu.querySelector('.b-dd-list');
     var r = trigger.getBoundingClientRect();
-    menu.style.minWidth = r.width + 'px';
-    menu.style.left = r.left + 'px';
-    // 與觸發鈕的垂直距離 8px：對齊帳號選單/字級面板的 top: calc(100% + 8px)
-    // 依「選單實際高度」決定開向（2026-09-08：原本用固定 260px 猜，選項一多就超出視窗底）：
-    // 下方放得下→往下；否則上方放得下→往上；兩邊都不夠→選較大的一邊並把高度壓到可用空間（內部捲動）
-    var GAP = 8, EDGE = 8;
-    var spaceBelow = window.innerHeight - r.bottom - GAP - EDGE;
-    var spaceAbove = r.top - GAP - EDGE;
-    menu.style.maxHeight = '';
-    var h = menu.offsetHeight; // 此時 hidden 已解除、可量
-    var openUp = h > spaceBelow && spaceAbove > spaceBelow;
-    var avail = openUp ? spaceAbove : spaceBelow;
-    if (h > avail) menu.style.maxHeight = Math.max(80, avail) + 'px';
-    if (openUp) {
-      menu.style.top = 'auto';
-      menu.style.bottom = (window.innerHeight - r.top + GAP) + 'px';
+    menu.style.width = r.width + 'px';
+    // 祖先有 transform／filter 時，fixed 改以那個祖先為準而不是視窗（2026-10-29：換頁過場殘留 matrix，共用設定的下拉整個跑到畫面外）：
+    // 先把選單放到 0,0 量出基準點，再換算成相對位置；沒有這種祖先時基準點就是視窗左上角
+    menu.style.left = '0px'; menu.style.top = '0px'; menu.style.bottom = 'auto';
+    var o = menu.getBoundingClientRect();
+    menu.style.left = (r.left - o.left) + 'px';
+    if (decide) {
+      var EDGE = 8;
+      list.style.maxHeight = '';
+      var need = r.height + list.offsetHeight; // 此時 hidden 已解除、可量（框還沒長開也量得到清單本身的高度）
+      var spaceBelow = window.innerHeight - r.top - EDGE;
+      var spaceAbove = r.bottom - EDGE;
+      var openUp = need > spaceBelow && spaceAbove > spaceBelow;
+      var avail = openUp ? spaceAbove : spaceBelow;
+      if (need > avail) list.style.maxHeight = Math.max(80, avail - r.height) + 'px';
+      menu.classList.toggle('is-up', openUp);
+      // 內距少 2＝上下兩條框：清單與鈕之間的細線剛好落在鈕的下緣（往上開＝上緣）
+      menu.style.paddingTop = openUp ? '0' : (r.height - 2) + 'px';
+      menu.style.paddingBottom = openUp ? (r.height - 2) + 'px' : '0';
+    }
+    if (menu.classList.contains('is-up')) {
+      // 往上開用 bottom 定位（框往上長）：基準的下緣也要量
+      menu.style.top = 'auto'; menu.style.bottom = '0px';
+      menu.style.bottom = (menu.getBoundingClientRect().bottom - r.bottom) + 'px';
     } else {
-      menu.style.bottom = 'auto';
-      menu.style.top = (r.bottom + GAP) + 'px';
+      menu.style.top = (r.top - o.top) + 'px';
     }
   }
 
@@ -87,11 +105,23 @@
     // 建死在 enhance 時的選單會過期 → 每次打開都重讀,靜態 select 行為不變。
     if (select) { buildMenu(dd, select); syncLabel(dd, select); }
     dd.classList.add('open');
+    dd.querySelector('.b-dd-trigger').setAttribute('aria-expanded', 'true');
     var menu = dd.querySelector('.b-dd-menu');
-    // 若正在播放收起動畫（快速重開同一顆），取消收起、直接重新進場
+    var list = menu.querySelector('.b-dd-list');
+    // 若正在播放收起動畫（快速重開同一顆），取消收起、直接從目前的樣子再長開
     if (menu._bddCancelLeave) menu._bddCancelLeave();
+    var wasHidden = menu.hidden;
     menu.hidden = false;
-    positionMenu(dd);
+    positionMenu(dd, true);
+    // 選中的那一項在捲動範圍外：捲到看得到（同原生下拉）
+    var cur = list.querySelector('.b-dd-item.active');
+    list.scrollTop = cur && list.scrollHeight > list.clientHeight ? cur.offsetTop - (list.clientHeight - cur.offsetHeight) / 2 : 0;
+    listMore(list);
+    // 框往下長開、裡面一個接一個落下（只在剛打開的那一下）
+    if (wasHidden) void menu.offsetWidth;
+    clearTimeout(menu._bddEnterTimer);
+    menu.classList.add('is-entering', 'is-shown');
+    menu._bddEnterTimer = setTimeout(function () { menu.classList.remove('is-entering'); }, 800);
     openDD = dd;
   }
   function closeDD() {
@@ -99,24 +129,15 @@
     var dd = openDD;
     openDD = null;
     dd.classList.remove('open');
+    dd.querySelector('.b-dd-trigger').setAttribute('aria-expanded', 'false');
     var m = dd.querySelector('.b-dd-menu');
     if (!m || m.hidden) return;
-    // 收起動畫：.leaving 反向播放後才真正 hidden。
-    // reduced-motion 下動畫被 CSS 關掉不會發 animationend → setTimeout 兜底。
-    m.classList.add('leaving');
-    var done = function () {
-      clearTimeout(timer);
-      m.removeEventListener('animationend', done);
-      m.classList.remove('leaving');
-      m.hidden = true;
-      m._bddCancelLeave = null;
-    };
-    var timer = setTimeout(done, 180);
-    m.addEventListener('animationend', done);
+    // 收起＝框收回鈕裡、淡出（鈕的外框同時淡回來），播完才真正 hidden
+    clearTimeout(m._bddEnterTimer);
+    m.classList.remove('is-shown', 'is-entering');
+    var timer = setTimeout(function () { m.hidden = true; m._bddCancelLeave = null; }, 240);
     m._bddCancelLeave = function () {
       clearTimeout(timer);
-      m.removeEventListener('animationend', done);
-      m.classList.remove('leaving');
       m._bddCancelLeave = null;
     };
   }
@@ -144,13 +165,18 @@
     trigger.type = 'button';
     trigger.className = 'b-dd-trigger';
     trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
     // 下拉箭頭:內嵌 SVG chevron(自包含,不依賴 Font Awesome / Lucide — 此元素是 JS 動態注入,不經 Lucide createIcons)。
     // 保留 .b-dd-caret class → 沿用既有顏色 token 與 .b-dd.open 翻轉動畫。
     trigger.innerHTML = '<span class="b-dd-value"></span>'
         + '<svg class="b-dd-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+    // 選單：框（長開用 grid 0fr→1fr）＞內層（切掉還沒長出來的部分、頂端一條細線）＞清單（捲動）
     var menu = document.createElement('div');
     menu.className = 'b-dd-menu';
     menu.hidden = true;
+    menu.innerHTML = '<div class="b-dd-body"><div class="b-dd-inner"><div class="b-dd-list" role="listbox"></div></div></div>';
+    var list = menu.querySelector('.b-dd-list');
+    list.addEventListener('scroll', function () { listMore(list); }, { passive: true });
 
     wrap.appendChild(trigger);
     wrap.appendChild(menu);

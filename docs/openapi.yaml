@@ -322,6 +322,19 @@ components:
           type: array
           maxItems: 8
           items: { $ref: '#/components/schemas/Page' }
+        spareSubs:
+          type: array
+          description: 未使用的子頁（2026-10-27）：從格子拿下來（刪格子／刪頁／改點擊動作）或預先建好、還沒接到格子的子頁。機器與播放頁不使用；舊版 App 不送這個欄位，淺合併會保留。
+          items: { $ref: '#/components/schemas/SpareSub' }
+
+    SpareSub:
+      type: object
+      properties:
+        id: { type: integer, description: 清單內唯一編號 }
+        name: { type: string, maxLength: 20 }
+        node: { type: object, description: 子頁的版面樹（同頁面） }
+        layout: { type: string, enum: [Kiosk, Mobile], default: Kiosk }
+        from: { type: string, description: 原本在哪（顯示用）；空＝預先建立、尚未接到格子 }
 
     Screen:
       type: object
@@ -475,6 +488,10 @@ components:
           maxItems: 1
           items: { $ref: '#/components/schemas/Page' }
         screen: { $ref: '#/components/schemas/Screen' }
+        spareSubs:
+          type: array
+          description: 這個版面的未使用的子頁（同 KioskConfig.spareSubs；加入機器時不會帶過去）
+          items: { $ref: '#/components/schemas/SpareSub' }
         createdBy: { type: string, readOnly: true, description: 伺服器在 PUT 時對新出現的版面蓋章（＝登入者顯示名稱） }
         createdAt: { type: string, format: date-time, readOnly: true }
         updatedAt: { type: string, format: date-time }

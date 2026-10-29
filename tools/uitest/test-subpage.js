@@ -22,6 +22,9 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
   page.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
   // 這台 Windows 關了動畫效果，Chrome 會回報「減少動態效果」→ 轉場直接跳過；模擬一般使用者的設定
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  // 寫入一律攔下（不能寫到真的共用設定或機器）
+  await page.setRequestInterception(true);
+  page.on('request', (req) => (req.method() === 'PUT' ? req.respond({ status: 200, contentType: 'application/json', body: '{"ok":true}' }) : req.continue()));
   const shot = (name) => page.screenshot({ path: path.join(OUT, name + '.png') });
 
   // ---------- 後台編輯器 ----------
@@ -49,6 +52,13 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
     await s.evaluate((el, val) => { el.value = val; el.dispatchEvent(new Event('change')); }, v);
     await sleep(350);
   };
+  // 新增子頁取名視窗（2026-10-27 起選「進入子頁」先取名）：打字、按「建立」＝直接進子頁
+  const nameDialog = async (name) => {
+    await page.waitForSelector('.b-modal.is-alert input', { visible: true });
+    await page.type('.b-modal.is-alert input', name);
+    await page.evaluate(() => [...document.querySelectorAll('.b-modal.is-alert .b-alert-foot button')].pop().click());
+    await sleep(700);
+  };
   const info = () => page.evaluate(() => ({
     // 畫布標頭：主頁＝[主頁名]；子頁＝路徑每一段（不含 ›）
     trail: document.querySelector('#pageHead .ph-lead:not(:disabled)')
@@ -60,10 +70,10 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
     barH: document.querySelector('#canvas .cv-subbar')?.getBoundingClientRect().height || 0,
     bar: document.querySelector('#canvas .cv-subbar .cv-subbar-title')?.textContent || null,
     cells: document.querySelectorAll('#canvas .cell').length,
-    chips: [...document.querySelectorAll('#canvas .cell')].filter((c) => c.querySelector('.pv-sub-chip')).map((c) => c.dataset.path),
+    chips: [...document.querySelectorAll('#canvas .cell')].filter((c) => c.querySelector('.pv-sub-pill')).map((c) => c.dataset.path),
     head: document.querySelector('#cellPanel .panel-head h3')?.textContent || null,
     size: document.querySelector('#cellPanel .panel-size')?.textContent || null,
-    hasSubOpt: [...document.querySelectorAll('#cellPanel select')].some((s) => [...s.options].some((o) => o.value === 'OpenSubPage')),
+    hasSubOpt: [...document.querySelectorAll('#cellPanel select')].some((s) => [...s.options].some((o) => o.value === 'OpenSubPage' && !o.disabled)), // 第 3 層照列但變灰（2026-10-29）
   }));
 
   let s = await info();
@@ -71,12 +81,13 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
   await page.click('#canvas .cell[data-path="a"]'); await sleep(300);
   ok((await info()).hasSubOpt, '點擊動作有「進入子頁」');
   await setTap('OpenSubPage');
-  const nameInput = await page.$('#cellPanel input[placeholder="子頁"]');
-  ok(!!nameInput, '選了之後出現「子頁名稱」');
-  await nameInput.type('餐廳介紹'); await sleep(200);
+  ok(await page.evaluate(() => document.querySelector('.b-modal.is-alert .b-alert-title')?.textContent === '新增子頁'), '選了之後跳出取名視窗');
+  await nameDialog('餐廳介紹');
+  ok((await info()).bar === '餐廳介紹', '按「建立」直接進子頁');
+  await page.evaluate(() => { leaveSubTo(0); }); await sleep(600);
   ok(await page.$('#cellPanel .sub-enter-btn') !== null, '有「編輯子頁」鈕');
   s = await info();
-  ok(s.chips.length === 1 && s.chips[0] === 'a', '畫布上那一格有子頁小圖示');
+  ok(s.chips.length === 1 && s.chips[0] === 'a', '畫布上那一格有「子頁名稱 ›」');
   ok(s.headChip === '1 個子頁', `主頁標頭顯示子頁數（${s.headChip}）`);
   await shot('01-main-with-chip');
 
@@ -93,7 +104,7 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
   await page.click('#canvas .cell[data-path=""]'); await sleep(300);
   s = await info();
   ok(s.size === '1080×1785 px', `KIOSK 模式：格子尺寸扣掉 135px 頂欄（${s.size}）`);
-  ok(s.headChip === '第 1 層子頁', `子頁標頭顯示第幾層子頁（${s.headChip}）`);
+  ok(!s.headChip, `子頁標頭不放「第 N 層子頁」（2026-10-27 user：太擠）（${s.headChip}）`);
   ok(await page.evaluate(() => !!document.querySelector('#pageHead .ph-lead svg.lucide-morph') && document.querySelector('#pageHead .ph-lead').dataset.icon === 'arrow-left'), '標頭左邊的 ⌂ 變形成 ←');
   await shot('01b-sub-kiosk');
   // 子頁版面＝手機模式：頂欄變矮（64px）
@@ -121,19 +132,17 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
   // 第二層
   await page.click('#canvas .cell[data-path="b"]'); await sleep(300);
   await setTap('OpenSubPage');
-  await (await page.$('#cellPanel input[placeholder="子頁"]')).type('菜單'); await sleep(150);
-  s = await info();
-  ok(/第 1 層子頁，裡面還能再放一層/.test(await page.$eval('#cellPanel', (p) => p.textContent)), '子頁裡的提示：還能再放一層');
-  await page.click('#cellPanel .sub-enter-btn'); await sleep(600);
+  await nameDialog('菜單');
   s = await info();
   ok(s.trail.join('>') === '首頁>餐廳介紹>菜單', '第三層路徑');
   await page.click('#canvas .cell[data-path=""]'); await sleep(300);
-  ok(!(await info()).hasSubOpt, '第 3 層不能再設子頁');
+  ok(!(await info()).hasSubOpt, '第 3 層不能再設子頁（變灰）');
   await shot('02-level3');
   // 路徑點「餐廳介紹」回第二層
   await page.evaluate(() => [...document.querySelectorAll('#pageHead .ph-link')][1].click()); await sleep(600);
   s = await info();
   ok(s.trail.join('>') === '首頁>餐廳介紹' && s.head === '格子 2', '點路徑回上一層、選取停在剛剛那格');
+  ok(/第 1 層子頁，其中還能再加入一層子頁/.test(await page.$eval('#cellPanel', (p) => p.textContent)), '子頁裡的提示：還能再加入一層');
   await shot('03-level2');
   // 標頭的 ← ＝回上一層（這裡就是主頁）
   await page.click('#pageHead .ph-lead'); await sleep(600);
@@ -152,8 +161,9 @@ const ok = (cond, name) => { if (cond) { pass++; console.log('  ✓', name); } e
   await page.click('#canvas .cell[data-path="a"]'); await sleep(300);
   await setTap('OpenWeb');
   ok(await page.evaluate(() => !state.config.pages[0].blocks[0].node.a.sub), '改成別的動作，子頁拿掉');
+  ok(await page.evaluate(() => spares().length === 1 && spares()[0].name === '餐廳介紹'), '拿掉的子頁收進未使用的子頁');
   const undone = await page.evaluate(async () => {
-    const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '復原');
+    const b = [...document.querySelectorAll('.b-toast button')].filter((x) => x.textContent.trim() === '復原').pop();
     if (!b) return false;
     b.click(); await new Promise((r) => setTimeout(r, 300));
     const a = state.config.pages[0].blocks[0].node.a;

@@ -1,0 +1,46 @@
+/* 截圖：收納匣收起＝正方形鈕、打開往左長把頁籤推開（2026-10-29 user）。收起／展開途中／展開後／共用版面，2 倍解析度，不存檔（攔 PUT）。 */
+const puppeteer = require('puppeteer-core');
+const path = require('path');
+const BASE = (process.env.BASE || 'http://localhost:3177').replace(/\/$/, '');
+const OUT = path.join(__dirname, 'shots', 'spare');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const browser = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: 'new', defaultViewport: { width: 1512, height: 828, deviceScaleFactor: 2 } });
+  const page = await browser.newPage();
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  await page.setRequestInterception(true);
+  page.on('request', (r) => (r.method() === 'PUT' ? r.respond({ status: 200, contentType: 'application/json', body: '{}' }) : r.continue()));
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(e.message));
+  await page.goto(BASE + '/', { waitUntil: 'networkidle2' });
+  await page.type('#username', process.env.USER_ || 'joyeadmin');
+  await page.type('#password', process.env.PASS_ || 'joye#2026');
+  await page.click('.btn-login');
+  await page.waitForSelector('#deviceTable tbody tr', { visible: true });
+  await sleep(400);
+  await page.evaluate(async () => { const l = await api('GET', '/api/devices'); await enterWorkspace(l.find((x) => /^1\.6/.test(x.LastAppVersion || '')) || l[0]); });
+  await sleep(1000);
+  await page.evaluate(() => {
+    wsAppVer = '1.60';
+    const c = (o) => Object.assign(DEFAULT_CELL(), o);
+    state.config.pages = ['頁面 1', '手機', '卓也小屋22', '宜蘭傳藝'].map((name, i) => ({ id: i + 1, name, blocks: [{ id: 1, w: 1, node: i === 3 ? c({ tap: 'OpenSubPage', sub: { name: '子頁', node: c(), layout: 'Kiosk' } }) : c() }] }));
+    state.config.spareSubs = [{ id: 1, name: '餐廳介紹', node: c({ bgColor: 4283321390 }), layout: 'Kiosk', from: '' }, { id: 2, name: '菜單', node: c({ bgColor: 4284367411 }), layout: 'Kiosk', from: '' }];
+    pageIndex = 3; subStack = []; spareEdit = 0; render();
+  });
+  await sleep(500);
+  const clip = await page.evaluate(() => { const r = document.querySelector('.page-tabs-row').getBoundingClientRect(); return { x: r.left - 12, y: r.top - 12, width: r.width + 24, height: 360 }; });
+  const geo = () => page.evaluate(() => { const b = document.getElementById('spareBtn').getBoundingClientRect(), t = document.getElementById('pageTabs').getBoundingClientRect(), p = document.getElementById('sparePop').getBoundingClientRect(); return { btn: [Math.round(b.left), Math.round(b.width)], tabsRight: Math.round(t.right), pop: [Math.round(p.left), Math.round(p.width)] }; });
+  await page.screenshot({ path: path.join(OUT, 'sq-closed.png'), clip });
+  console.log('closed', JSON.stringify(await geo()));
+  await page.click('#spareBtn');
+  await sleep(110);
+  await page.screenshot({ path: path.join(OUT, 'sq-mid.png'), clip });
+  await sleep(700);
+  await page.screenshot({ path: path.join(OUT, 'sq-open.png'), clip });
+  console.log('open', JSON.stringify(await geo()));
+  await page.click('#spareBtn');
+  await sleep(600);
+  console.log('closed again', JSON.stringify(await geo()));
+  console.log('errors', errs);
+  await browser.close();
+})();

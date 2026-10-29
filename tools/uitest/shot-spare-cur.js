@@ -1,0 +1,40 @@
+/* 截圖：收納匣裡「正在編輯」那張卡片滑過的樣子（2026-10-29 user：hover 怪、藍框被切掉），2 倍解析度，PUT 一律攔下不存檔。 */
+const puppeteer = require('puppeteer-core');
+const path = require('path');
+const BASE = (process.env.BASE || 'http://localhost:3177').replace(/\/$/, '');
+const OUT = process.env.OUT || path.join(__dirname, 'shots', 'spare');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const browser = await puppeteer.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: 'new', defaultViewport: { width: 1512, height: 828, deviceScaleFactor: 2 } });
+  const page = await browser.newPage();
+  await page.setRequestInterception(true);
+  page.on('request', (r) => (r.method() === 'PUT' ? r.respond({ status: 200, contentType: 'application/json', body: '{}' }) : r.continue()));
+  await page.goto(BASE + '/', { waitUntil: 'networkidle2' });
+  await page.type('#username', process.env.USER_ || 'joyeadmin');
+  await page.type('#password', process.env.PASS_ || 'joye#2026');
+  await page.click('.btn-login');
+  await page.waitForSelector('#deviceTable tbody tr', { visible: true });
+  await sleep(500);
+  await page.evaluate(async () => { const list = await api('GET', '/api/devices'); await enterWorkspace(list.find((x) => /^1\.6/.test(x.LastAppVersion || '')) || list[0]); });
+  await sleep(1200);
+  await page.evaluate(() => {
+    wsAppVer = '1.60';
+    const c = (color, o) => Object.assign(DEFAULT_CELL(), { bgColor: color }, o || {});
+    const home = { t: 'split', dir: 'Horizontal', ratio: 0.5, a: c(4290793549), b: c(4288305988, { tap: 'OpenSubPage', sub: { name: '子頁', node: c(4282342986), layout: 'Kiosk' } }) };
+    state.config.pages = [{ id: 1, name: '宜蘭傳藝', blocks: [{ id: 1, w: 1, node: home }] }];
+    state.config.spareSubs = [{ id: 1, name: '子頁2', node: c(4281021504), layout: 'Kiosk', from: '' }];
+    pageIndex = 0; spareEdit = 0; selected = null; subStack = [leavesOf(home)[1].path]; render();
+  });
+  if (process.env.CSS) await page.addStyleTag({ content: process.env.CSS });
+  if (process.env.DARK) await page.evaluate(() => document.documentElement.setAttribute('data-color-mode', 'dark'));
+  await sleep(500);
+  await page.evaluate(() => setSparePop(true));
+  await sleep(1100);
+  const clip = await page.evaluate(() => { const b = document.getElementById('sparePop').getBoundingClientRect(); return { x: b.left - 12, y: b.top + 40, width: b.width + 24, height: 190 }; });
+  const name = process.env.NAME || 'cur';
+  await page.screenshot({ path: path.join(OUT, `${name}-rest.png`), clip });
+  const card = await page.evaluate(() => { const r = document.querySelector('#sparePop .spare-item.is-current').getBoundingClientRect(); return { x: r.x + 40, y: r.y + r.height / 2 }; });
+  await page.mouse.move(card.x, card.y); await sleep(500);
+  await page.screenshot({ path: path.join(OUT, `${name}-hover.png`), clip });
+  await browser.close();
+})();

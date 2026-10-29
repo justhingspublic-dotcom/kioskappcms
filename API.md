@@ -127,6 +127,8 @@ cell 欄位（與 App 的 `LayoutTree.kt` 序列化一致）：
 `wStUrl`(園區測站 API 網址)/`wStation`(測站代號，空＝輪播全部)、`tap`(None/OpenWeb/OpenAssistant/OpenParkInfo/OpenSubPage)、`tapUrl`、`sub`(tap=OpenSubPage 的子頁 `{ name, node, layout }`，node 跟頁面的版面樹同格式、layout＝Kiosk/Mobile 頂欄大小（省略＝Kiosk）；主頁算第 1 層，最多 3 層)、
 `agentId`/`agentName`/`agentAccent`(ARGB 十進位，省略=自動)/`assistantLayout`(AI 客服)/`agentInputPos`(Bottom/Top，客服輸入區位置，省略=Top)。
 
+`spareSubs`（設定頂層，2026-10-27）：未使用的子頁 `[{ id, name, node, layout, from }]`——刪格子／刪頁／改掉「進入子頁」時子頁收進這裡，也可以預先建好再接到格子上；`from`＝原本在哪（顯示用，空＝預先建立）。機器與播放頁不使用；舊版 App 不送這個欄位，伺服器淺合併會保留。
+
 `sleep` 欄位（與 App DataStore 的 `sleep_schedule_json` 同格式）：`periods[].day` 用
 java.time 慣例（1=週一 … 7=週日）、`start`/`end` 為凌晨起算的分鐘數（0–1439）；
 `start >= end` 代表跨午夜（隔日結束）。`sameEveryDay=true` 時 App 會把 7 天設成同一時段。

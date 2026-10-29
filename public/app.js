@@ -11,16 +11,58 @@ let state = null;         // { version, config: { pages:[...], activePage } }
 let pageIndex = 0;
 let selected = null;      // { bi, path }：path＝從區塊根往下的 'a'/'b' 字串（''＝根）；編輯器裡一頁只有一個區塊，bi 一律 0
 let subStack = [];        // 正在編輯的子頁：從主頁一路點進來的格子 path（每一層相對於上一層的樹）；[]＝在主頁
+let spareEdit = 0;        // 正在編輯哪一個「未使用的子頁」（id）；0＝沒有。有值時 subStack 從那個子頁往下算
+let wsAppVer = '';        // 工作區這台機器回報的 App 版本（舊版 App 不認得子頁，見 subsSupported）
 let dirty = false;
 /** 小 icon（Lucide x／plus 同款路徑）：動態產生的按鈕直接塞 SVG，不必每次重跑 lucide.createIcons。 */
 const SVG_ICON = (d) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const SVG_X = SVG_ICON('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
 const SVG_PLUS = SVG_ICON('<path d="M5 12h14"/><path d="M12 5v14"/>');
+const SVG_PENCIL = SVG_ICON('<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>');
+// 移到未使用的子頁（2026-10-28 user：都放垃圾桶會誤會成刪除）＝Lucide archive
+const SVG_ARCHIVE = SVG_ICON('<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>');
+const SVG_TRASH = SVG_ICON('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>');
 let activePageTouched = false; // 只有按過「在機器上展示此頁」才隨儲存送出 activePage
 let meIsAdmin = false;
 let meUsername = '';
 let wsMode = 'device';    // 工作區 modal 模式：'device'＝編輯某台機器；'shared'＝編輯共用版面
 let sharedLayoutId = 0;   // wsMode='shared' 時正在編輯 shared.layouts 裡哪一個版面（id）
+let subPopOpen = false, subPopTimers = []; // 畫布標頭「N 個子頁」點開的清單
+
+// 圖示鈕的小小文字提示（data-tip，2026-10-28 user：要淡、不能擋到字）：滑過 0.4 秒（或鍵盤移到上面）才出現；
+// 一顆泡泡掛在 body 上，不會被捲動區切掉。data-tip-side="out"＝收納匣卡片上的鈕：放在清單外面右邊同一列，其他放在圖示下面
+const tipEl = Object.assign(document.createElement('div'), { className: 'tip-bubble' });
+tipEl.setAttribute('aria-hidden', 'true'); // 鈕本身有 aria-label，提示只是給眼睛看的
+document.body.appendChild(tipEl);
+let tipTimer = 0, tipFor = null;
+function showTip(t) {
+  if (!t.isConnected) return;
+  tipEl.textContent = t.dataset.tip;
+  const r = t.getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  const out = t.dataset.tipSide === 'out' && t.closest('.spare-pop');
+  let x = r.left + r.width / 2 - w / 2, y = r.bottom + 6;
+  if (out) {
+    const p = out.getBoundingClientRect();
+    if (p.right + 8 + w <= innerWidth - 4) { x = p.right + 8; y = r.top + r.height / 2 - h / 2; }
+  }
+  tipEl.style.left = `${Math.max(4, Math.min(x, innerWidth - w - 4))}px`;
+  tipEl.style.top = `${y}px`;
+  tipEl.classList.add('is-on');
+}
+function hideTip() { clearTimeout(tipTimer); tipFor = null; tipEl.classList.remove('is-on'); }
+document.addEventListener('pointerover', (ev) => {
+  const t = ev.target.closest ? ev.target.closest('[data-tip]') : null;
+  if (t === tipFor) return;
+  hideTip();
+  if (!t) return;
+  tipFor = t;
+  tipTimer = setTimeout(() => showTip(t), 400);
+});
+document.addEventListener('pointerout', (ev) => { if (!ev.relatedTarget) hideTip(); }); // 滑出視窗
+document.addEventListener('pointerdown', hideTip, true);
+document.addEventListener('scroll', hideTip, true);
+document.addEventListener('focusin', (ev) => { const t = ev.target.closest && ev.target.closest('[data-tip]'); if (t && t.matches(':focus-visible')) { tipFor = t; showTip(t); } });
+document.addEventListener('focusout', hideTip);
 
 const MAX_PAGES = 8, MAX_IMAGES = 12;
 // 排版更自由（2026-10-12）：每一格都能再切；一頁最多 12 格，切完（含同排平均）任一格窄於畫面寬 12%／矮於畫面高 6% 就不給切
@@ -143,7 +185,7 @@ function logout() {
   sessionStorage.removeItem('token');
   notifData = { items: [], readAt: null }; paintNotifBadge(); setNotifPanel(false);
   // SPA 狀態全清：換帳號登入不能看到上一個帳號的快取（共用設定、客服清單、編輯中資料）
-  state = null; deviceId = ''; selected = null; subStack = []; setDirty(false);
+  state = null; deviceId = ''; selected = null; subStack = []; spareEdit = 0; setDirty(false);
   shared = null; sharedLayoutId = 0; setSharedDirty(false); clearTimeout(sharedSaveTimer);
   parkDraft = null; parkUploading = 0; parkPlacing = false; parkPlaceSnap = null; parkMapSwap = null; parkApiDraft = null; parkApiTest = null; parkStations = null;
   agentCache = { key: '', list: null, loading: false, error: '' };
@@ -431,6 +473,7 @@ async function enterWorkspace(d) {
   wsMode = 'device';
   deviceId = d.DeviceId;
   wsDevName = d.DeviceName || d.DeviceId;
+  wsAppVer = d.LastAppVersion || '';
   try {
     // 先拉設定、成功才開 modal；連不上伺服器只留 toast，不開空的工作區（2026-09-07 指示）
     if (!(await fetchConfig())) return;
@@ -496,11 +539,12 @@ function resetSharedEditorState() {
         : [{ id: 1, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] }],
       activePage: 0,
       screen: (layout && layout.screen) || { w: 1080, h: 1920 },
+      spareSubs: layout && Array.isArray(layout.spareSubs) ? JSON.parse(JSON.stringify(layout.spareSubs)) : [],
     },
   };
   pageIndex = 0;
   selected = null;
-  subStack = [];
+  subStack = []; spareEdit = 0;
   activePageTouched = false;
   setDirty(false);
   $('emptyState').classList.add('hidden');
@@ -511,6 +555,8 @@ function resetSharedEditorState() {
 async function exitWorkspace() {
   setTimeout(updateDocTitle, 300); // 關掉後分頁標題回到目前這一頁
   if (!(await confirmDiscard())) return;
+  if (sparePopOpen) setSparePop(false, true);
+  setSubPop(false, true);
   stopDeviceWatch();
   setDirty(false);
   state = null;
@@ -548,6 +594,8 @@ async function saveSharedLayout() {
     // deep copy：範本與編輯器不能共用同一份物件，否則存過一次後繼續編輯會「未存先改」汙染範本
     layout.pages = JSON.parse(JSON.stringify(state.config.pages));
     layout.screen = state.config.screen ? { ...state.config.screen } : null;
+    // 未使用的子頁（2026-10-27）跟著這個版面存；沒有就不留欄位
+    if (spares().length) layout.spareSubs = JSON.parse(JSON.stringify(spares())); else delete layout.spareSubs;
     layout.updatedAt = new Date().toISOString();
     await api('PUT', '/api/shared-settings', { settings: shared });
     setDirty(false);
@@ -564,6 +612,7 @@ function showWsTab(tab, opts) {
   moveWsTabInd(!!(opts && opts.instant));
   $('layoutTab').classList.toggle('hidden', tab !== 'layout');
   $('settingsTab').classList.toggle('hidden', tab !== 'settings');
+  if (tab !== 'layout') { if (sparePopOpen) setSparePop(false, true); setSubPop(false, true); } // 浮在上面的清單不要留在機器設定上
   if (tab === 'settings') renderSettingsView();
 }
 
@@ -580,7 +629,7 @@ async function fetchConfig() {
   try {
     state = await api('GET', `/api/config/${encodeURIComponent(deviceId)}`);
     pageIndex = Math.min(state.config.activePage || 0, state.config.pages.length - 1);
-    subStack = [];
+    subStack = []; spareEdit = 0;
     selected = null;
     activePageTouched = false;
     setDirty(false);
@@ -640,15 +689,17 @@ function wsDirtyNote() {
  *  只在刪完之後還沒有其他修改時有效（之後又改了別的就不能復原，免得把後面的修改一起蓋掉）；存檔、關掉工作區也就失效。
  *  只用在還沒發布、救得回來的編輯動作（頁籤、格子、圖片）；刪機器、刪帳號這種真的刪掉的照舊先確認。 */
 let undoSeq = 0;
-function withUndo(label, doDelete) {
+// doDelete 可以回傳 { desc }＝toast 第二行（例：子頁移到哪裡）；opts.icon 換 toast 圖示（預設垃圾桶）
+function withUndo(label, doDelete, opts = {}) {
   const snap = {
     pages: JSON.parse(JSON.stringify(state.config.pages)), activePage: state.config.activePage,
+    spare: JSON.parse(JSON.stringify(spares())), spareEdit,
     pageIndex, selected: selected ? { ...selected } : null, subStack: [...subStack], deviceId, wsMode, sharedLayoutId,
   };
-  doDelete();
+  const r = doDelete();
   const seq = undoSeq;
   BToast.show(label, 'info', {
-    icon: 'trash-2', duration: 6000,
+    icon: opts.icon || 'trash-2', duration: 6000, desc: (r && r.desc) || '',
     action: {
       label: '復原',
       onClick: () => {
@@ -657,6 +708,8 @@ function withUndo(label, doDelete) {
         if (!same) { BToast.warning('已有其他修改，無法復原。'); return; }
         state.config.pages = snap.pages;
         state.config.activePage = snap.activePage;
+        state.config.spareSubs = snap.spare;
+        spareEdit = snap.spareEdit;
         pageIndex = snap.pageIndex;
         subStack = snap.subStack;
         selected = snap.selected;
@@ -695,13 +748,26 @@ const mainPage = () => state.config.pages[pageIndex];
 // 編輯器進到子頁時 page() 回傳一個「看起來像一頁」的檢視（blocks[0].node 直接讀寫那一格的 sub.node），
 // 分割、刪除、拖曳、面板這些以頁為單位的編輯不用改；頁層級的動作（頁籤、展示此頁、複製頁面）用 mainPage()。
 const MAX_DEPTH = 3;
-// 子頁的編輯體驗還在討論（user 2026-10-20）：先不讓新格子選「進入子頁」；已經設好的格子照常顯示、編輯，機器端照常播放
-const SUBPAGES_OFFERED = false;
+// 未使用的子頁（2026-10-27 user）：刪掉格子／整頁、把點擊動作改掉、在子頁標頭按刪除，子頁都先收進這裡，不會跟著不見；
+// 也可以先在這裡新增子頁、做好再接到格子上。存在版面層級 config.spareSubs＝[{ id, name, node, layout, from }]（from＝原本在哪，顯示用）。
+// 只有在清單裡刪除才真的刪（先確認）。機器與播放頁都不看這個欄位；伺服器淺合併，舊版 App 回報設定不會把它洗掉。
+const spares = () => (state && state.config && Array.isArray(state.config.spareSubs) ? state.config.spareSubs : []);
+const curSpare = () => (spareEdit ? spares().find((s) => s.id === spareEdit) || null : null);
+/** 這個版本的 App 認不認得子頁：網頁播放頁、App 1.60 起；1.59 以前點了沒反應，回報設定還會把子頁洗掉。 */
+function appSupportsSubs(ver) {
+  const v = String(ver || '');
+  if (/^web/i.test(v)) return true;
+  const m = v.match(/^(\d+)\.(\d+)/);
+  return !!m && (Number(m[1]) > 1 || (Number(m[1]) === 1 && Number(m[2]) >= 60));
+}
+/** 這台機器認不認得子頁（認不得就不給設）。共用版面一律可以。 */
+const subsSupported = () => wsMode === 'shared' || appSupportsSubs(wsAppVer);
 const subViews = new WeakMap();
-/** subStack 走得到的每一層格子（中途對不上＝之後的都不算）。 */
+/** subStack 走得到的每一層格子（中途對不上＝之後的都不算）；編輯未使用的子頁時從那個子頁開始走。 */
 function subTrail() {
   const out = [];
-  let root = mainPage()?.blocks?.[0]?.node;
+  const sp = curSpare();
+  let root = sp ? sp.node : mainPage()?.blocks?.[0]?.node;
   for (const p of subStack) {
     const c = nodeAt(root, p);
     if (!c || isSplit(c) || c.tap !== 'OpenSubPage' || !c.sub) break;
@@ -710,30 +776,81 @@ function subTrail() {
   }
   return out;
 }
-function page() {
-  const pg = mainPage();
-  if (!pg || !subStack.length) return pg;
-  const trail = subTrail();
-  if (trail.length < subStack.length) subStack = subStack.slice(0, trail.length);
-  if (!trail.length) return pg;
-  const sub = trail[trail.length - 1].sub;
+/** 子頁的「像一頁」檢視（同一個子頁物件共用一份）。 */
+function subView(sub, id) {
   let v = subViews.get(sub);
   if (!v) {
-    v = { id: pg.id, isSub: true, get name() { return sub.name || ''; }, get layout() { return sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk'; }, blocks: [{ id: 1, w: 1, get node() { return sub.node; }, set node(n) { sub.node = n; } }] };
+    v = { id, isSub: true, get name() { return sub.name || ''; }, get layout() { return sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk'; }, blocks: [{ id: 1, w: 1, get node() { return sub.node; }, set node(n) { sub.node = n; } }] };
     subViews.set(sub, v);
   }
   return v;
 }
+function page() {
+  const pg = mainPage();
+  if (!pg) return pg;
+  if (spareEdit && !curSpare()) spareEdit = 0; // 那個子頁已經被接走或刪掉
+  const sp = curSpare();
+  if (!sp && !subStack.length) return pg;
+  const trail = subTrail();
+  if (trail.length < subStack.length) subStack = subStack.slice(0, trail.length);
+  const sub = trail.length ? trail[trail.length - 1].sub : sp;
+  return sub ? subView(sub, pg.id) : pg;
+}
 const subLabel = (name) => (name || '').trim() || '子頁';
-/** 子頁有沒有東西（切過、或那一格不是空白格）：改掉「進入子頁」時有東西才需要能復原。 */
+/** 子頁有沒有東西（切過、或那一格不是空白格）：沒有東西的子頁拿掉時直接丟，不收進未使用的子頁。 */
 const subHasContent = (sub) => !!sub && (isSplit(sub.node) || canonicalJson(sub.node) !== canonicalJson(DEFAULT_CELL()));
-/** 進到 path 那一格的子頁（選取清掉）；回到第 level 層（0＝主頁）時，選取停在剛剛點進去的那一格。 */
-function enterSub(path) { navAnimate('push', () => { subStack = [...subStack, path]; selected = null; render(); }); }
+/** 子頁連同它底下的子頁共有幾層（自己算 1）。 */
+function subDepth(sub) {
+  return 1 + Math.max(0, ...leavesOf(sub.node).filter((l) => l.cell.tap === 'OpenSubPage' && l.cell.sub).map((l) => subDepth(l.cell.sub)));
+}
+/** 目前這一頁是第幾層：主頁＝1；未使用的子頁之後至少接在主頁底下，本身算第 2 層。 */
+const curLevel = () => subStack.length + 1 + (spareEdit ? 1 : 0);
+/** 這個子頁能不能接在目前這一頁的格子上（接上去不能超過 MAX_DEPTH 層）。 */
+const spareFits = (sp) => curLevel() + subDepth(sp) <= MAX_DEPTH;
+/** 接不上去的原因（2026-10-29 user：拖不上去要說為什麼）：這一頁已經是第二層子頁，或要加入的子頁裡面還有子頁。
+ *  短的＝提示、小標（不加句號）；desc＝通知的說明（一句、句號結尾，標題不加句號）。 */
+const depthWhy = () => (curLevel() >= MAX_DEPTH ? '已達子頁層數上限' : '內含子頁，加入後會超過層數上限');
+const depthDesc = () => (curLevel() >= MAX_DEPTH ? '主頁之下最多可以有兩層子頁。' : '這個子頁內還有子頁，加入後會超過兩層。');
+/** 目前這一頁的名稱（「原本在…」用）。 */
+const curPageName = () => (page().isSub ? subLabel(page().name) : (mainPage().name || `頁面 ${pageIndex + 1}`));
+/** 格子的稱呼（「原本在…」用）：文字內容的第一行，沒有就「格子 N」。 */
+function cellNameOf(cell, path, root = page().blocks[0]?.node) {
+  const t = (cell.content === 'Text' || cell.content === 'Marquee') ? String(cell.text || '').split('\n')[0].trim() : '';
+  if (t) return t.length > 12 ? t.slice(0, 12) + '…' : t;
+  const i = leavesOf(root).findIndex((l) => l.path === (path || ''));
+  return `格子 ${i + 1}`;
+}
+const fromCell = (cell, path) => `原本在「${curPageName()}」的「${cellNameOf(cell, path)}」格`;
+/** 子頁收進未使用的子頁（放最前面）；沒有東西的子頁直接丟。回傳有沒有收。 */
+function stashSub(sub, from) {
+  if (!subHasContent(sub)) return false;
+  if (!Array.isArray(state.config.spareSubs)) state.config.spareSubs = [];
+  const list = state.config.spareSubs;
+  const id = Math.max(0, ...list.map((s) => s.id || 0)) + 1;
+  list.unshift({ id, name: sub.name || '', node: sub.node, layout: sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk', from: from || '' });
+  return true;
+}
+/** 一頁裡第一層的子頁全部收進未使用的子頁（刪掉整頁時）；回傳收了幾個（更深的子頁跟著它的上一層走）。 */
+function stashPageSubs(pg, from) {
+  let n = 0;
+  (pg.blocks || []).forEach((b) => leavesOf(b.node).forEach(({ cell }) => {
+    if (cell.tap === 'OpenSubPage' && cell.sub && stashSub(cell.sub, from)) n++;
+  }));
+  return n;
+}
+const movedDesc = (name) => `子頁「${subLabel(name)}」已移至未使用的子頁。`;
+/** 進到 path 那一格的子頁（選取清掉）；回到第 level 層（0＝主頁或未使用的子頁本身）時，選取停在剛剛點進去的那一格。 */
+// 同一頁裡進出子頁：頁籤不會變，不重畫頁籤（2026-10-27 user 回報卡，能省則省）
+const renderNav = () => { renderCanvas(); renderPanel(); updateShowPageBtn(); };
+function enterSub(path) { navAnimate('push', () => { subStack = [...subStack, path]; selected = null; renderNav(); }); }
 function leaveSubTo(level) {
   if (level >= subStack.length) return;
   const back = subStack[level];
-  navAnimate('pop', () => { subStack = subStack.slice(0, level); selected = { bi: 0, path: back }; render(); });
+  navAnimate('pop', () => { subStack = subStack.slice(0, level); selected = { bi: 0, path: back }; renderNav(); });
 }
+/** 編輯未使用的子頁／回到主頁。 */
+function enterSpare(id) { navAnimate('push', () => { spareEdit = id; subStack = []; selected = null; render(); }); }
+function leaveSpare() { navAnimate('pop', () => { spareEdit = 0; subStack = []; selected = null; render(); }); }
 /** 進出子頁的轉場（2026-10-20 user：不要直接切；同日再改成輪播式）：預覽畫布像輪播一樣兩頁一起移動——
  *  進去＝原本那頁整頁往左滑出去、新的一層緊跟著從右邊滑進來；返回＝反過來。不淡出、不疊在一起。
  *  apply() 改狀態並重畫，舊畫面先複製一份陪著滑走；標頭不跟著滑，名稱與路徑在 renderTrail 依 navDir 原地模糊溶接。
@@ -1059,9 +1176,14 @@ function renderTabs() {
   const prev = mkArrow('prev'), next = mkArrow('next');
   const updateArrows = () => {
     const over = track.scrollWidth > track.clientWidth + 1;
-    nav.classList.toggle('is-overflow', over);
-    prev.disabled = !over || track.scrollLeft <= 1;
-    next.disabled = !over || track.scrollLeft + track.clientWidth >= track.scrollWidth - 1;
+    // 收納匣打開、頁籤列被擠窄（is-squeezed）：箭頭維持打開前的樣子，不出現也不消失（箭頭一進一出整排頁籤會位移，2026-10-29 user）；
+    // 被擠到的頁籤在右邊淡出，滾輪／觸控板照樣可以橫捲
+    const squeezed = nav.classList.contains('is-squeezed');
+    if (!squeezed) nav.classList.toggle('is-overflow', over);
+    track.classList.toggle('is-fade-r', squeezed && track.scrollLeft + track.clientWidth < track.scrollWidth - 1);
+    const shown = nav.classList.contains('is-overflow');
+    prev.disabled = !shown || track.scrollLeft <= 1;
+    next.disabled = !shown || track.scrollLeft + track.clientWidth >= track.scrollWidth - 1;
   };
   track.addEventListener('scroll', updateArrows, { passive: true });
   nav.appendChild(prev);
@@ -1089,15 +1211,18 @@ function renderTabs() {
       del.onclick = (e) => {
         e.stopPropagation();
         withUndo(`已刪除「${p.name || `頁面 ${i + 1}`}」。`, () => {
+          // 這一頁的子頁不跟著不見：收進未使用的子頁（2026-10-27 user）
+          const moved = stashPageSubs(p, `原本在「${p.name || `頁面 ${i + 1}`}」頁（已刪除）`);
           state.config.pages.splice(i, 1);
           if ((state.config.activePage || 0) >= state.config.pages.length) state.config.activePage = state.config.pages.length - 1;
           pageIndex = Math.min(pageIndex, state.config.pages.length - 1);
-          selected = null; subStack = []; setDirty(true); render();
+          selected = null; subStack = []; spareEdit = 0; setDirty(true); render();
+          return moved ? { desc: `${moved} 個子頁已移至未使用的子頁。` } : null;
         });
       };
       tab.appendChild(del);
     }
-    tab.onclick = () => { pageIndex = i; selected = null; subStack = []; render(); }; // 子頁裡點主頁頁籤＝回到主頁
+    tab.onclick = () => { pageIndex = i; selected = null; subStack = []; spareEdit = 0; render(); }; // 子頁裡點主頁頁籤＝回到主頁
     track.appendChild(tab);
   });
   // 目前頁籤若被捲出視野就捲到看得見（只捲軌道本身）
@@ -1114,7 +1239,7 @@ function renderTabs() {
       const nextId = Math.max(0, ...state.config.pages.map((p) => p.id || 0)) + 1;
       state.config.pages.push({ id: nextId, name: '', blocks: [{ id: 1, w: 1, node: DEFAULT_CELL() }] });
       pageIndex = state.config.pages.length - 1;
-      selected = null; subStack = []; setDirty(true); render();
+      selected = null; subStack = []; spareEdit = 0; setDirty(true); render();
     };
     nav.appendChild(add);
   }
@@ -1129,7 +1254,7 @@ function countSubs(n) {
 }
 /** 畫布標頭（2026-10-20 user 選「畫框標頭」，同 App 頂欄）：跟預覽畫框黏成一張卡、一直都在。
  *  左邊同一顆鈕：主頁＝⌂（不能按），進子頁就變形成 ←（回上一層，morph-icons.js）；
- *  主頁＝主頁名稱／「主頁」＋「N 個子頁」；子頁＝子頁名稱、底下一行路徑（前面幾段可點回那一層）＋「第 N 層子頁」。
+ *  主頁＝主頁名稱／「主頁」＋「N 個子頁」；子頁＝子頁名稱、底下一行路徑（前面幾段可點回那一層），右邊改名／刪除（2026-10-27 拿掉「第 N 層子頁」）。
  *  進出子頁時（navDir）標頭不動，名稱、路徑、小標籤原地模糊溶接。由 JS 建（index.html 是伺服器快取的範本）。 */
 function renderTrail() {
   let head = $('pageHead');
@@ -1139,52 +1264,75 @@ function renderTrail() {
     head = document.createElement('div');
     head.id = 'pageHead'; head.className = 'page-head';
     head.innerHTML = '<button type="button" class="ph-lead" data-icon="house"><i data-lucide="house"></i></button><div class="ph-stage"><div class="ph-body"></div></div>';
-    head.querySelector('.ph-lead').onclick = () => { if (subStack.length) leaveSubTo(subStack.length - 1); };
+    head.querySelector('.ph-lead').onclick = () => { if (subStack.length) leaveSubTo(subStack.length - 1); else if (spareEdit) leaveSpare(); };
     frame.before(head);
     if (window.lucide) lucide.createIcons({ nodes: [head] });
   }
+  if (subPopOpen) setSubPop(false, true); // 子頁清單：換頁、選格子都先收
   head.hidden = !state || !mainPage();
   if (head.hidden) return;
   page(); // 先把對不上的層數修掉
   const trail = subTrail();
+  const sp = curSpare();
+  const inSub = !!(trail.length || sp);
   const mainName = mainPage().name || `頁面 ${pageIndex + 1}`;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
   // 左邊那顆：⌂ ↔ ←（變形；變不了就硬換）
   const lead = head.querySelector('.ph-lead');
-  const want = trail.length ? 'arrow-left' : 'house';
-  lead.disabled = !trail.length;
-  lead.title = trail.length ? '返回上一層' : '';
-  lead.setAttribute('aria-label', trail.length ? '返回上一層' : '主頁');
+  const want = inSub ? 'arrow-left' : 'house';
+  lead.disabled = !inSub;
+  lead.title = inSub ? '返回上一層' : '';
+  lead.setAttribute('aria-label', inSub ? '返回上一層' : '主頁');
   if (lead.dataset.icon !== want) {
     if (!(window.morphIcon && window.morphIcon(lead, want))) { lead.innerHTML = `<i data-lucide="${want}"></i>`; if (window.lucide) lucide.createIcons({ nodes: [lead] }); }
     lead.dataset.icon = want;
   }
 
-  // 名稱、路徑、右邊的小標籤
+  // 名稱、路徑、右邊的小標籤；未使用的子頁＝路徑從「未使用的子頁」開始（點了回主頁）
   const body = el('div', 'ph-body');
   const text = el('div', 'ph-text');
-  const title = el('span', 'ph-title', trail.length ? subLabel(trail[trail.length - 1].sub.name) : mainName);
+  const title = el('span', 'ph-title', inSub ? subLabel(page().name) : mainName);
   const sub = el('nav', 'ph-sub');
-  if (!trail.length) sub.textContent = '主頁';
+  if (!inSub) sub.textContent = '主頁';
   else {
     sub.setAttribute('aria-label', '子頁路徑');
-    const names = [mainName, ...trail.map((c) => subLabel(c.sub.name))];
+    const names = sp ? ['未使用的子頁', subLabel(sp.name), ...trail.map((c) => subLabel(c.sub.name))] : [mainName, ...trail.map((c) => subLabel(c.sub.name))];
     names.forEach((name, i) => {
       if (i) sub.appendChild(el('span', 'ph-sep', '›'));
       if (i === names.length - 1) { const cur = el('span', '', name); cur.setAttribute('aria-current', 'page'); sub.appendChild(cur); return; }
-      const b = el('button', 'ph-link', name); b.type = 'button'; b.onclick = () => leaveSubTo(i);
+      const b = el('button', 'ph-link', name); b.type = 'button';
+      b.onclick = () => (sp ? (i ? leaveSubTo(i - 1) : leaveSpare()) : leaveSubTo(i));
       sub.appendChild(b);
     });
   }
   text.append(title, sub);
   body.appendChild(text);
-  const n = trail.length ? 0 : countSubs(mainPage().blocks?.[0]?.node);
-  if (trail.length || n) {
-    const chip = el('span', 'ph-chip');
-    if (!trail.length) chip.innerHTML = '<span class="material-icons" aria-hidden="true">layers</span>';
-    chip.append(trail.length ? `第 ${trail.length} 層子頁` : `${n} 個子頁`);
+  const n = inSub ? 0 : countSubs(mainPage().blocks?.[0]?.node);
+  if (n) { // 子頁裡不放「第 N 層子頁」（2026-10-27 user：標頭太擠，路徑就看得出第幾層）
+    // 點了往下列出這一頁的子頁（2026-10-29 user 試過三案選這個，取代標題列的頁面地圖）
+    const chip = el('button', 'ph-chip');
+    chip.type = 'button';
+    chip.setAttribute('aria-expanded', 'false');
+    chip.innerHTML = '<span class="material-icons" aria-hidden="true">layers</span>';
+    chip.append(`${n} 個子頁`);
+    chip.insertAdjacentHTML('beforeend', '<svg class="ph-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
+    chip.onclick = () => setSubPop(!subPopOpen);
     body.appendChild(chip);
+  }
+  // 子頁裡：改名、刪除（2026-10-27 user：同頁籤的鉛筆／叉叉，放在子頁自己的標頭）
+  if (inSub) {
+    // 圖示直接塞 SVG（Lucide pencil／trash-2 同款路徑），不在轉場那一下跑 lucide.createIcons
+    const act = (svg, label, fn, danger) => {
+      const b = el('button', 'ph-act' + (danger ? ' is-danger' : ''));
+      b.type = 'button'; b.dataset.tip = label; b.setAttribute('aria-label', label);
+      b.innerHTML = svg;
+      b.onclick = fn;
+      body.appendChild(b);
+    };
+    act(SVG_PENCIL, '重新命名子頁', renameCurSub);
+    if (subTrail().length) act(SVG_ARCHIVE, '移到未使用', deleteCurSub);
+    else act(SVG_TRASH, '刪除子頁', deleteCurSub, true);
   }
   // 換字：進出子頁時標頭不移動（2026-10-20 user），舊字模糊淡掉、新字從模糊變清楚，兩層疊在同一格；平常重畫直接換
   const stage = head.querySelector('.ph-stage');
@@ -1197,6 +1345,629 @@ function renderTrail() {
   });
   // 時間收短（user 2026-10-20：要俐落）：舊字 140ms 淡掉、新字 40ms 後 200ms 清楚，總共約 0.24 秒
   body.animate([{ filter: 'blur(4px)', opacity: 0 }, { filter: 'blur(0)', opacity: 1 }], { duration: 200, delay: 40, easing: 'cubic-bezier(.2, 0, 0, 1)', fill: 'backwards' });
+}
+
+/** 子頁標頭的鉛筆：改目前這個子頁的名稱（同頁籤改名的對話框）。 */
+async function renameCurSub() {
+  const trail = subTrail();
+  const sub = trail.length ? trail[trail.length - 1].sub : curSpare();
+  if (!sub) return;
+  const v = await BDialog.prompt({ title: '子頁名稱', value: sub.name || '', placeholder: '子頁', confirmText: '儲存', maxLength: 20 });
+  if (v === null || v === undefined) return;
+  sub.name = String(v).trim().slice(0, 20);
+  setDirty(true); renderCanvas();
+}
+/** 子頁標頭的「移到未使用」／垃圾桶：接在格子上的子頁＝從那一格拿下來、收進未使用的子頁（可復原）；未使用的子頁本身＝真的刪除（先確認）。 */
+async function deleteCurSub() {
+  const trail = subTrail();
+  const sp = curSpare();
+  if (!trail.length) {
+    if (sp) deleteSpare(sp);
+    return;
+  }
+  const cell = trail[trail.length - 1];
+  const level = subStack.length - 1;
+  const back = subStack[level];
+  // 「原本在…」寫上一層的名稱與那一格
+  const parentName = level ? subLabel(trail[level - 1].sub.name) : sp ? subLabel(sp.name) : (mainPage().name || `頁面 ${pageIndex + 1}`);
+  const parentRoot = level ? trail[level - 1].sub.node : sp ? sp.node : mainPage().blocks[0]?.node;
+  const from = `原本在「${parentName}」的「${cellNameOf(cell, back, parentRoot)}」格`;
+  stashFromCell(cell, from, () => navAnimate('pop', () => { subStack = subStack.slice(0, level); selected = { bi: 0, path: back }; render(); }));
+}
+/** 未使用的子頁：刪除（真的刪，先確認）。改名在子頁標頭的鉛筆。 */
+async function deleteSpare(sp) {
+  const ok = await BDialog.confirm({
+    title: `刪除子頁「${subLabel(sp.name)}」？`, desc: '刪除後無法復原。', variant: 'danger', confirmText: '刪除',
+  });
+  if (!ok || !state) return;
+  const list = spares();
+  const i = list.indexOf(sp);
+  if (i < 0) return;
+  list.splice(i, 1);
+  setDirty(true);
+  if (spareEdit === sp.id) leaveSpare(); else render();
+}
+/**
+ * 新增子頁的取名視窗（2026-10-27 user：跟「新增版面」同一款）：回傳 { name }、{ spareId }（選了未使用的子頁）或 null（取消）。
+ * withList＝視窗下面列出未使用的子頁可以直接拿來用（從格子的點擊動作進來時）。
+ */
+async function subNameDialog(withList) {
+  let picked = 0;
+  const list = withList ? spares().filter((s) => s.id !== spareEdit) : [];
+  const v = await BDialog.prompt({
+    title: '新增子頁', desc: '請輸入這個子頁的名稱。', placeholder: '例如：餐廳介紹', confirmText: '建立', maxLength: 20,
+    extra: list.length ? (settle) => spareChooser(list, (id) => { picked = id; settle(''); }) : null,
+  });
+  if (picked) return { spareId: picked };
+  if (v === null || v === undefined) return null;
+  return { name: String(v).trim().slice(0, 20) };
+}
+/** 取名視窗下面的「或使用未使用的子頁」清單；接上去會超過層數的變灰。 */
+function spareChooser(list, onPick) {
+  const box = document.createElement('div');
+  box.className = 'spare-pick';
+  const t = document.createElement('div');
+  t.className = 'spare-pick-title';
+  t.textContent = '或使用未使用的子頁';
+  const rows = document.createElement('div');
+  rows.className = 'spare-pick-list';
+  list.forEach((sp) => {
+    const fits = spareFits(sp);
+    const r = document.createElement('div');
+    r.className = 'spare-pick-row' + (fits ? '' : ' is-off');
+    const txt = document.createElement('div');
+    txt.className = 'spare-pick-text';
+    txt.innerHTML = '<span class="spare-pick-name"></span><span class="spare-pick-from"></span>';
+    txt.firstChild.textContent = subLabel(sp.name);
+    txt.lastChild.textContent = fits ? (sp.from || '尚未接到格子') : depthWhy();
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'b-btn b-btn-text b-btn-sm'; b.textContent = '使用';
+    b.disabled = !fits;
+    b.onclick = () => onPick(sp.id);
+    r.append(spareThumb(sp, 44), txt, b);
+    rows.appendChild(r);
+  });
+  box.append(t, rows);
+  return box;
+}
+/** 子頁縮圖（唯讀預覽，含子頁頂欄）：收納列、取名視窗、頁面地圖用。 */
+function spareThumb(sub, thumbH, timers) {
+  return pageThumb(sub.node, thumbH, timers, { name: subLabel(sub.name), layout: sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk' });
+}
+/** 一頁的縮圖（唯讀預覽）：subBar＝子頁頂欄 { name, layout }，主頁不給；screen＝不是編輯中那台時另外給（頁面地圖從機器總覽打開）。 */
+function pageThumb(node, thumbH, timers, subBar, screen) {
+  const s0 = screen || (state && state.config.screen);
+  const scr = s0 && s0.w > 0 && s0.h > 0 ? s0 : { w: 1080, h: 1920 };
+  const ratio = scr.w / scr.h;
+  const thumbW = Math.max(14, Math.round(thumbH * ratio));
+  const box = document.createElement('div');
+  box.className = 'layout-thumb spare-thumb';
+  box.style.width = thumbW + 'px'; box.style.height = thumbH + 'px';
+  const canvas = document.createElement('div');
+  canvas.className = 'canvas lt-canvas';
+  const VH = 480, VW = Math.round(VH * ratio);
+  const scale = Math.min(thumbH / VH, thumbW / VW);
+  canvas.style.width = VW + 'px';
+  canvas.style.height = VH + 'px';
+  canvas.style.transform = `translate(${(thumbW - VW * scale) / 2}px, ${(thumbH - VH * scale) / 2}px) scale(${scale})`;
+  box.appendChild(canvas);
+  requestAnimationFrame(() => {
+    buildCanvas(canvas, { blocks: [{ id: 1, w: 1, node }] }, scr, { readonly: true, still: true, timers: timers || [], subBar });
+    canvas.style.aspectRatio = '';
+    fitPreview(canvas);
+  });
+  return box;
+}
+/** 把未使用的子頁接到 sel 那一格（點擊動作改成「進入子頁」）；可復原。 */
+function attachSpare(id, sel) {
+  const list = spares();
+  const sp = list.find((s) => s.id === id);
+  const cell = getCell(sel);
+  if (!sp || !cell) return;
+  withUndo(`已將子頁「${subLabel(sp.name)}」接到這一格。`, () => {
+    if (cell.tap === 'OpenSubPage' && cell.sub) stashSub(cell.sub, fromCell(cell, sel.path)); // 原本的子頁不能被蓋掉
+    list.splice(list.indexOf(sp), 1);
+    cell.tap = 'OpenSubPage';
+    cell.sub = { name: sp.name || '', node: sp.node, layout: sp.layout === 'Mobile' ? 'Mobile' : 'Kiosk' };
+    selected = { ...sel };
+    setDirty(true); render();
+  }, { icon: 'layers' });
+}
+/** 收納列的「＋ 新增子頁」：先建一個空白子頁放進未使用的子頁，直接進去編輯，之後再接到格子上。 */
+async function newSpare() {
+  const r = await subNameDialog(false);
+  if (!r || !state) return;
+  if (!Array.isArray(state.config.spareSubs)) state.config.spareSubs = [];
+  const list = state.config.spareSubs;
+  const id = Math.max(0, ...list.map((s) => s.id || 0)) + 1;
+  list.unshift({ id, name: r.name, node: DEFAULT_CELL(), layout: 'Kiosk', from: '' });
+  setDirty(true);
+  enterSpare(id);
+}
+
+/** 使用中的子頁從格子拿下來、收進未使用的子頁（可復原）；after＝本機做完之後換畫面。 */
+function stashFromCell(holder, from, after) {
+  const sub = holder.sub;
+  withUndo(subHasContent(sub) ? movedDesc(sub.name) : `已刪除子頁「${subLabel(sub.name)}」。`, () => {
+    stashSub(sub, from);
+    holder.tap = 'None'; delete holder.sub;
+    setDirty(true);
+    after();
+  });
+}
+
+// ---------- 子頁收納匣（2026-10-27 user）----------
+// 列出這個版面所有子頁：使用中的在前（每一頁、每一層，含未使用的子頁裡面的），未使用的在後；第一格「＋ 新增子頁」。
+// 點一下＝進去編輯；拖到格子上＝接上去，使用中的＝移過去（先確認、可復原）。已有子頁的格子不能放、接上去會超過層數的不能拖、不能把子頁移進它自己裡面。
+// 收納匣是整台機器（共用版面＝整個版面）共用的，不放在頁面畫框底下（user：看起來像這一頁專屬）：
+//   機器＝頁籤列旁自己一個容器（頁籤與重新載入中間）；共用版面沒有頁籤列＝標題列右邊（關閉鈕左邊）。
+//   點開從上方浮出「所有頁面的子頁」面板；點外面、Esc、點子頁進去編輯就收起，拖完不收（可以接著拖）。
+let sparePopOpen = false;
+let sparePopTimer = 0;
+let spareEnterTimer = 0;
+let spareTimers = [];
+/** 這個版面的所有子頁：使用中的 { used:true, sub, holder, pageIndex, spareId, stack, host, cellName }、未使用的 { used:false, sub（＝清單裡那一筆） }。 */
+function allSubs() {
+  const out = [];
+  const walk = (root, base, host, pi, spareId) => leavesOf(root).forEach(({ cell, path }) => {
+    if (cell.tap !== 'OpenSubPage' || !cell.sub) return;
+    const stack = [...base, path];
+    out.push({ used: true, sub: cell.sub, holder: cell, pageIndex: pi, spareId, stack, host, cellName: cellNameOf(cell, path, root) });
+    walk(cell.sub.node, stack, subLabel(cell.sub.name), pi, spareId);
+  });
+  state.config.pages.forEach((pg, i) => {
+    const bl = pg.blocks || [];
+    walk(bl.length === 1 && bl[0].node ? bl[0].node : blocksToNode(bl), [], pg.name || `頁面 ${i + 1}`, i, 0);
+  });
+  spares().forEach((sp) => walk(sp.node, [], subLabel(sp.name), pageIndex, sp.id));
+  return [...out, ...spares().map((sp) => ({ used: false, sub: sp, spareId: sp.id }))];
+}
+/** 目前畫布上的子頁物件（主頁＝null）。 */
+function curSubObj() { const t = subTrail(); return t.length ? t[t.length - 1].sub : curSpare(); }
+/** 目前畫布是不是在 e 這個子頁裡面（含它本身）：不能把它移進自己。 */
+function viewInside(e) {
+  if ((e.spareId || 0) !== spareEdit || (!e.spareId && e.pageIndex !== pageIndex)) return false;
+  return e.stack.every((p, i) => subStack[i] === p);
+}
+/** 收納匣的一個子頁：點一下＝進去編輯；收納匣不收（2026-10-29 user：手動關，可以接著點下一個）。 */
+function gotoSub(e) {
+  if (!e.used) { enterSpare(e.sub.id); return; }
+  navAnimate('push', () => { if (!e.spareId) pageIndex = e.pageIndex; spareEdit = e.spareId || 0; subStack = [...e.stack]; selected = null; render(); });
+}
+// 拖到點擊動作是別的的格子（2026-10-27 user）：先確認，寫出原本的動作；動作是「無」的格子直接接上
+const TAP_NAMES = { OpenWeb: '開啟網頁', OpenAssistant: 'AI 智能客服', OpenParkInfo: '園區資訊' };
+const tapChangeLine = (cell, verb) => (TAP_NAMES[cell.tap] ? `這一格目前點擊會「${TAP_NAMES[cell.tap]}」，${verb}後會改成進入子頁。` : '');
+/** 拖到格子上接上未使用的子頁：那一格原本有別的點擊動作就先確認。 */
+async function dropSpare(id, sel) {
+  const target = getCell(sel);
+  const sp = spares().find((s) => s.id === id);
+  if (!target || !sp) return;
+  const line = tapChangeLine(target, '接上');
+  if (line) {
+    const ok = await BDialog.confirm({ title: `將子頁「${subLabel(sp.name)}」接到這一格？`, desc: line, confirmText: '接上' });
+    if (!ok || !state || getCell(sel) !== target) return;
+  }
+  attachSpare(id, sel);
+}
+/** 使用中的子頁移到 sel 那一格（先確認；原本那一格不再進入子頁；可復原）。 */
+async function moveSub(e, sel) {
+  const target = getCell(sel);
+  if (!target || target === e.holder) return;
+  const ok = await BDialog.confirm({
+    title: `將子頁「${subLabel(e.sub.name)}」移到這一格？`,
+    desc: [`「${e.host}」的「${e.cellName}」格將不再開啟這個子頁。`, tapChangeLine(target, '移過來')].filter(Boolean).join('\n'),
+    confirmText: '移動',
+  });
+  if (!ok || !state || e.holder.sub !== e.sub || getCell(sel) !== target) return;
+  withUndo(`已將子頁「${subLabel(e.sub.name)}」移到這一格。`, () => {
+    e.holder.tap = 'None'; delete e.holder.sub;
+    target.tap = 'OpenSubPage'; target.sub = e.sub;
+    selected = { ...sel };
+    setDirty(true); render();
+  }, { icon: 'layers' });
+}
+function renderSpareTray() {
+  const box = $('spareBox');
+  // 鈕放哪：機器＝頁籤列（重新載入左邊）；共用版面＝標題列（關閉鈕左邊）
+  const shared = wsMode === 'shared';
+  const before = shared ? $('wsCloseBtn') : $('reloadBtn');
+  if (box.nextElementSibling !== before) before.before(box);
+  const on = !!state && !!mainPage() && subsSupported();
+  box.hidden = !on;
+  if (!on) {
+    if (sparePopOpen) setSparePop(false, true);
+    spareTimers.forEach(clearInterval); spareTimers = [];
+    $('sparePopList')._key = '';
+    return;
+  }
+  const list = allSubs();
+  $('spareBtn').querySelector('.spare-tray-count').textContent = String(list.length);
+  // 沒有子頁＝只有「新增子頁」，不寫「尚無子頁」；提示置中、不加句號（2026-10-28 user）
+  const strip = $('sparePopList');
+  strip.hidden = !list.length;
+  $('sparePop').querySelector('.spare-pop-hint').hidden = !list.length;
+  $('sparePop').classList.toggle('is-empty', !list.length);
+  // 縮圖只在清單內容變了才重建（進出子頁、換頁不重建，2026-10-27 user 回報卡）；收起時不動，留著給淡出
+  if (sparePopOpen) {
+    const key = JSON.stringify(list.map((e) => [e.used, e.pageIndex, e.spareId, e.stack, e.host, e.cellName, e.sub.name, e.sub.layout, e.sub.node]));
+    if (key !== strip._key) {
+      strip._key = key;
+      spareTimers.forEach(clearInterval); spareTimers = [];
+      strip.innerHTML = '';
+      list.forEach((e, i) => {
+        if (i && list[i - 1].used && !e.used) strip.appendChild(Object.assign(document.createElement('span'), { className: 'spare-sep' })); // 使用中｜未使用 之間一條細線
+        strip.appendChild(spareItem(e));
+      });
+      if (window.lucide) lucide.createIcons({ nodes: [strip] });
+    }
+    spareMore();
+  }
+  // 目前／能不能拖：每次重畫只更新狀態，不重建
+  const cur = curSubObj();
+  strip.querySelectorAll('.spare-item').forEach((item) => {
+    const e = item._entry;
+    const isCur = e.sub === cur;
+    const fits = spareFits(e.sub);
+    const canDrop = !isCur && fits && !(e.used && viewInside(e));
+    const deep = !isCur && !fits; // 層數不夠：滑過用淺色提示說原因、放不上去時跳通知
+    item._can = { cur: isCur, drop: canDrop, deep };
+    item.classList.toggle('is-current', isCur);
+    item.classList.toggle('is-off', !canDrop && !isCur);
+    // 卡片不用瀏覽器內建提示（2026-10-29 user：灰色系統提示很突兀）：正在編輯＝藍框、怎麼用＝清單下面「拖曳套用」；只有接不上去的說原因
+    if (deep) { item.dataset.tip = depthWhy(); item.dataset.tipSide = 'out'; } else { delete item.dataset.tip; delete item.dataset.tipSide; }
+  });
+}
+/** 下拉清單從鈕的上緣開始、右緣對齊鈕（鈕疊在上面＝清單的頂端；2026-10-28 user：直式、跟鈕連成一體）。
+ *  收起的鈕是正方形，打開時往左長到 SPARE_OPEN_W（2026-10-29 user：往左下展開、把頁籤推開）；square＝先放在正方形鈕的位置，接著跟鈕一起長。 */
+const SPARE_OPEN_W = 220; // CSS .spare-box-btn.is-open 同一個數
+function placeSparePop(square) {
+  const pop = $('sparePop');
+  const b = $('spareBtn').getBoundingClientRect();
+  const w = square === true ? b.height : SPARE_OPEN_W; // 右緣固定（右邊是重新載入／關閉鈕），寬度直接算終點，不量動畫途中的鈕
+  pop.style.top = `${b.top}px`;
+  pop.style.left = `${b.right - w}px`;
+  pop.style.width = `${w}px`;
+}
+/** 收納匣下拉清單開／關（框往下打開、裡面一個接一個落下；關＝收回鈕、淡出後才藏起來）。instant＝直接藏（離開工作區、這台機器不能用子頁等）。 */
+function setSparePop(open, instant) {
+  const pop = $('sparePop'), btn = $('spareBtn');
+  if (open === sparePopOpen && !instant) return;
+  sparePopOpen = open;
+  btn.classList.toggle('is-open', open);
+  btn.setAttribute('aria-expanded', String(open));
+  if (open) btn.removeAttribute('data-tip'); else btn.dataset.tip = '子頁收納匣'; // 收起只剩圖示：滑過提示名稱
+  if (open) spareSqueeze(true); // 先凍住頁籤列的箭頭再開始長
+  else if (instant) spareSqueeze(false);
+  clearTimeout(sparePopTimer);
+  if (open) {
+    const wasHidden = pop.hidden;
+    pop.hidden = false;
+    renderSpareTray();
+    if (wasHidden && !instant) { placeSparePop(true); void pop.offsetWidth; } // 從正方形鈕的位置開始
+    placeSparePop(); // 跟鈕一起往左長；同時排好版，加上 is-shown 才有過場
+    // 一個接一個落下：編號（太後面的不必再等）
+    [$('spareAddBtn'), ...$('sparePopList').children, pop.querySelector('.spare-pop-hint')].forEach((el, i) => el.style.setProperty('--i', Math.min(i, 8)));
+    pop.classList.add('is-entering');
+    clearTimeout(spareEnterTimer);
+    spareEnterTimer = setTimeout(() => pop.classList.remove('is-entering'), 1000);
+    pop.classList.add('is-shown');
+    document.addEventListener('pointerdown', sparePopOutside, true);
+    document.addEventListener('keydown', sparePopKey, true);
+    window.addEventListener('resize', placeSparePop);
+    return;
+  }
+  if (!instant) placeSparePop(true); // 收回正方形鈕
+  pop.classList.remove('is-shown');
+  document.removeEventListener('pointerdown', sparePopOutside, true);
+  document.removeEventListener('keydown', sparePopKey, true);
+  window.removeEventListener('resize', placeSparePop);
+  if (instant) pop.hidden = true;
+  else sparePopTimer = setTimeout(() => { if (!sparePopOpen) pop.hidden = true; }, 260);
+}
+// 點面板外面＝收起（確認視窗、提示、拖曳中的放大預覽不算外面）
+function sparePopOutside(ev) {
+  if (ev.target.closest && ev.target.closest('#sparePop, #spareBox, .b-modal-overlay:not(#wsModal), .b-toast, .drop-board')) return;
+  setSparePop(false);
+}
+// Esc＝收起（對話框先收、拖曳中是取消拖曳，都不動面板）；不讓 Esc 再往下關掉整個工作區
+function sparePopKey(ev) {
+  if (ev.key !== 'Escape' || ev.defaultPrevented || document.body.classList.contains('is-spare-dragging')) return;
+  ev.preventDefault(); ev.stopPropagation();
+  setSparePop(false);
+  $('spareBtn').focus();
+}
+$('spareBtn').addEventListener('click', () => setSparePop(!sparePopOpen));
+// 鈕縮回正方形之後頁籤列才恢復（解除 is-squeezed、重算箭頭）；長完只更新右邊淡出。頁籤不自動捲動（會位移）
+function spareSqueeze(on) {
+  const n = $('pageTabs');
+  if (!n) return;
+  n.classList.toggle('is-squeezed', on);
+  if (n._updateArrows) n._updateArrows();
+}
+$('spareBtn').addEventListener('transitionend', (e) => {
+  if (e.target !== $('spareBtn') || e.propertyName !== 'width') return;
+  spareSqueeze(sparePopOpen);
+});
+$('spareAddBtn').addEventListener('click', () => { setSparePop(false); newSpare(); });
+/** 清單下面還有沒捲到的：底部淡出。 */
+function spareMore() {
+  const s = $('sparePopList');
+  s.classList.toggle('is-more', s.scrollTop + s.clientHeight < s.scrollHeight - 2);
+}
+$('sparePopList').addEventListener('scroll', spareMore, { passive: true });
+/** 收納匣裡使用中的子頁按「移到未使用」（2026-10-28 user）：同子頁標頭那顆，從格子拿下來收進未使用的子頁（可復原）；正在它裡面就退到它所在的那一層。 */
+function stashUsedSub(e) {
+  const inside = viewInside(e);
+  stashFromCell(e.holder, `原本在「${e.host}」的「${e.cellName}」格`, () => {
+    if (inside) { subStack = e.stack.slice(0, -1); selected = { bi: 0, path: e.stack[e.stack.length - 1] }; }
+    render();
+  });
+}
+/** 收納匣裡的一個子頁：縮圖＋名稱＋在哪（未使用＝「未使用」）；滑過右邊出現刪除。狀態由 renderSpareTray 更新。 */
+function spareItem(e) {
+  const item = document.createElement('div');
+  item.className = 'spare-item' + (e.used ? ' is-used' : '');
+  item._entry = e;
+  item._can = { cur: false, drop: false };
+  item.tabIndex = 0;
+  item.setAttribute('role', 'button');
+  const text = document.createElement('span');
+  text.className = 'spare-item-text';
+  text.innerHTML = '<span class="spare-item-name"></span><span class="spare-item-where"></span>';
+  text.firstChild.textContent = subLabel(e.sub.name);
+  text.lastChild.textContent = e.used ? `${e.host} › ${e.cellName}` : '未使用';
+  const acts = document.createElement('span');
+  acts.className = 'spare-item-acts';
+  const act = (icon, label, fn, danger) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'spare-item-act' + (danger ? ' is-danger' : ''); b.dataset.tipSide = 'out'; // 提示放清單外面，不擋卡片上的字
+    b.title = ''; b.dataset.tip = label; b.setAttribute('aria-label', `${label}「${subLabel(e.sub.name)}」`);
+    b.innerHTML = `<i data-lucide="${icon}"></i>`;
+    b.onclick = (ev) => { ev.stopPropagation(); fn(e.sub); };
+    acts.appendChild(b);
+  };
+  // 改名在子頁標頭的鉛筆（2026-10-27 user：卡片上不要再放一次）；每張都有一顆（2026-10-28 user）：
+  // 使用中的＝移到未使用（收起來圖示，不用垃圾桶免得誤會成刪除），未使用的＝刪除（先確認）
+  if (e.used) act('archive', '移到未使用', () => stashUsedSub(e));
+  else act('trash-2', '刪除', deleteSpare, true);
+  item.append(spareThumb(e.sub, 36, spareTimers), text);
+  if (acts.childElementCount) item.appendChild(acts);
+  item.onkeydown = (ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === item) { ev.preventDefault(); if (!item._can.cur) gotoSub(e); } };
+  attachSpareDrag(item, e);
+  return item;
+}
+
+// ---------- 畫布標頭「N 個子頁」點開＝這一頁的子頁（2026-10-29 user）----------
+// 頁面地圖試過標題列圓鈕＋右欄、浮出面板、modal、三案並排試用，user 選這個：標頭的「N 個子頁」點一下，
+// 往下列出這一頁的子頁（收納匣同款卡片，第二層縮排，寫從哪一格進去），點卡片＝進到那個子頁（同收納匣）；點外面、Esc、換頁就收。
+// 不浮在畫面上（2026-10-29 user：整合成伸縮的標頭）：清單是標頭自己往下長出來的一段，同底色同外框，蓋在預覽上方、不把預覽擠小；
+// 收起時下緣那條線縮回去就是標頭原本的底線。
+/** 開／關清單（#subPop 在 #pageHead 裡、緊接標頭底下往下長）。instant＝直接收（重畫標頭、離開工作區）。 */
+function setSubPop(open, instant) {
+  let pop = $('subPop');
+  if (!pop) {
+    if (!open) return;
+    pop = document.createElement('div');
+    pop.id = 'subPop'; pop.className = 'ph-drawer'; pop.hidden = true;
+    pop.innerHTML = '<div class="ph-drawer-body"><div class="ph-drawer-inner"><div class="ph-drawer-list"></div></div></div>';
+    $('pageHead').appendChild(pop);
+  }
+  if (open === subPopOpen && !instant) return;
+  subPopOpen = open;
+  const head = $('pageHead');
+  const chip = head.querySelector('.ph-chip');
+  if (chip) { chip.classList.toggle('is-open', open); chip.setAttribute('aria-expanded', String(open)); }
+  clearTimeout(pop._t);
+  if (open) {
+    subPopTimers.forEach(clearInterval); subPopTimers = [];
+    const list = pop.querySelector('.ph-drawer-list');
+    list.innerHTML = '';
+    list.scrollTop = 0;
+    allSubs().filter((e) => e.used && !e.spareId && e.pageIndex === pageIndex).forEach((e) => list.appendChild(subIndent(subPopCard(e), e.stack.length > 1)));
+    head.classList.add('is-open'); // 標頭自己的底線讓給抽屜的下緣
+    pop.hidden = false;
+    void pop.offsetWidth;
+    pop.classList.add('is-shown');
+    document.addEventListener('pointerdown', subPopOutside, true);
+    document.addEventListener('keydown', subPopKey, true);
+    return;
+  }
+  pop.classList.remove('is-shown');
+  document.removeEventListener('pointerdown', subPopOutside, true);
+  document.removeEventListener('keydown', subPopKey, true);
+  const done = () => { if (!subPopOpen) { pop.hidden = true; head.classList.remove('is-open'); } };
+  if (instant) done();
+  else pop._t = setTimeout(done, 240);
+}
+// 點標頭以外的地方＝收（標頭本身跟長出來的清單算同一塊）
+function subPopOutside(ev) { if (!(ev.target.closest && ev.target.closest('#pageHead'))) setSubPop(false); }
+// Esc＝收清單；不讓 Esc 再往下關掉整個工作區
+function subPopKey(ev) {
+  if (ev.key !== 'Escape' || ev.defaultPrevented) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  setSubPop(false);
+}
+/** 第二層子頁縮排：左邊一段 └ 線接到上面那張。 */
+function subIndent(el, on) {
+  if (!on) return el;
+  const w = document.createElement('div');
+  w.className = 'sub-indent';
+  w.appendChild(el);
+  return w;
+}
+/** 清單裡的一張：縮圖＋名稱＋從哪一格進去；點了進到那個子頁。 */
+function subPopCard(e) {
+  const item = document.createElement('div');
+  item.className = 'spare-item is-used';
+  item.tabIndex = 0;
+  item.setAttribute('role', 'button');
+  const text = document.createElement('span');
+  text.className = 'spare-item-text';
+  text.innerHTML = '<span class="spare-item-name"></span><span class="spare-item-where"></span>';
+  text.firstChild.textContent = subLabel(e.sub.name);
+  text.lastChild.textContent = e.cellName;
+  item.append(spareThumb(e.sub, 36, subPopTimers), text);
+  const go = () => { setSubPop(false, true); gotoSub(e); };
+  item.onclick = go;
+  item.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } };
+  return item;
+}
+
+/**
+ * 拖曳中的放大預覽（2026-10-27 user：預覽太小，拖的時候看不出拖到哪）：一開始拖，整個視窗變暗，這一頁的放大版從小預覽的位置
+ * 淡入並輕輕放大到畫面中間（2026-10-27 user 回報偶爾卡住：原本從小預覽整個放大過去，大照片與模糊要即時重畫）；放開或取消＝淡出。格子跟小預覽同一套畫法（唯讀＋格子間縫），每一格帶 path，
+ * 命中判斷照舊。已有子頁的格子標上子頁名稱；滑到的格子蓋半透明遮罩（可以放＝主題色、不能放＝淡紅，2026-10-27 user：不要寫字）。
+ * 拖曳期間畫面裡的動畫（呼吸光、動態天空）都停住（body.is-spare-dragging），省得一邊拖一邊重畫。
+ */
+let dropTimers = [];
+// holder＝拖的子頁原本所在的那一格（使用中的子頁），那一格多放一個「已套用這個子頁」標籤，滑到時才顯示
+function openDropBoard(holder) {
+  const pg = page();
+  const scr = state.config.screen && state.config.screen.w > 0 && state.config.screen.h > 0 ? state.config.screen : { w: 1080, h: 1920 };
+  const ratio = scr.w / scr.h;
+  const board = document.createElement('div');
+  board.className = 'drop-board';
+  // 按下去就在背後畫好（透明、不吃滑鼠），show() 只做淡入：照片與模糊這時已經畫完，顯示那一下不用再重畫
+  board.style.opacity = '0';
+  board.style.pointerEvents = 'none';
+  const cv = document.createElement('div');
+  cv.className = 'canvas drop-board-canvas';
+  const H = Math.min(window.innerHeight * 0.86, (window.innerWidth * 0.8) / ratio);
+  cv.style.width = `${Math.round(H * ratio)}px`;
+  cv.style.height = `${Math.round(H)}px`;
+  board.appendChild(cv);
+  document.body.appendChild(board);
+  buildCanvas(cv, pg, scr, { readonly: true, gap: 6, timers: dropTimers, subBar: pg.isSub ? { name: subLabel(pg.name), layout: pg.layout } : null });
+  cv.style.aspectRatio = '';
+  fitPreview(cv);
+  cv.querySelectorAll('.cell').forEach((el) => {
+    const c = getCell({ bi: Number(el.dataset.bi), path: el.dataset.path || '' });
+    if (c && c.tap === 'OpenSubPage' && c.sub) {
+      const tag = document.createElement('span');
+      tag.className = 'drop-sub-tag';
+      tag.textContent = subLabel(c.sub.name);
+      el.appendChild(tag);
+    }
+    // 滑到時蓋上的半透明主題色遮罩（2026-10-27 user：不要寫字）：先放好、只切透明度，換格子時底下的照片／模糊不用重畫
+    el.appendChild(Object.assign(document.createElement('span'), { className: 'drop-mask' }));
+    if (holder && c === holder) el.appendChild(Object.assign(document.createElement('span'), { className: 'drop-here-label', textContent: '已套用這個子頁' }));
+  });
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const done = () => { board.remove(); dropTimers.forEach(clearInterval); dropTimers = []; };
+  return {
+    canvas: cv,
+    show() {
+      board.style.pointerEvents = '';
+      board.style.opacity = '';
+      if (reduce) return;
+      board.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+      cv.animate([{ transform: 'scale(.96)' }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    },
+    discard: done, // 只是點一下、沒有拖：備好的直接丟掉
+    close() {
+      board.style.pointerEvents = 'none';
+      if (reduce) { done(); return; }
+      cv.animate([{ transform: 'none' }, { transform: 'scale(.97)' }], { duration: 180, easing: 'ease-in', fill: 'forwards' });
+      board.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: 'ease-in', fill: 'forwards' }).onfinish = done;
+    },
+  };
+}
+/** 收納匣縮圖：沒拖動＝點選（進去編輯）；拖動＝放到放大預覽的格子上（未使用＝接上、使用中＝移過去）。能不能放看按下去當下的狀態。
+ *  抓起來時縮圖微微放大、傾斜、浮起來（2026-10-27 user）；放開在格子上＝縮小淡出，取消＝飛回原位。Esc＝取消。 */
+function attachSpareDrag(item, e) {
+  item.addEventListener('pointerdown', (down) => {
+    if (down.button !== 0 || down.target.closest('.spare-item-act')) return;
+    const { cur, drop: canDrop, deep } = item._can;
+    const startX = down.clientX, startY = down.clientY;
+    const rect = item.getBoundingClientRect();
+    const offX = startX - rect.left, offY = startY - rect.top;
+    let ghost = null, board = null, target = null, cancelled = false;
+    // 放大預覽按下去就先備好（建畫面要一點時間，藏在按下到開始拖之間），真的拖了才顯示
+    let pre = null;
+    const preRaf = requestAnimationFrame(() => { pre = openDropBoard(e.holder); });
+    // 拖曳中不卡（2026-10-27 user 回報）：滑到的格子沒變就不動它的樣式；位置跟判斷併到下一格畫面才做一次
+    let marked = null, markedKind = '', last = null, raf = 0;
+    // 滑到的格子：可以放＝主題色遮罩、不能放＝淡紅遮罩、原本就在這一格＝淡紅遮罩＋「已套用這個子頁」
+    const mark = (el, kind) => {
+      if (el === marked && kind === markedKind) return;
+      if (marked) marked.classList.remove('is-drop-ok', 'is-drop-no', 'is-drop-here');
+      marked = el; markedKind = kind;
+      if (el) el.classList.add(kind === 'ok' ? 'is-drop-ok' : kind === 'here' ? 'is-drop-here' : 'is-drop-no');
+    };
+    const frame = () => {
+      raf = 0;
+      const m = last;
+      ghost.style.translate = `${m.clientX - offX}px ${m.clientY - offY}px`;
+      const hit = document.elementFromPoint(m.clientX, m.clientY);
+      const el = hit && hit.closest('.cell');
+      const over = el && board.canvas.contains(el) ? el : null;
+      const c = over && getCell({ bi: Number(over.dataset.bi), path: over.dataset.path || '' });
+      if (!c) { target = null; mark(null, ''); return; }
+      const here = c === e.holder;
+      const hasSub = c.tap === 'OpenSubPage' && !!c.sub;
+      const okHere = canDrop && !here && !hasSub;
+      target = okHere ? over : null;
+      mark(over, here ? 'here' : okHere ? 'ok' : 'no');
+    };
+    const move = (m) => {
+      if (m.pointerId !== down.pointerId) return; // 別的手指／筆不算
+      if (!ghost) {
+        if (Math.hypot(m.clientX - startX, m.clientY - startY) < 6) return;
+        try { item.setPointerCapture(down.pointerId); } catch { /* 拿不到也沒關係：事件掛在整個視窗上 */ }
+        item.classList.add('is-dragging');
+        document.body.classList.add('is-spare-dragging');
+        document.body.style.cursor = canDrop ? 'grabbing' : 'not-allowed';
+        cancelAnimationFrame(preRaf);
+        board = pre || openDropBoard(e.holder);
+        board.show();
+        ghost = item.cloneNode(true);
+        ghost.classList.remove('is-dragging'); // 原本那張淡掉，拖著走的這張不要跟著淡
+        ghost.classList.add('spare-ghost');
+        ghost.style.width = `${rect.width}px`;
+        ghost.style.transformOrigin = `${offX}px ${offY}px`; // 以抓的地方為中心放大
+        ghost.style.translate = `${rect.left}px ${rect.top}px`;
+        document.body.appendChild(ghost);
+        requestAnimationFrame(() => ghost && ghost.classList.add('is-lifted'));
+        document.addEventListener('keydown', onKey, true);
+        window.addEventListener('blur', onBlur);
+      }
+      last = m;
+      if (!raf) raf = requestAnimationFrame(frame);
+    };
+    const onKey = (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); cancelled = true; end(); } };
+    const onBlur = () => { cancelled = true; end(); }; // 切到別的視窗、拖到一半被打斷
+    const onUp = (u) => { if (u.pointerId !== down.pointerId) return; if (u.type === 'pointercancel') cancelled = true; end(); };
+    const end = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('blur', onBlur);
+      if (!ghost) { cancelAnimationFrame(preRaf); if (pre) pre.discard(); if (!cur) gotoSub(e); return; } // 沒拖動＝點選
+      if (raf) { cancelAnimationFrame(raf); raf = 0; if (!cancelled) frame(); } // 放開前最後那一下也要算進去
+      const to = !cancelled && target ? { bi: Number(target.dataset.bi), path: target.dataset.path || '' } : null;
+      // 層數不夠還硬放到格子上：說為什麼（2026-10-29 user）
+      if (!to && !cancelled && deep && markedKind === 'no') BToast.show('無法加入子頁', 'warning', { desc: depthDesc() });
+      document.body.classList.remove('is-spare-dragging');
+      mark(null, '');
+      board.close();
+      document.body.style.cursor = '';
+      const g = ghost;
+      ghost = null;
+      const fin = () => { g.remove(); item.classList.remove('is-dragging'); };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) fin();
+      else if (to) g.animate([{ scale: '1.08', opacity: 1 }, { scale: '.6', opacity: 0 }], { duration: 160, easing: 'ease-in', fill: 'forwards' }).onfinish = fin;
+      else {
+        g.classList.remove('is-lifted');
+        g.animate([{ translate: g.style.translate }, { translate: `${rect.left}px ${rect.top}px` }], { duration: 260, easing: NAV_EASE, fill: 'forwards' }).onfinish = fin;
+      }
+      if (!to) return;
+      if (e.used) moveSub(e, to); else dropSpare(e.sub.id, to);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
 }
 
 // 「在機器上展示此頁」（2026-09-08 指示回歸，改成 icon 鈕放在畫布下方「本機複製頁面」右邊）：
@@ -1244,6 +2015,7 @@ function renderCanvas() {
   previewTimers = [];
   normalizePage(page()); // 舊版面的多個大區塊先併成一個區塊（畫起來一樣），之後每一格都能再切
   renderTrail(); // 畫布標頭（名稱、路徑、子頁數）跟著畫布一起更新
+  renderSpareTray(); // 未使用的子頁收納列（清單沒變就不重建）
   const pg = page();
   buildCanvas(canvas, pg, state.config.screen, { timers: previewTimers, subBar: pg && pg.isSub ? { name: subLabel(pg.name), layout: pg.layout } : null });
   cancelAnimationFrame(canvas._fitRaf); // 連續重畫只量最後一次；轉場會直接拿來先量（navAnimate）
@@ -1333,7 +2105,7 @@ function buildCanvas(canvas, pg, screen, opts) {
   const root = document.createElement('div');
   root.className = 'cv-root';
   canvas.appendChild(root);
-  const gap = editable ? CANVAS_GAP : 0;
+  const gap = opts.gap != null ? opts.gap : editable ? CANVAS_GAP : 0; // opts.gap：唯讀預覽也要縫（拖曳時的放大預覽）
 
   // 格子（右上角標籤＝與 App cellPixelSize 相同的「實際機器像素」）＋每個分割一條分隔線
   const cells = [], dividers = [];
@@ -1403,7 +2175,8 @@ function buildCanvas(canvas, pg, screen, opts) {
  * 跑馬燈字高 = 格高 55%、等速滑動（≈90dp/s 換算）；天氣字級 = min(格高比, 格寬比)；
  * 文字內容字級相對整個畫面寬（App 用固定 headlineMedium）。
  */
-function fitPreview(canvasEl) {
+// opts.live＝過場中每一格重量：只調字級，不重開跑馬燈動畫（每一格重開會一直跳回起點）
+function fitPreview(canvasEl, opts = {}) {
   const canvas = canvasEl || $('canvas');
   // 用 offsetWidth/Height（排版尺寸）而不是 getBoundingClientRect：縮圖預覽用 transform 縮放做開闔動畫，
   // 動畫中量到的 rect 是縮小後的值，字級會被算成超小（2026-09-07 user 回報）
@@ -1412,49 +2185,55 @@ function fitPreview(canvasEl) {
   // 子頁頂欄：標題 30px × 頂欄倍數（以 1080 寬為準）照畫布寬換算，太小看不清就至少 9px；圓鈕、間距用 em 跟著縮放
   const subBar = canvas.querySelector('.cv-subbar');
   if (subBar) subBar.style.fontSize = `${Math.max(9, (cw * 30 * Number(subBar.dataset.tb || 1)) / 1080)}px`;
-  canvas.querySelectorAll('.cell').forEach((el) => {
-    const h = el.offsetHeight, w = el.offsetWidth;
+  // 先把每一格的尺寸一次讀完、再一起寫（2026-10-27 user 回報進出子頁卡）：之前讀一格寫一格，每一格都逼瀏覽器重排一次，
+  // 格子多的頁面光這裡就吃掉好幾格畫面。算法與結果都跟原本一樣，只是把讀寫分批。
+  const items = [...canvas.querySelectorAll('.cell')].map((el) => ({
+    h: el.offsetHeight, w: el.offsetWidth,
+    text: el.querySelector('.pv-text'), mq: el.querySelector('.pv-marquee span'), wx: el.querySelector('.pv-weather2'),
+  }));
 
-    const text = el.querySelector('.pv-text');
-    if (text) {
-      // 字級 = 畫面寬 7% × 字級%，但只是上限：格子放不下（例：300% 塞進矮格）就等比縮到剛好放得下，
-      // 否則字會被格子裁掉只剩中間一條（user 2026-09-08 回報「文字不見了」）。App 端用 autoSize 做同樣的事。
-      // 內距跟著字級走（預設 4/7），縮字時內距一起縮，矮格才有空間放字。
-      let fs = cw * 0.07 * (Number(text.dataset.size || 100) / 100);
-      const apply = () => { text.style.fontSize = `${fs}px`; text.style.padding = `${fs * 4 / 7}px`; };
-      apply();
-      for (let i = 0; i < 16 && fs > 4 && (text.scrollHeight > h || text.scrollWidth > w); i++) { fs *= 0.88; apply(); }
-    }
+  // 文字：字級 = 畫面寬 7% × 字級%，但只是上限：格子放不下（例：300% 塞進矮格）就等比縮到剛好放得下，
+  // 否則字會被格子裁掉只剩中間一條（user 2026-09-08 回報「文字不見了」）。App 端用 autoSize 做同樣的事。
+  // 內距跟著字級走（預設 4/7），縮字時內距一起縮，矮格才有空間放字。每一輪所有放不下的格子一起縮一級、一起量。
+  const setFs = (it, fs) => { it.fs = fs; it.text.style.fontSize = `${fs}px`; it.text.style.padding = `${fs * 4 / 7}px`; };
+  let pending = items.filter((it) => it.text);
+  pending.forEach((it) => setFs(it, cw * 0.07 * (Number(it.text.dataset.size || 100) / 100)));
+  for (let i = 0; i < 16 && pending.length; i++) {
+    pending = pending.filter((it) => it.fs > 4 && (it.text.scrollHeight > it.h || it.text.scrollWidth > it.w));
+    pending.forEach((it) => setFs(it, it.fs * 0.88));
+  }
 
-    const mq = el.querySelector('.pv-marquee span');
-    if (mq) mq.style.fontSize = `${h * 0.55}px`;
-    if (mq && !canvas.classList.contains('is-still')) { // 靜止縮圖：跑馬燈停在開頭不跑
-      const spanW = mq.offsetWidth;
-      const pct = Math.max(Number(mq.dataset.speed || 100) / 100, 0.1);
-      const speed = cw * 0.19 * pct; // App 為 90dp/s，約等於螢幕寬的 19%/秒
-      if (mq._anim) mq._anim.cancel();
-      mq._anim = mq.animate(
-        [{ transform: `translateX(${w}px)` }, { transform: `translateX(${-spanW}px)` }],
-        { duration: ((w + spanW) / speed) * 1000, iterations: Infinity, easing: 'linear' },
-      );
-    }
+  // 天氣：只有寫入
+  items.forEach(({ wx, h, w }) => {
+    if (!wx) return;
+    const temp = Math.min(h * 0.45, w * 0.14);
+    const loc = Math.min(h * 0.26, w * 0.085);
+    wx.style.padding = `0 ${h * 0.1}px`;
+    const set = (sel, px) => wx.querySelectorAll(sel).forEach((n) => { n.style.fontSize = `${px}px`; });
+    set('.pvw-loc', loc);
+    set('.pvw-info', loc * 0.55);
+    set('.pvw-temp', temp);
+    set('.pvw-icon', temp * 0.82);
+    set('.pvw-drop', loc * 0.6);
+    set('.pvw-hint', h * 0.18);
+    const locEl = wx.querySelector('.pvw-loc');
+    if (locEl) locEl.style.marginBottom = `${h * 0.055}px`;
+  });
 
-    const wx = el.querySelector('.pv-weather2');
-    if (wx) {
-      const temp = Math.min(h * 0.45, w * 0.14);
-      const loc = Math.min(h * 0.26, w * 0.085);
-      wx.style.padding = `0 ${h * 0.1}px`;
-      const set = (sel, px) => wx.querySelectorAll(sel).forEach((n) => { n.style.fontSize = `${px}px`; });
-      set('.pvw-loc', loc);
-      set('.pvw-info', loc * 0.55);
-      set('.pvw-temp', temp);
-      set('.pvw-icon', temp * 0.82);
-      set('.pvw-drop', loc * 0.6);
-      set('.pvw-hint', h * 0.18);
-      const locEl = wx.querySelector('.pvw-loc');
-      if (locEl) locEl.style.marginBottom = `${h * 0.055}px`;
-    }
-
+  // 跑馬燈：先全部設好字級，再一起量寬度、開動畫
+  const mqs = items.filter((it) => it.mq);
+  mqs.forEach((it) => { it.mq.style.fontSize = `${it.h * 0.55}px`; });
+  if (opts.live) return;
+  if (canvas.classList.contains('is-still')) return; // 靜止縮圖：跑馬燈停在開頭不跑
+  mqs.forEach((it) => { it.spanW = it.mq.offsetWidth; });
+  mqs.forEach(({ mq, w, spanW }) => {
+    const pct = Math.max(Number(mq.dataset.speed || 100) / 100, 0.1);
+    const speed = cw * 0.19 * pct; // App 為 90dp/s，約等於螢幕寬的 19%/秒
+    if (mq._anim) mq._anim.cancel();
+    mq._anim = mq.animate(
+      [{ transform: `translateX(${w}px)` }, { transform: `translateX(${-spanW}px)` }],
+      { duration: ((w + spanW) / speed) * 1000, iterations: Infinity, easing: 'linear' },
+    );
   });
 }
 
@@ -1872,19 +2651,23 @@ function cellDiv(cell, sel, sizePx, opts) {
   badge.innerHTML = `<span>${typeLabel} · ${sizePx ? `${sizePx.w}×${sizePx.h}` : ''}</span>` +
     (cell.tap && cell.tap !== 'None' ? '<span class="material-icons">open_in_new</span>' : '');
   el.appendChild(badge);
-  // 有子頁的格子：左上角小圖示；點兩下直接進子頁
+  // 有子頁的格子：左上角「子頁名稱 ›」，點一下就進子頁（2026-10-27 user）；點兩下格子也照樣進得去
   if (cell.tap === 'OpenSubPage' && cell.sub) {
-    const chip = document.createElement('div');
-    chip.className = 'pv-sub-chip';
-    chip.title = `這一格有子頁「${subLabel(cell.sub.name)}」，按兩下即可編輯`;
-    chip.innerHTML = '<span class="material-icons" aria-hidden="true">layers</span>';
-    el.appendChild(chip);
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'pv-sub-pill';
+    pill.title = `編輯子頁「${subLabel(cell.sub.name)}」`;
+    pill.innerHTML = '<span class="material-icons" aria-hidden="true">layers</span><span class="pv-sub-name"></span><span class="material-icons" aria-hidden="true">chevron_right</span>';
+    pill.querySelector('.pv-sub-name').textContent = subLabel(cell.sub.name);
+    pill.addEventListener('pointerdown', (e) => e.stopPropagation()); // 不算拖曳格子
+    pill.onclick = (e) => { e.stopPropagation(); enterSub(sel.path); };
+    el.appendChild(pill);
   }
 
   el.onclick = () => {
     if (el._dragged) { el._dragged = false; return; }
     // 點兩下有子頁的格子＝進子頁（第一下會重畫畫布，第二下落在新的格子元素上，瀏覽器的 dblclick 不會觸發，自己算）
-    const key = `${subStack.join('/')}|${sel.path}`, now = Date.now();
+    const key = `${spareEdit}|${subStack.join('/')}|${sel.path}`, now = Date.now();
     if (cell.tap === 'OpenSubPage' && cell.sub && lastCellClick.key === key && now - lastCellClick.t < 450) {
       lastCellClick = { key: '', t: 0 };
       enterSub(sel.path);
@@ -2207,11 +2990,14 @@ function renderPanel() {
       // 有設定的格子：直接刪＋「復原」toast（原本先跳確認）；空白格直接刪、不跳
       const used = (cell.content && cell.content !== 'None') || (cell.bg === 'Image' && (cell.bgImgs || []).length) || (cell.tap && cell.tap !== 'None');
       const doDelete = () => {
+        // 這一格的子頁不跟著不見：收進未使用的子頁（2026-10-27 user）
+        const moved = cell.tap === 'OpenSubPage' && cell.sub && stashSub(cell.sub, fromCell(cell, sel.path)) ? cell.sub.name : null;
         const { root, sibling } = deleteFromTree(block.node, sel.path);
         block.node = root;
         const p = sibling && !isSplit(sibling) ? pathOf(root, sibling) : null; // 接手的那一格是單格就選它
         selected = p === null ? null : { bi: sel.bi, path: p };
         setDirty(true); refresh();
+        return moved !== null ? { desc: movedDesc(moved) } : null;
       };
       if (used) withUndo('已刪除這一格。', doDelete); else doDelete();
     });
@@ -2413,37 +3199,53 @@ function renderPanel() {
   // ---- 點擊動作 ----
   {
     sec('點擊動作');
-    const level = subStack.length + 1; // 這一頁是第幾層（主頁＝1）
+    const level = curLevel(); // 這一頁是第幾層（主頁＝1）
+    // 進入子頁：舊版 App（≤1.59）不認得子頁、或這一頁已經是第二層子頁 → 照列但變灰、掛小標說原因（已經設好的格子照常可改）
+    const subOk = subsSupported();
     rowFull(selInput(
       [['None', '無'], ['OpenWeb', '開啟網頁'], ['OpenAssistant', 'AI 智能客服'], ['OpenParkInfo', '園區資訊'], ['OpenSubPage', '進入子頁']]
-        .map(([k, n]) => (k === 'OpenParkInfo' ? parkOpt(k, n, cell.tap === 'OpenParkInfo') : [k, n]))
-        .filter(([k]) => k !== 'OpenSubPage' || (SUBPAGES_OFFERED && level < MAX_DEPTH) || cell.tap === 'OpenSubPage'),
+        .map(([k, n]) => (k === 'OpenParkInfo' ? parkOpt(k, n, cell.tap === 'OpenParkInfo')
+          : k === 'OpenSubPage' && cell.tap !== 'OpenSubPage' && !subOk ? [k, n, true, '需更新 App']
+          : k === 'OpenSubPage' && cell.tap !== 'OpenSubPage' && level >= MAX_DEPTH ? [k, n, true, '已達上限'] : [k, n])),
       cell.tap || 'None',
-      (v) => {
+      async (v) => {
+        // 選「進入子頁」＝跳出取名視窗（同新增版面，2026-10-27 user）：建立＝一格空白的新子頁、直接進去編輯；
+        // 也可以從未使用的子頁挑一個接上來；取消＝維持原本的動作
+        if (v === 'OpenSubPage') {
+          const r = await subNameDialog(true);
+          if (!r || !state || getCell(sel) !== cell) { renderPanel(); return; }
+          if (r.spareId) { attachSpare(r.spareId, sel); return; }
+          cell.tap = 'OpenSubPage';
+          cell.sub = { name: r.name, node: DEFAULT_CELL(), layout: 'Kiosk' };
+          setDirty(true);
+          enterSub(sel.path);
+          return;
+        }
+        const name = cell.sub ? cell.sub.name : '';
         const apply = () => {
-          // 子頁跟著「進入子頁」：選了才建（一格空白），改成別的動作就拿掉
-          if (v === 'OpenSubPage') { if (!cell.sub) cell.sub = { name: '', node: DEFAULT_CELL(), layout: 'Kiosk' }; } else delete cell.sub;
+          // 改成別的動作：子頁收進未使用的子頁（沒東西的直接丟）
+          const moved = cell.tap === 'OpenSubPage' && cell.sub && stashSub(cell.sub, fromCell(cell, sel.path));
+          delete cell.sub;
           cell.tap = v; if (v === 'OpenParkInfo' && PARK_API) cell.wStUrl = PARK_API; setDirty(true); refresh(); // 舊版 App（≤1.59）只認格子自己的網址
+          return moved;
         };
-        // 子頁裡已經有東西：直接拿掉、toast 可以復原（同刪格子）
-        if (cell.tap === 'OpenSubPage' && v !== 'OpenSubPage' && subHasContent(cell.sub)) withUndo(`已刪除子頁「${subLabel(cell.sub.name)}」。`, apply);
+        if (cell.tap === 'OpenSubPage' && subHasContent(cell.sub)) withUndo(movedDesc(name), apply);
         else apply();
       },
     ));
     const tapFrom = body.children.length;
     if (cell.tap === 'OpenSubPage' && cell.sub) {
-      const subNameInput = txtInput(cell.sub.name, '子頁', (v) => { cell.sub.name = v; setDirty(true); renderTrail(); });
-      subNameInput.maxLength = 20; // 同 App（子頁頂欄的標題）
-      subRow('子頁名稱', subNameInput);
-      // 子頁版面（2026-10-20 user）：跟客服、園區資訊同一組選項，小螢幕用手機模式，頂欄與字不放大
-      subRow('子頁版面', selInput([['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']], cell.sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk', (v) => { cell.sub.layout = v; touch(); }));
-      subRow('', hint('預設為 KIOSK展示模式（頂欄與文字放大，適合大螢幕），小螢幕請選擇手機操作模式，維持一般大小。'));
+      // 子頁名稱改在子頁標頭的鉛筆改（2026-10-27）；這裡一顆鈕直接進去
       const go = document.createElement('button');
       go.type = 'button';
       go.className = 'b-btn b-btn-sm sub-enter-btn';
-      go.innerHTML = '<span>編輯子頁</span><span class="material-icons" aria-hidden="true">chevron_right</span>';
+      go.innerHTML = '<span class="sub-enter-name"></span><span class="material-icons" aria-hidden="true">chevron_right</span>';
+      go.querySelector('.sub-enter-name').textContent = `編輯子頁「${subLabel(cell.sub.name)}」`;
       go.onclick = () => enterSub(sel.path);
-      subRow('', go);
+      subRow('子頁', go);
+      // 子頁版面（2026-10-20 user）：跟客服、園區資訊同一組選項，小螢幕用手機模式，頂欄與字不放大
+      subRow('子頁版面', selInput([['Kiosk', 'KIOSK展示模式'], ['Mobile', '手機操作模式']], cell.sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk', (v) => { cell.sub.layout = v; touch(); }));
+      subRow('', hint('預設為 KIOSK展示模式（頂欄與文字放大，適合大螢幕），小螢幕請選擇手機操作模式，維持一般大小。'));
       // 主頁下面最多兩層子頁（2026-10-20 user）；文字不講「第幾層」免得跟主頁算在一起搞混
       subRow('', hint(level === 1 ? '子頁是完整的版面，可像首頁一樣分格並放置圖片與文字，子頁中還能再加入一層子頁。'
         : '這是第 1 層子頁，其中還能再加入一層子頁（最多兩層）。'));
@@ -2925,7 +3727,7 @@ $('dupPageBtn').addEventListener('click', () => {
   copy.name = (src.name || `頁面 ${pageIndex + 1}`) + '2';
   state.config.pages.push(copy);
   pageIndex = state.config.pages.length - 1;
-  selected = null; subStack = []; setDirty(true); render();
+  selected = null; subStack = []; spareEdit = 0; setDirty(true); render();
   setStatus(`已複製為「${copy.name}」，儲存並發布後才會顯示在機器上。`);
 });
 
@@ -3776,12 +4578,44 @@ async function deleteSharedLayout(layout) {
   renderSharedLayoutView();
 }
 
-/** 把一個版面「加入」勾選的機器：頁面附加在該機現有頁面後面（不覆蓋），逐台發布。 */
+/** 頁面裡有沒有接在格子上的子頁（套用到舊版 App 的機器要提醒）。 */
+const pagesHaveSubs = (pages) => (pages || []).some((pg) => (pg.blocks || []).some((b) => leavesOf(b.node).some(({ cell }) => cell.tap === 'OpenSubPage' && cell.sub)));
+/** 子頁放進一台機器的未使用的子頁（放最前面、照原本順序、重新編號）；同名同內容的已經有了就不再放一份（同一個版面套用好幾次）。
+ *  回傳 { list, n }：新清單、實際放了幾個。 */
+function mergeSpares(existing, add) {
+  const list = [...(existing || [])];
+  const has = (sp) => list.some((x) => (x.name || '') === (sp.name || '') && canonicalJson(x.node) === canonicalJson(sp.node));
+  let id = Math.max(0, ...list.map((sp) => sp.id || 0));
+  let n = 0;
+  [...add].reverse().forEach((sp) => {
+    if (has(sp)) return;
+    list.unshift({ id: ++id, name: sp.name || '', node: JSON.parse(JSON.stringify(sp.node)), layout: sp.layout === 'Mobile' ? 'Mobile' : 'Kiosk', from: sp.from || '' });
+    n++;
+  });
+  return { list, n };
+}
+/** 共用版面的未使用的子頁（2026-10-27 user：套用時一起帶過去），「原本在…」改成來自哪個版面。 */
+const layoutSpares = (layout) => (Array.isArray(layout.spareSubs) ? layout.spareSubs : []).map((sp) => ({ ...sp, from: `來自共用版面「${layout.name || '未命名版面'}」` }));
+/** 「展示版面」要把機器那一頁換成版面內容時，那一頁上機器自己的子頁（版面裡沒有一模一樣的）先拿出來收進未使用的子頁，
+ *  不跟著被蓋掉（2026-10-27 user）。更深的子頁跟著它的上一層走。 */
+function pageOwnSubs(oldPage, newBlocks, pageName) {
+  const key = (sub) => canonicalJson({ name: sub.name || '', node: sub.node, layout: sub.layout === 'Mobile' ? 'Mobile' : 'Kiosk' });
+  const keep = new Set();
+  (newBlocks || []).forEach((b) => leavesOf(b.node).forEach(({ cell }) => { if (cell.tap === 'OpenSubPage' && cell.sub) keep.add(key(cell.sub)); }));
+  const out = [];
+  (oldPage.blocks || []).forEach((b) => leavesOf(b.node).forEach(({ cell, path }) => {
+    if (cell.tap !== 'OpenSubPage' || !cell.sub || !subHasContent(cell.sub) || keep.has(key(cell.sub))) return;
+    out.push({ ...cell.sub, from: `原本在「${pageName}」的「${cellNameOf(cell, path, b.node)}」格` });
+  }));
+  return out;
+}
+
+/** 把一個版面「加入」勾選的機器：頁面附加在該機現有頁面後面（不覆蓋），逐台發布；版面的未使用的子頁一起放進機器的未使用的子頁。 */
 async function applySharedLayout(layout) {
   if (!layout.pages || !layout.pages.length) return;
   const name = layout.name || '未命名版面';
   await appendPagesToDevices({
-    pages: layout.pages, screen: layout.screen, fallbackName: layout.name || '', layoutId: layout.id,
+    pages: layout.pages, screen: layout.screen, fallbackName: layout.name || '', layoutId: layout.id, spares: layoutSpares(layout),
     title: `將「${name}」加入機器`,
     desc: '這個版面會加入為所選機器的新頁面（位於現有頁面之後）並立即發布，機器原有的頁面與設定都不受影響。',
     noTargetsTitle: '沒有機器', noTargetsDesc: '此帳號目前沒有任何機器。',
@@ -3790,7 +4624,8 @@ async function applySharedLayout(layout) {
 }
 
 /** 把一組頁面「接在」所選機器現有頁面後面並發布（版面設定「加入機器」與工作區「加到其他機器」共用）。
- *  opts = { pages, screen, fallbackName, layoutId?, excludeDeviceId?, title, desc, noTargetsTitle, noTargetsDesc, verb }
+ *  opts = { pages, screen, fallbackName, layoutId?, spares?, excludeDeviceId?, title, desc, noTargetsTitle, noTargetsDesc, verb }
+ *  spares＝一起放進機器未使用的子頁的子頁（版面設定「加入機器」才有）。頁面裡有子頁、機器的 App 太舊＝提醒（照樣可以加入）。
  *  layoutId＝來源版面 id（版面設定「加入機器」才有）：打在每一頁上，機器總覽「展示版面」靠它認出這台機器裡哪一頁是那個版面；
  *  工作區「加到其他機器」不傳（頁上原本有記號會跟著深拷貝過去）。 */
 async function appendPagesToDevices(opts) {
@@ -3801,6 +4636,7 @@ async function appendPagesToDevices(opts) {
   if (opts.excludeDeviceId) devices = devices.filter((d) => d.DeviceId !== opts.excludeDeviceId);
   if (!devices.length) return BDialog.alert({ title: opts.noTargetsTitle, desc: opts.noTargetsDesc });
   const srcPortrait = !opts.screen || opts.screen.h >= opts.screen.w;
+  const hasSubs = pagesHaveSubs(srcPages);
   const infos = await Promise.all(devices.map(async (d) => {
     try {
       const cfg = await api('GET', `/api/config/${encodeURIComponent(d.DeviceId)}`);
@@ -3809,8 +4645,9 @@ async function appendPagesToDevices(opts) {
       const warns = [];
       if ((!scr || scr.h >= scr.w) !== srcPortrait) warns.push('⚠ 螢幕方向不同');
       if (pages.length + srcPages.length > MAX_PAGES) warns.push(`⚠ 加入後超過 ${MAX_PAGES} 頁上限`);
-      return { d, warn: warns.join('　'), pages };
-    } catch { return { d, warn: '', pages: [] }; }
+      if (hasSubs && !appSupportsSubs(d.LastAppVersion)) warns.push('⚠ App 需更新才能開啟子頁');
+      return { d, warn: warns.join('　'), pages, spares: cfg.config.spareSubs, ok: true };
+    } catch { return { d, warn: '⚠ 無法取得設定', pages: [] }; }
   }));
   const picked = await pickDevicesDialog({ title: opts.title, desc: opts.desc, confirmText: '加入並發布', items: infos });
   if (!picked || !picked.length) return;
@@ -3819,7 +4656,9 @@ async function appendPagesToDevices(opts) {
   const failed = [];
   for (const d of picked) {
     const info = infos.find((i) => i.d === d);
-    const existing = info ? info.pages : [];
+    // 讀不到這台的設定就不寫：不然送出去的頁面清單只有新加的這幾頁，機器原本的頁面會被蓋掉
+    if (!info || !info.ok) { failed.push(`${d.DeviceName || d.DeviceId}（無法取得設定）`); continue; }
+    const existing = info.pages;
     if (existing.length + srcPages.length > MAX_PAGES) {
       failed.push(`${d.DeviceName || d.DeviceId}（超過 ${MAX_PAGES} 頁上限）`);
       continue;
@@ -3827,8 +4666,11 @@ async function appendPagesToDevices(opts) {
     // 頁面 id 在同一台機器的 config 裡要唯一 → 附加時重新編號；
     // 頁面沒取名就帶版面名，機器的頁籤/admin-pager 上才認得出來
     const appended = stampAppendedPages(srcPages, existing, opts.fallbackName, opts.layoutId);
+    const config = { pages: [...existing, ...appended] };
+    const sp = opts.spares && opts.spares.length ? mergeSpares(info.spares, opts.spares) : null;
+    if (sp && sp.n) config.spareSubs = sp.list;
     try {
-      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config: { pages: [...existing, ...appended] }, reason: { type: 'appendLayout', layoutName: opts.fallbackName || '' } });
+      await api('PUT', `/api/config/${encodeURIComponent(d.DeviceId)}`, { config, reason: { type: 'appendLayout', layoutName: opts.fallbackName || '' } });
       done.push(d);
     } catch { failed.push(d.DeviceName || d.DeviceId); }
   }
@@ -5516,6 +6358,7 @@ function setNotifPanel(open) {
   if (open === !panel.hidden) return;
   clearTimeout(notifLeaveTimer);
   if (open) {
+    if (window.bHdrOpened) bHdrOpened('notif'); // 頂欄選單同時只開一個（kit.js）
     notifShownReadAt = notifData.readAt;
     renderNotifPanel();
     panel.hidden = false;
@@ -5535,6 +6378,7 @@ function setNotifPanel(open) {
   $('notifBtn').setAttribute('aria-expanded', String(open));
 }
 $('notifBtn').addEventListener('click', () => setNotifPanel($('notifPanel').hidden));
+document.addEventListener('b:hdr-open', (e) => { if (e.detail !== 'notif') setNotifPanel(false); });
 
 // ---------- 瀏覽器分頁標題與小圖示（2026-10-14 精修）----------
 // 標題＝「(未讀數) 目前這一頁｜站名 展示機管理系統」，開著工作區時是機器名稱；有未讀時分頁小圖示右上角加紅點。
@@ -6042,6 +6886,7 @@ function showLayoutWizardDialog(devices, layouts) {
       '<p>勾選機器後按一下「下一步」選擇共用版面，再按一下「完成」，這些機器就會一起切換到該版面並進入展示模式。</p>' +
       '<p>機器中已有這個版面時會直接切換到該頁，沒有時會先將版面加在現有頁面之後再切換，頁數已滿則無法加入。</p>' +
       '<p>若版面已在後台修改，機器上的該頁會一併更新為目前的版面內容（機器上對該頁所做的修改會被覆蓋），狀況欄會先標示哪些機器將更新。</p>' +
+      '<p>該頁原有的子頁會移至機器的「未使用的子頁」，不會遺失。版面中未使用的子頁也會一併加入。</p>' +
       '<p>按一下「上一步」會保留勾選，中途關閉則不會變更任何機器。</p>' +
       '</div>';
     const helpBtn = help.querySelector('[data-pop]');
@@ -6267,8 +7112,10 @@ function planLayoutShow(layout, infos) {
   const srcPages = layout.pages || [];
   const srcPortrait = !layout.screen || layout.screen.h >= layout.screen.w;
   const srcBlocks = pageTreeJson((srcPages[0] || {}).blocks);
+  const hasSubs = pagesHaveSubs(srcPages);
   return infos.map((info) => {
     if (!info.cfg) return { ...info, action: 'unreadable' };
+    info = { ...info, oldApp: hasSubs && !appSupportsSubs(info.d.LastAppVersion) }; // 版面有子頁、這台的 App 太舊：開不了子頁
     const pages = info.cfg.pages || [];
     const scr = info.cfg.screen;
     const portraitMismatch = (!scr || scr.h >= scr.w) !== srcPortrait;
@@ -6298,6 +7145,8 @@ function describePlan(plan) {
   if (mis.length) warns.push(`⚠ ${names(mis)} 螢幕方向不同`);
   if (grp('full').length) warns.push(`⚠ ${names(grp('full'))} 已達 ${MAX_PAGES} 頁上限，無法加入`);
   if (grp('unreadable').length) warns.push(`⚠ ${names(grp('unreadable'))} 無法取得設定`);
+  const old = plan.filter((p) => p.oldApp && ['showing', 'switch', 'add'].includes(p.action));
+  if (old.length) warns.push(`⚠ ${names(old)} 的 App 需更新才能開啟子頁`);
   return { note: parts.join('　'), noteWarn: warns.join('　'), disabled: !!(grp('full').length || grp('unreadable').length) };
 }
 
@@ -6320,8 +7169,11 @@ async function showLayoutWizard() {
 
   const done = [];
   const failed = [];
+  const fromLayout = layoutSpares(layout);
+  let moved = 0; // 機器那一頁被更新時，收進未使用的子頁的機器自己的子頁
   for (const p of plan) {
     let config;
+    let spareList = p.cfg ? p.cfg.spareSubs : null;
     if (p.action === 'add') {
       const existing = p.cfg.pages || [];
       const appended = stampAppendedPages(layout.pages, existing, layout.name || '', layout.id);
@@ -6330,12 +7182,19 @@ async function showLayoutWizard() {
       if (p.stale) {
         // 內容跟版面不同就一律更新（user 2026-09-09 定案，不做開關）：那一頁換成版面目前的內容
         // （頁 id／位置／頁名不動，記號補上），同一次 PUT 一起切頁
+        const old = (p.cfg.pages || [])[p.idx];
+        const newBlocks = (layout.pages[0] || {}).blocks || [];
+        const own = mergeSpares(spareList, pageOwnSubs(old, newBlocks, old.name || `頁面 ${p.idx + 1}`));
+        if (own.n) { spareList = own.list; moved += own.n; }
         const pages = (p.cfg.pages || []).map((pg, i) => (i === p.idx
-          ? { ...pg, blocks: JSON.parse(JSON.stringify((layout.pages[0] || {}).blocks || [])), layoutId: layout.id }
+          ? { ...pg, blocks: JSON.parse(JSON.stringify(newBlocks)), layoutId: layout.id }
           : pg));
         config = { pages, activePage: p.idx };
       } else config = { activePage: p.idx }; // 展示中的也送：把停在管理頁的機器帶進展示模式
     } else { failed.push(p.d.DeviceName || p.d.DeviceId); continue; }
+    // 版面的未使用的子頁一起帶過去（已經有一樣的就不再放）
+    const sp = mergeSpares(spareList, fromLayout);
+    if (sp.n || spareList !== (p.cfg && p.cfg.spareSubs)) config.spareSubs = sp.list; // 有新放進去的、或剛剛收了機器自己的子頁
     try {
       const mode = p.action === 'showing' || p.action === 'switch' ? (p.stale ? 'update' : 'switch') : 'append';
       await api('PUT', `/api/config/${encodeURIComponent(p.d.DeviceId)}`, { config, reason: { type: 'showLayout', layoutName: layout.name || '', mode } });
@@ -6344,7 +7203,8 @@ async function showLayoutWizard() {
   }
   // 例：「大廳、櫃台」正在切換到「大廳版面」。／…無法切換「倉庫」。
   const okPart = done.length ? `「${devNames(done)}」正在切換到「${layoutName}」。` : '';
-  if (!failed.length) setStatus(okPart);
+  const movedLine = done.length && moved ? `機器上原本的 ${moved} 個子頁已移至未使用的子頁。` : ''; // 第二句放說明那一行（一行一句）
+  if (!failed.length) { if (movedLine && window.BToast) BToast.show(okPart, 'success', { desc: movedLine }); else setStatus(okPart); }
   else setStatus(okPart ? `${okPart}無法切換「${failed.join('、')}」。` : `無法切換「${failed.join('、')}」。請稍後再試一次。`, true);
   renderDevicesView(); // 列縮圖改成新的展示頁（activePage 已寫進伺服器）
 }

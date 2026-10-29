@@ -291,6 +291,8 @@ html:root[data-color-mode="dark"] {
   transition: background .15s, color .15s, opacity .15s;
 }
 .page-tabs.is-overflow .page-tabs-arrow { display: inline-flex; }
+/* 收納匣打開把頁籤列擠窄：被擠到的頁籤在右邊淡出（app.js updateArrows） */
+.page-tabs-track.is-fade-r { mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
 .page-tabs-arrow :where(i, svg) { width: 16px; height: 16px; }
 .page-tabs-arrow:not(:disabled):hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
 .page-tabs-arrow:disabled { opacity: .3; cursor: default; }
@@ -489,12 +491,19 @@ html:root[data-color-mode="dark"] {
 .material-icons { vertical-align: middle; line-height: 1; }
 
 /* ── 子頁（樹狀展示，2026-10-20） ── */
-/* 有子頁的格子：左上角白底小圖示（一直顯示，看得出哪幾格點了會進去） */
-.pv-sub-chip {
-  position: absolute; top: 4px; left: 4px; z-index: 2; width: 20px; height: 20px; border-radius: 6px;
-  background: #fff; color: var(--brand); display: grid; place-items: center; box-shadow: 0 0 0 1px rgba(0,0,0,.12);
+/* 有子頁的格子：左上角白底「子頁名稱 ›」（一直顯示，看得出哪幾格點了會進去；點一下就進子頁，2026-10-27） */
+.pv-sub-pill {
+  position: absolute; top: 4px; left: 4px; z-index: 2; max-width: calc(100% - 8px); height: 22px; box-sizing: border-box;
+  display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 6px; border: 0; border-radius: 999px;
+  background: #fff; color: var(--accent-text); box-shadow: 0 0 0 1px rgba(0,0,0,.12); cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 600; line-height: 1;
 }
-.pv-sub-chip .material-icons { font-size: 14px; }
+.pv-sub-pill .material-icons { font-size: 14px; flex: none; }
+.pv-sub-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-sub-pill:hover { background: color-mix(in srgb, var(--accent) 8%, #fff); }
+.pv-sub-pill:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* 拖到不能放的格子（已有子頁）：紅框 */
+.canvas .cell.drop-no { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fg-danger) 70%, #fff); }
 /* 子頁頂欄預覽（同園區資訊頂欄，2026-10-20 user 選 A）：淺底、主題色圓形返回／首頁鈕、粗標題；
    字級基準＝30px×倍數（fitPreview 依畫布寬換算），圓鈕與間距用 em 跟著縮放；KIOSK 標題再乘 --kfs 1.45（同 App）。不能點、不能選 */
 .canvas .cv-subbar {
@@ -539,8 +548,238 @@ html:root[data-color-mode="dark"] {
   background: var(--neutral-secondary-medium); color: var(--text-body-subtle); font-size: 12px;
 }
 .ph-chip .material-icons { font-size: 14px; color: var(--accent-text); }
-.sub-enter-btn { display: inline-flex; align-items: center; gap: 2px; padding-right: 6px; color: var(--accent-text); }
+.sub-enter-btn { display: inline-flex; align-items: center; gap: 2px; padding-right: 6px; color: var(--accent-text); max-width: 100%; }
 .sub-enter-btn .material-icons { font-size: 18px; }
+.sub-enter-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 子頁標頭右邊：改名、刪除（2026-10-27） */
+.ph-act {
+  flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 9px; display: grid; place-items: center;
+  background: transparent; color: var(--text-body-subtle); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.ph-act :where(svg) { width: 16px; height: 16px; }
+.ph-act:hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
+.ph-act.is-danger:hover { background: var(--danger-soft); color: var(--fg-danger); }
+.ph-act:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* 圖示鈕的小小文字提示（data-tip，2026-10-28 user：要淡、不能擋到字）：淺色小泡泡，掛在 body 上由 showTip 擺位置
+   （不會被捲動區切掉）；收納匣卡片上的在清單外面右邊同一列，其他在圖示下面 */
+.tip-bubble {
+  position: fixed; left: 0; top: 0; z-index: 1600; pointer-events: none; white-space: nowrap;
+  padding: 3px 8px; border-radius: 6px; font-size: 11px; line-height: 1.4; color: var(--text-body);
+  background: var(--neutral-primary-soft); border: .5px solid var(--border-default); box-shadow: 0 2px 8px rgba(16, 24, 40, .1);
+  opacity: 0; transition: opacity .12s;
+}
+.tip-bubble.is-on { opacity: 1; }
+@supports (corner-shape: squircle) { .tip-bubble { corner-shape: round; } }
+
+/* ── 子頁收納匣（2026-10-27 user）：鈕（機器＝頁籤列旁、共用版面＝標題列）點開浮出面板，使用中的在前、未使用的在後 ── */
+.spare-tray-count {
+  min-width: 18px; height: 18px; box-sizing: border-box; padding: 0 5px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--neutral-secondary-medium); color: var(--text-body-subtle); font-size: 11px; font-weight: 600;
+}
+.spare-sep { flex: none; width: 1px; height: 32px; background: var(--border-default); margin: 0 2px; }
+/* 收納匣是整台機器（共用版面＝整個版面）共用，不放在頁面畫框底下：自己一個鈕（同頁籤列的外框、同高 48）。
+   機器＝頁籤與重新載入中間；共用版面沒有頁籤列＝標題列右邊（關閉鈕左邊）。外面那層只負責擺位置、不畫框（2026-10-28 user：單層就好） */
+.spare-box { flex: none; display: flex; align-items: center; }
+.spare-box[hidden] { display: none; }
+/* 鈕：平常＝頁籤列同款外框；打開＝變成下拉清單的頂端（外框與底色淡掉，露出清單的微擬物底），不變藍（2026-10-27 user）。
+   寬至少 200：下拉清單跟鈕一樣寬，子頁名稱才放得下 */
+.spare-pop {
+  --spare-hi: rgba(255, 255, 255, .9);
+  --spare-top: color-mix(in srgb, #fff 75%, var(--neutral-primary-soft));
+  --spare-bottom: color-mix(in srgb, #000 3%, var(--neutral-primary-soft));
+  --spare-ring: 0 0 0 .5px color-mix(in srgb, var(--text-heading) 12%, transparent);
+  --spare-drop: 0 0 8px rgba(16, 24, 40, .16);
+}
+:root[data-color-mode="dark"] .spare-pop {
+  --spare-hi: rgba(255, 255, 255, .08);
+  --spare-top: color-mix(in srgb, #fff 7%, var(--neutral-primary-soft));
+  --spare-bottom: var(--neutral-primary-soft);
+  --spare-drop: 0 0 9px rgba(0, 0, 0, .6);
+}
+/* 收起＝正方形圖示鈕（2026-10-29 user）；打開時往左長到 220（app.js SPARE_OPEN_W），把左邊的頁籤推開（頁籤列 flex 縮），名稱、數字、箭頭再淡入。
+   左內距 15＋框 1＋圖示一半 8＝24＝正中間 */
+.spare-box-btn {
+  position: relative; box-sizing: border-box; flex: none; width: 48px; overflow: hidden;
+  height: 48px; display: inline-flex; align-items: center; gap: 6px; padding: 0 14px 0 15px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-full);
+  background: var(--neutral-primary-soft); color: var(--text-heading); font: inherit; font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  transition: width .26s cubic-bezier(.2, .8, .2, 1), background-color .2s ease-out, border-color .2s ease-out;
+}
+.spare-box-btn.is-open { width: 220px; z-index: 31; background: transparent; border-color: transparent; } /* 疊在下拉清單的頂端（清單 z 30） */
+.spare-box-btn > :not(:first-child) { opacity: 0; transition: opacity .1s; }
+.spare-box-btn.is-open > :not(:first-child) { opacity: 1; transition: opacity .18s .1s; }
+.spare-box-btn:not(.is-open):hover { border-color: var(--border-default-medium); } /* 滑過不變底色（2026-10-27 user） */
+.spare-box-btn > :where(svg) { width: 16px; height: 16px; flex: none; }
+.spare-box-btn > :where(svg):first-child { color: var(--accent-text); }
+.spare-box-btn > .spare-tray-chev { margin-left: auto; color: var(--text-body-subtle); transition: transform .2s, color .15s; }
+.spare-box-btn:hover > .spare-tray-chev, .spare-box-btn.is-open > .spare-tray-chev { color: var(--text-heading); } /* 滑過不變底色，只有箭頭變深（2026-10-27 user） */
+.spare-box-btn.is-open > .spare-tray-chev { transform: rotate(180deg); }
+.spare-box-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .spare-box-btn { transition: none; } }
+/* 下拉清單（2026-10-28 user：改直式、展開時跟鈕連成一體、新增固定在最上面、高度不要太高）：
+   從鈕的上緣開始畫、跟鈕一樣寬（placeSparePop 算），鈕打開時變透明疊在上面＝鈕就是清單的頂端。
+   展開方式（2026-10-28 user 試過五種選這個）：框很快往下打開（grid 0fr→1fr），裡面的新增、卡片、提示再一個接一個落下來。
+   用 fixed：共用版面的鈕在標題列，清單要越過內容區上緣（內容區會把超出的部分切掉）。蓋在右欄上，拖起來就換成放大預覽。
+   材質＝小卡片同款微擬物（上亮下暗漸層、上緣高光、細框、正下方柔和陰影） */
+.spare-pop {
+  position: fixed; z-index: 30; box-sizing: border-box; padding-top: 48px; /* 鈕的高度 */
+  border-radius: 24px 24px 20px 20px;
+  background: linear-gradient(180deg, var(--spare-top), var(--spare-bottom));
+  box-shadow: inset 0 1px 0 var(--spare-hi), var(--spare-ring), 0 12px 32px rgba(16, 24, 40, .12), var(--spare-drop);
+  opacity: 0; transition: opacity .2s ease-out, left .26s cubic-bezier(.2, .8, .2, 1), width .26s cubic-bezier(.2, .8, .2, 1); /* 跟著鈕一起往左長 */
+}
+.spare-pop[hidden] { display: none; }
+.spare-pop { cursor: default; }
+body.is-spare-dragging, body.is-spare-dragging * { cursor: grabbing !important; } /* 拖曳中不管滑到哪都是抓著的手 */
+.spare-pop.is-shown { opacity: 1; }
+:root[data-color-mode="dark"] .spare-pop { box-shadow: inset 0 1px 0 var(--spare-hi), var(--spare-ring), 0 12px 32px rgba(0, 0, 0, .45), var(--spare-drop); }
+@supports not (corner-shape: squircle) { .spare-box-btn { border-radius: 17px; } .spare-pop { border-radius: 17px 17px 16px 16px; } }
+.spare-pop-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s cubic-bezier(.2, .8, .2, 1); }
+.spare-pop.is-shown .spare-pop-body { grid-template-rows: 1fr; }
+/* 鈕與清單之間一條細線（左右各縮 14） */
+.spare-pop-inner {
+  min-height: 0; overflow: hidden; display: flex; flex-direction: column;
+  background: linear-gradient(color-mix(in srgb, var(--text-heading) 10%, transparent), color-mix(in srgb, var(--text-heading) 10%, transparent)) no-repeat 14px 0 / calc(100% - 28px) 1px;
+}
+.spare-pop-inner > * { flex: none; } /* 長出來時由上往下露出，不擠扁裡面 */
+.spare-pop-inner > .spare-add { margin: 8px 10px 2px; }
+/* 打開時一個接一個落下（--i＝第幾個，setSparePop 編號；只在剛打開的那一下，拖完重畫不會再跑一次） */
+.spare-pop.is-entering :is(.spare-add, .spare-item, .spare-sep, .spare-pop-hint) {
+  animation: spare-drop .34s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 45ms + 60ms);
+}
+@keyframes spare-drop { from { opacity: 0; translate: 0 -10px; } }
+
+/* 最多約五個再捲動（第六個露一點，看得出可以往下捲；2026-10-28 user：再高一點點）；左右留 10px 給卡片的陰影與浮起 */
+.spare-pop-list { display: flex; flex-direction: column; gap: 6px; max-height: 278px; overflow-y: auto; padding: 6px 10px; }
+.spare-pop-list.is-more { mask-image: linear-gradient(#000 calc(100% - 28px), transparent); } /* 下面還有：底部淡出，不會切一半 */
+.spare-pop-list[hidden] { display: none; }
+.spare-pop.is-empty .spare-add { margin-bottom: 10px; } /* 沒有子頁＝只有新增 */
+.spare-pop-list .spare-item { width: 100%; min-width: 0; max-width: none; }
+.spare-pop-list .spare-sep { width: auto; height: 1px; margin: 2px 6px; }
+.spare-pop-hint { margin: 0; padding: 4px 16px 12px; font-size: 12px; line-height: 1.4; color: var(--text-body-subtle); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .spare-pop, .spare-pop-body { transition: none; } .spare-pop.is-entering * { animation: none !important; } }
+/* 收納匣小卡片：iOS 微擬物（2026-10-27 user）——上亮下暗的漸層底、上緣一道內側高光、兩層柔和陰影、縮圖像 App 圖示一樣圓角帶影；
+   滑過微微浮起、按下微微縮，都有過場 */
+.spare-item {
+  flex: none; height: 44px; box-sizing: border-box; border-radius: 12px; display: flex; align-items: center; gap: 8px;
+}
+/* 新增子頁（2026-10-29 user：虛線框＋粗體藍字，字級跟標題、卡片不協調）：改成清單最上面的一列動作，不加框；
+   ＋對齊下面卡片的縮圖、字對齊卡片名稱；13px 一般粗細（介於標題 14 與卡片名稱 12 之間），滑過才有淡淡的底 */
+.spare-add {
+  flex: none; height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 7.5px;
+  border: 0; border-radius: 10px; background: transparent;
+  color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  transition: background-color .15s ease-out, scale .15s ease-out;
+}
+.spare-add :where(svg) { width: 16px; height: 16px; flex: none; }
+.spare-add:hover { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+.spare-add:active { scale: .97; }
+.spare-add:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.spare-item {
+  --spare-hi: rgba(255, 255, 255, .9);
+  --spare-top: color-mix(in srgb, #fff 75%, var(--neutral-primary-soft));
+  --spare-bottom: color-mix(in srgb, #000 3%, var(--neutral-primary-soft));
+  position: relative; min-width: 118px; max-width: 176px; padding: 0 10px 0 5px;
+  /* 陰影在卡片正下方（2026-10-27 user：z 軸的正下方，像卡片浮在畫面上）：不偏移、四周平均散開；
+     滑過＝朝人的方向慢慢浮起：卡片微微放大、影子變大變柔，用柔和的曲線慢慢過去（不往上跳） */
+  --spare-drop: 0 0 3px rgba(16, 24, 40, .14);
+  border: .5px solid color-mix(in srgb, var(--text-heading) 12%, transparent);
+  background: linear-gradient(180deg, var(--spare-top), var(--spare-bottom));
+  box-shadow: inset 0 1px 0 var(--spare-hi), var(--spare-drop);
+  cursor: default; touch-action: none; user-select: none; /* 箭頭（2026-10-28 user：游標不要在卡片、間隙之間亂跳） */
+  transition: scale .35s cubic-bezier(.2, .8, .2, 1), box-shadow .35s cubic-bezier(.2, .8, .2, 1), opacity .15s ease-out;
+}
+:root[data-color-mode="dark"] .spare-item {
+  --spare-hi: rgba(255, 255, 255, .08);
+  --spare-top: color-mix(in srgb, #fff 7%, var(--neutral-primary-soft));
+  --spare-bottom: var(--neutral-primary-soft);
+  --spare-drop: 0 0 4px rgba(0, 0, 0, .5);
+}
+.spare-item:hover { scale: 1.025; --spare-drop: 0 0 8px rgba(16, 24, 40, .16); }
+:root[data-color-mode="dark"] .spare-item:hover { --spare-drop: 0 0 9px rgba(0, 0, 0, .6); }
+/* 正在編輯＝卡片底色帶一點主題色，不加外框；滑過一樣浮起（2026-10-29 user：behavior 要一樣）。
+   右邊那顆鈕的漸層底也是用 --spare-top，會跟著一起帶色 */
+.spare-item.is-current {
+  --spare-top: color-mix(in srgb, var(--brand) 7%, color-mix(in srgb, #fff 75%, var(--neutral-primary-soft)));
+  --spare-bottom: color-mix(in srgb, var(--brand) 9%, color-mix(in srgb, #000 3%, var(--neutral-primary-soft)));
+}
+:root[data-color-mode="dark"] .spare-item.is-current {
+  --spare-top: color-mix(in srgb, var(--brand) 16%, color-mix(in srgb, #fff 7%, var(--neutral-primary-soft)));
+  --spare-bottom: color-mix(in srgb, var(--brand) 14%, var(--neutral-primary-soft));
+}
+.spare-item.is-off .spare-thumb, .spare-item.is-off .spare-item-text { opacity: .5; }
+.spare-item.is-dragging { opacity: .35; translate: none; scale: 1; }
+.spare-item:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* 縮圖像 App 圖示：圓角、細邊、小陰影 */
+.spare-item .layout-thumb { border: 0; border-radius: 6px; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .25), 0 1px 3px rgba(0, 0, 0, .18); }
+.spare-item-text { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.spare-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--text-heading); }
+.spare-item-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--text-body-subtle); }
+/* 刪除（只有未使用的子頁）：滑過（或鍵盤聚焦）才出現，從右邊蓋住名稱尾端（左緣漸層淡入，不會切一半的字） */
+.spare-item-acts {
+  position: absolute; top: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 1px; padding: 0 5px 0 16px;
+  border-radius: 0 12px 12px 0; background: linear-gradient(180deg, var(--spare-top), var(--spare-bottom)); /* 跟卡片同一道上下漸層，左緣淡入（不會看到一塊色差） */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px); mask-image: linear-gradient(90deg, transparent, #000 14px);
+  opacity: 0; transition: opacity .12s;
+}
+.spare-item:hover .spare-item-acts, .spare-item:focus-within .spare-item-acts { opacity: 1; }
+.spare-item.is-dragging .spare-item-acts { opacity: 0; }
+.spare-item-act {
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; display: grid; place-items: center;
+  background: transparent; color: var(--text-body-subtle); cursor: pointer;
+}
+.spare-item-act :where(svg) { width: 13px; height: 13px; }
+.spare-item-act:hover { background: var(--neutral-tertiary-medium); color: var(--text-heading); }
+.spare-item-act.is-danger:hover { background: var(--danger-soft); color: var(--fg-danger); }
+
+/* 拖曳中的幽靈：跟著指標（body 直屬、不吃指標事件）；位置用 translate，抓起來時微微放大、傾斜、浮起（scale／rotate 有過場，2026-10-27 user） */
+.spare-item.spare-ghost {
+  position: fixed; left: 0; top: 0; z-index: 1500; pointer-events: none; will-change: translate, scale, rotate;
+  border-color: var(--brand); box-shadow: inset 0 1px 0 var(--spare-hi), 0 0 8px rgba(16, 24, 40, .16);
+  transition: scale .32s cubic-bezier(.2, .8, .2, 1), rotate .32s cubic-bezier(.2, .8, .2, 1), box-shadow .32s cubic-bezier(.2, .8, .2, 1);
+}
+.spare-item.spare-ghost.is-lifted { scale: 1.08; rotate: -2deg; box-shadow: inset 0 1px 0 var(--spare-hi), 0 0 28px rgba(16, 24, 40, .28); } /* 影子一樣在正下方（不偏移），抓起來時變大變柔 */
+.spare-item.spare-ghost * { animation: none !important; transition: none !important; } /* 拖著走的只是快照 */
+.spare-item.spare-ghost .spare-item-acts { display: none; }
+/* 拖曳中的放大預覽：整個視窗變暗，這一頁的放大版在中間（按下時先在背後畫好，拖了才淡入＋輕微放大） */
+.drop-board { position: fixed; inset: 0; z-index: 1450; display: grid; place-items: center; background: rgba(15, 18, 20, .5); will-change: opacity; }
+.drop-board .drop-board-canvas { position: relative; flex: none; will-change: transform; box-shadow: 0 24px 64px rgba(0, 0, 0, .4); }
+/* 已有子頁的格子：左上角子頁名稱（放不上去的原因一眼看得出來） */
+.drop-sub-tag {
+  position: absolute; top: 6px; left: 6px; z-index: 5; max-width: calc(100% - 12px); height: 22px; box-sizing: border-box;
+  display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; background: #fff; color: var(--accent-text);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+/* 滑到的格子蓋半透明遮罩（2026-10-27 user：不要寫字）：可以放＝主題色、不能放＝淡紅。遮罩自成一層、只切透明度，
+   換格子時底下的照片與模糊不必重畫（之前改格子外框與陰影，整格連照片一起重畫，拖起來偶爾卡） */
+.drop-board .canvas .cell > .drop-mask {
+  position: absolute; inset: 0; z-index: 4; pointer-events: none; border-radius: inherit; opacity: 0; will-change: opacity;
+  background: color-mix(in srgb, var(--brand) 45%, transparent); box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 5px var(--brand); /* 白邊：格子本身是主題色時也看得出來 */
+  transition: opacity .14s ease-out;
+}
+.drop-board .canvas .cell.is-drop-ok > .drop-mask { opacity: 1; }
+.drop-board .canvas .cell:is(.is-drop-no, .is-drop-here) > .drop-mask { opacity: 1; background: color-mix(in srgb, var(--fg-danger) 30%, transparent); box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 5px var(--fg-danger); }
+/* 拖到子頁原本所在的那一格：底部紅色「已套用這個子頁」（2026-10-27 user）；先放好、滑到才淡入 */
+.drop-here-label {
+  position: absolute; left: 50%; bottom: 12px; z-index: 6; translate: -50% 0; max-width: calc(100% - 20px); box-sizing: border-box;
+  padding: 6px 12px; border-radius: 999px; background: var(--fg-danger); color: #fff; box-shadow: 0 0 8px rgba(0, 0, 0, .25);
+  font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+  opacity: 0; transition: opacity .14s ease-out;
+}
+.drop-board .canvas .cell.is-drop-here > .drop-here-label { opacity: 1; }
+/* 拖曳期間畫面裡的動畫都停住（呼吸光、動態天空會一直重畫；放大預覽乾脆不播） */
+.drop-board .canvas *, .drop-board .canvas *::before, .drop-board .canvas *::after { animation: none !important; }
+body.is-spare-dragging #canvas *, body.is-spare-dragging #canvas *::before, body.is-spare-dragging #canvas *::after { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) { .spare-item.spare-ghost { transition: none; } .drop-board .canvas .cell > .drop-mask { transition: none; } }
+/* 新增子頁視窗裡的「或使用未使用的子頁」 */
+.spare-pick { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-default); text-align: left; }
+.spare-pick-title { font-size: 12px; font-weight: 600; color: var(--text-body-subtle); margin-bottom: 6px; }
+.spare-pick-list { max-height: 216px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.spare-pick-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 8px; }
+.spare-pick-row.is-off .spare-thumb, .spare-pick-row.is-off .spare-pick-name { opacity: .5; }
+.spare-pick-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.spare-pick-name { font-size: 14px; font-weight: 600; color: var(--text-heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spare-pick-from { font-size: 12px; color: var(--text-body-subtle); }
 
 /* ── 右側：單格設定面板 ── */
 .cell-panel {
@@ -557,6 +796,8 @@ html:root[data-color-mode="dark"] {
 /* 進出子頁轉場中：面板內容淡出，滑完才重建（app.js navAnimate，重建很重，不跟動畫搶時間） */
 .cell-panel.is-nav > * { opacity: 0; transition: opacity .12s ease-out; }
 .canvas-frame > .cv-nav-ghost { contain: layout paint; }
+/* 陪著滑走的舊畫面只是一張快照：裡面的動畫（呼吸光、動態天空…）複製過來會從頭重播，跟著一起動很吃效能，全部停掉（2026-10-27） */
+.canvas-frame > .cv-nav-ghost *, .canvas-frame > .cv-nav-ghost *::before, .canvas-frame > .cv-nav-ghost *::after { animation: none !important; transition: none !important; }
 @keyframes panel-fade { from { opacity: .35; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .cell-panel.is-faded { animation: none; } }
 .cell-panel .panel-head {
@@ -1134,9 +1375,10 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .b-modal.is-ws {
   /* 寬度貼合內容、右側不留大片空白（2026-09-03 指示）：
      寬度＝底框寬＋24 欄間距＋右欄上限 560＋body padding 40。短視窗以 min-width 保底。 */
-  /* 底框寬（.canvas-col 用同一值）：框高＝90vh−286（head＋頁籤列＋footer＋padding＋操作鈕列 42；2026-09-14 實測、2026-10-12 少一列鈕），
-     框內（扣 8px 內距＋1px 邊框）剛好 9:16 → 9:16 機器貼滿框、其他比例照真實比例置中留框。 */
-  --ws-frame-h: calc(90vh - 286px);
+  /* 底框寬（.canvas-col 用同一值）：框高＝modal 高−376（head 80＋body 上下內距 40＋頁籤列 64＋畫布標頭 52＋子頁收納匣 38（黏在畫框下）＋操作鈕列 42＋footer 60；
+     2026-10-27 實測），框內（扣 8px 內距＋1px 邊框）剛好 9:16 → 9:16 機器貼滿框、其他比例照真實比例置中留框。
+     高度維持 90vh（2026-10-27 user：不要拉高，拉高會變方形，不像電腦的橫式視窗） */
+  --ws-frame-h: calc(90vh - 376px);
   --ws-canvas-w: calc((var(--ws-frame-h) - 18px) * 9 / 16 + 18px);
   width: calc(var(--ws-canvas-w) + 626px);
   min-width: 880px; max-width: calc(100vw - 48px);
@@ -1144,7 +1386,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
   display: flex; flex-direction: column;
   overflow: hidden;   /* 蓋掉 kit 的 overflow:auto（整盒捲＝標題會被捲走） */
 }
-#wsModal.is-shared-mode .b-modal.is-ws { --ws-frame-h: calc(90vh - 222px); } /* 共用版面編輯器沒有頁籤列（48＋16 margin）→ 框高多 64 */
+#wsModal.is-shared-mode .b-modal.is-ws { --ws-frame-h: calc(90vh - 312px); } /* 共用版面編輯器沒有頁籤列（48＋16 margin）→ 框高多 64 */
 .b-modal.is-ws .b-modal-head { flex: none; border-bottom: 0; } /* 內容不捲動 → 頂部分隔線拿掉 */
 .b-modal.is-ws .b-modal-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* modal 內一律不畫捲軸（2026-09-03 指示）：body、右側面板、設定頁、對話框清單全包；
@@ -1664,7 +1906,7 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 @media (prefers-reduced-motion: reduce) { .pair-dlg .otp.is-exists .otp-box { animation: none; } }
 
 /* ══════════════════ 通知鈴鐺（2026-10-14，頂欄「下載 App」右邊） ══════════════════
-   面板外框／開收動畫同帳號下拉（.header-user-menu、hdr-user-enter/leave-active）。
+   面板外框／開收動畫同帳號下拉（.header-user-menu、hdr-user-enter/leave-active）；頂欄選單同時只開一個（kit.js bHdrOpened）。
    ⚠ .header-right 會把裡面所有 button 的 background／padding 歸零，面板裡的按鈕都要用 .header-right 前綴蓋回來。 */
 .header-notif-wrap { position: relative; display: inline-flex; }
 .header-right .header-notif-btn { position: relative; }
@@ -1740,9 +1982,10 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 .notif-text, .b-toast-desc { text-wrap: pretty; }
 
 /* 換頁過場（2026-10-14 精修）：kit 原本 .12s 純淡入，幾乎看不出來；改 .22s 淡入＋由下往上 6px。
-   最後一格 transform: none（不能停在 translateY(0)，任何 transform 都會讓裡面 fixed 的下拉選單偏位） */
+   播完不能留任何 transform（會讓裡面 fixed 的下拉選單偏位）：最後一格寫 none 也沒用，Chrome 補間到終點會停在 matrix(1,0,0,1,0,0)，
+   2026-10-29 共用設定的下拉因此整個跑到畫面外 → 改 backwards（只在開始前套第一格，播完回到原本樣式） */
 @keyframes jd-view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.main-content.is-spa-entered { animation: jd-view-in .22s cubic-bezier(.22, 1, .36, 1) both; }
+.main-content.is-spa-entered { animation: jd-view-in .22s cubic-bezier(.22, 1, .36, 1) backwards; }
 @media (prefers-reduced-motion: reduce) { .main-content.is-spa-entered { animation: b-spa-fade-in .12s ease-out both; } }
 .ws-dirty-note.is-plain::before { display: none; } /* ⌘S 沒有修改時的提示：不帶圓點 */
 
@@ -1989,3 +2232,41 @@ input[type=checkbox].b-switch:focus-visible { outline: none; box-shadow: 0 0 0 4
 }
 .park-pv-more :where(i, svg) { width: calc(46px * var(--pt, var(--ps))); height: calc(46px * var(--pt, var(--ps))); }
 .park-pv-empty { margin: 0; font-size: 13px; color: var(--text-body-subtle); }
+
+/* ── 畫布標頭「N 個子頁」點開＝這一頁的子頁（2026-10-29 user 試過三案選這個；取代頁面地圖圓鈕與右欄地圖）──
+   鈕：同原本的小標籤，滑過變深、打開＝淡主題色、箭頭轉上；清單＝標頭自己往下長（同底色、外框接著畫框兩側，蓋在預覽上、不擠小預覽），第二層縮排 */
+.ph-chip { border: 0; font: inherit; font-size: 12px; padding-right: 7px; cursor: pointer; transition: background-color .15s, color .15s; }
+.ph-chip:hover { background: color-mix(in srgb, var(--text-heading) 12%, transparent); color: var(--text-body); }
+.ph-chip.is-open { background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--accent-text); }
+.ph-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.ph-chev { flex: none; margin-left: 1px; transition: rotate .2s cubic-bezier(.2, .8, .2, 1); }
+.ph-chip.is-open .ph-chev { rotate: 180deg; }
+.page-head { position: relative; z-index: 6; } /* 長出來的清單疊在預覽上面 */
+.page-head.is-open { border-bottom-color: transparent; } /* 底線讓給清單的下緣（收到底時剛好疊回原位） */
+.ph-drawer {
+  position: absolute; top: 100%; left: -1px; right: -1px; /* 蓋住標頭兩側的框線，接著往下畫 */
+  background: var(--neutral-primary-soft); border: 1px solid var(--border-default); border-top: 0;
+  box-shadow: 0 12px 18px -14px rgba(16, 24, 40, .32); /* 只有下緣一點點，看得出蓋在預覽上 */
+}
+:root[data-color-mode="dark"] .ph-drawer { box-shadow: 0 12px 18px -14px rgba(0, 0, 0, .6); }
+.ph-drawer[hidden] { display: none; }
+.ph-drawer-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s cubic-bezier(.2, .8, .2, 1); }
+.ph-drawer.is-shown .ph-drawer-body { grid-template-rows: 1fr; }
+/* 標題列與清單之間一條細線（左右各縮 12，同收納匣） */
+.ph-drawer-inner {
+  min-height: 0; overflow: hidden;
+  background: linear-gradient(var(--border-default), var(--border-default)) no-repeat 12px 0 / calc(100% - 24px) 1px;
+}
+.ph-drawer-list {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 12px; overflow-y: auto; overscroll-behavior: contain;
+  max-height: min(340px, calc(var(--ws-frame-h, 480px) - 120px)); /* 太多就在清單裡捲，下面還看得到一點預覽 */
+  opacity: 0; transition: opacity .16s ease-out;
+}
+.ph-drawer.is-shown .ph-drawer-list { opacity: 1; transition-delay: .04s; }
+.ph-drawer-list .spare-item { width: 100%; min-width: 0; max-width: none; cursor: pointer; }
+/* 第二層縮排：左邊一段 └ 線接到上面那張卡 */
+.sub-indent { position: relative; padding-left: 22px; }
+.sub-indent::before {
+  content: ''; position: absolute; left: 12px; top: -8px; width: 9px; height: 30px;
+  border-left: 1.5px solid var(--border-default-medium); border-bottom: 1.5px solid var(--border-default-medium); border-bottom-left-radius: 7px;
+}

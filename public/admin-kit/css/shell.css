@@ -165,7 +165,7 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 /* 進場／退場（收起也有動畫）。⚠️ 退場不能寫「hdrUserIn reverse」：同名動畫進場已播完，
-   換 direction 不會重播 → 獨立 out keyframes。這兩個 class 是通用浮層動畫（帳號下拉、字級面板共用）。 */
+   換 direction 不會重播 → 獨立 out keyframes。這兩個 class 是通用浮層動畫（帳號下拉、通知面板共用）。 */
 @keyframes hdrUserOut {
   from { opacity: 1; transform: none; }
   to   { opacity: 0; transform: translateY(-6px) scale(.98); }
@@ -192,40 +192,43 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 .header-user-menu .header-user-item.is-logout:hover { background: var(--danger-soft); color: var(--danger); }
 .header-user-menu .header-user-item.is-logout:hover :where(i, .lucide, svg) { color: var(--danger); }
 
-/* ── 字級三段滑桿浮出面板 ── */
+/* ── 字級：在頂欄原地展開成膠囊（2026-10-29 user：有連貫性）──
+   收起＝原本的 AA 圓鈕；按下＝鈕不動、往左長出「中／大／特大」（膠囊變寬的動畫同收納匣鈕 .26s，選項稍後淡入）。
+   頂欄右群靠右對齊，膠囊變寬只會往左長，右邊的按鈕不會動。
+   平面（2026-10-29 user：不要材質）：同全站分段切換 .seg-row——淺灰底＋細框，選中那格＝主題色底白字，換選項時滑過去 */
 .header-fs-wrap { position: relative; display: inline-flex; }
-.header-fs-panel {
-  position: absolute; left: 0; top: calc(100% + 8px); z-index: 1300; width: 200px;
-  padding: 12px 14px; background: var(--neutral-primary-soft);
-  border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--float-shadow);
-  transform-origin: top left;   /* 開收動畫從觸發鈕那角長出來（帳號下拉是 top right） */
+.fs-pill {
+  position: relative; display: flex; align-items: center;
+  width: 36px; height: 36px; border-radius: 18px;
+  transition: width .26s cubic-bezier(.2, .8, .2, 1);
 }
-.header-fs-title { margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--text-body-subtle); }
-/* 滑桿自畫（token 化）：原生 accent-color 的軌道色由瀏覽器依 color-scheme 亂猜，
-   Windows Chromium 淺色下會畫出深灰軌道（看起來像深淺色反了）→ 不用原生渲染。 */
-.header-fs-range {
-  display: block; width: 100%; margin: 0; cursor: pointer;
-  -webkit-appearance: none; appearance: none; height: 16px; background: transparent;
+/* 底與框畫在底下一層、打開才淡入（框用 inset 陰影畫，不佔位、選項位置不會跳） */
+.fs-pill::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: var(--neutral-secondary-soft); box-shadow: inset 0 0 0 1px var(--border-default);
+  opacity: 0; transition: opacity .2s ease-out;
 }
-.header-fs-range::-webkit-slider-runnable-track {
-  height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
+.fs-pill.is-open::before { opacity: 1; }
+/* 分段選項放在會切掉的那層裡：膠囊收起時藏在 AA 左邊、被切掉 */
+.fs-clip { position: relative; flex: 1 1 auto; min-width: 0; align-self: stretch; overflow: hidden; display: flex; align-items: center; justify-content: flex-end; }
+.fs-seg { position: relative; flex: none; display: flex; align-items: center; gap: 2px; padding-left: 3px; opacity: 0; transition: opacity .1s; }
+.fs-pill.is-open .fs-seg { opacity: 1; transition: opacity .18s .1s; }
+.fs-seg-ind {
+  position: absolute; left: 0; top: 0; height: 30px; border-radius: 15px; pointer-events: none;
+  background: var(--brand);
+  transition: transform .3s cubic-bezier(.2, .8, .2, 1), width .3s cubic-bezier(.2, .8, .2, 1);
 }
-.header-fs-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 14px; height: 14px; margin-top: -5px;
-  border: 0; border-radius: var(--radius-full); background: var(--brand);
+.header-right .fs-seg-opt {
+  position: relative; height: 30px; padding: 0 11px; border-radius: 15px;
+  font-size: 13px; font-weight: 500; color: var(--text-body-subtle); white-space: nowrap; transition: color .15s ease-out;
 }
-.header-fs-range::-moz-range-track {
-  height: 4px; border-radius: var(--radius-full); background: var(--border-default-medium);
-}
-.header-fs-range::-moz-range-thumb {
-  width: 14px; height: 14px; border: 0; border-radius: var(--radius-full); background: var(--brand);
-}
-.header-fs-range:focus-visible { outline: none; }
-.header-fs-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
-.header-fs-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px var(--brand-medium); }
-.header-fs-marks { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-body-subtle); }
-.header-fs-marks .on { color: var(--fg-brand); font-weight: 600; }
+.header-right .fs-seg-opt:hover { color: var(--text-heading); } /* 不加底色、字亮起來（同下拉選項） */
+.header-right .fs-seg-opt.on, .header-right .fs-seg-opt.on:hover { color: var(--b-on-primary, #fff); }
+.header-right .fs-seg-opt:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.fs-pill > .header-icon-btn { position: relative; flex: none; }
+.header-right .fs-pill.is-open > .header-icon-btn, .header-right .fs-pill.is-open > .header-icon-btn:hover { background: transparent; color: var(--fg-brand); }
+@supports (corner-shape: squircle) { .fs-pill, .fs-pill::before, .fs-seg-ind, .fs-seg-opt { corner-shape: round; } }
+@media (prefers-reduced-motion: reduce) { .fs-pill, .fs-pill::before, .fs-seg, .fs-seg-ind { transition: none; } }
 [data-fs] .header-right .header-user-btn .header-user-name { font-size: calc(14px + var(--b-fs-boost)); }
 
 /* 手機版選單按鈕 */
@@ -463,6 +466,16 @@ select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
 /* ── 深淺切換柔和過場（2026-09-14 改）：支援 View Transitions 的瀏覽器走 kit.js softApply 的 startViewTransition
    ＝整頁快照交叉淡入（合成層、不掉幀）；下面的 .b-mode-anim 全元素 transition 只當舊瀏覽器的備援 ── */
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .35s; animation-timing-function: ease; }
+/* 換字級（kit.js applyFs 掛 .vt-fs，2026-10-29 user：很不順）：版面大小不一樣，交叉淡入會看到新舊兩層字疊在一起 →
+   舊畫面先淡出（.1s）、新畫面再淡入（.2s，兩層不重疊）；頂欄自己一組不做過場、直接是新的（膠囊的小卡片照常滑） */
+:root.vt-fs .top-header { view-transition-name: b-hdr; }
+:root.vt-fs::view-transition-old(b-hdr) { display: none; }
+:root.vt-fs::view-transition-new(b-hdr) { animation: none; }
+:root.vt-fs::view-transition-group(b-hdr) { animation: none; }
+:root.vt-fs::view-transition-old(root) { animation: b-vt-fs-out .1s ease-in both; }
+:root.vt-fs::view-transition-new(root) { animation: b-vt-fs-in .2s ease-out .1s both; } /* 舊的淡完才出來 */
+@keyframes b-vt-fs-out { to { opacity: 0; } }
+@keyframes b-vt-fs-in { from { opacity: 0; } }
 html.b-mode-anim, html.b-mode-anim *, html.b-mode-anim *::before, html.b-mode-anim *::after {
   transition: background .35s ease, background-color .35s ease, color .35s ease,
               border-color .35s ease, fill .35s ease, stroke .35s ease,

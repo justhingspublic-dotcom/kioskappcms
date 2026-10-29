@@ -6,8 +6,8 @@
    - .mobile-menu-btn / .sidebar / .sidebar-overlay   手機抽屜開合
    - .toggle-btn                                      側欄收合（localStorage: adminSidebarCollapsed）
    - .submenu-toggle + .submenu > .submenu-inner      手風琴（single-open；收合時改開 flyout 浮窗）
-   - .header-user-btn + .header-user-menu             帳號下拉（enter/leave 動畫）
-   - .header-fs-wrap + .header-fs-range               字級三段（html[data-fs]，localStorage: adminFontSize）
+   - .header-user-btn + .header-user-menu             帳號下拉（enter/leave 動畫；頂欄選單同時只開一個，window.bHdrOpened）
+   - .header-fs-wrap + .fs-pill／.fs-seg-opt          字級膠囊（三段）（html[data-fs]，localStorage: adminFontSize）
    - .header-mode-btn                                 深淺色三段循環 淺色→深色→跟隨裝置，預設跟隨裝置（html[data-color-mode]，localStorage: adminColorMode = light|dark|system；window.setColorMode/getColorMode）
    - .b-pop > [data-pop]                              頁首下拉面板/菜單開合
    - [data-modal-open="#id"] / [data-modal-close]     modal 兩段式開關（window.BModal）
@@ -144,21 +144,20 @@
     });
   }
 
-  /* ════════ Header：帳號下拉（enter/leave 動畫）＋字級面板 ════════ */
-  function bindHeaderMenu(btnSel, menuBuilder) {
-    var btn = document.querySelector(btnSel);
-    if (!btn) return null;
-    return btn;
-  }
+  /* ════════ Header：帳號下拉（enter/leave 動畫）＋字級膠囊 ════════ */
+  // 頂欄的選單同時只開一個（2026-10-29 user：開著通知再按帳號會兩個都開著——各自的鈕擋掉了點擊冒泡，別人的「點外面收起」收不到）：
+  // 打開的那個廣播自己的名字，其他的收到就收起（app.js 的通知面板也接這個）
+  function hdrOpened(name) { document.dispatchEvent(new CustomEvent('b:hdr-open', { detail: name })); }
+  window.bHdrOpened = hdrOpened;
 
   var userBtn = document.querySelector('.header-user-btn');
   var userMenu = document.querySelector('.header-user-menu');
   if (userBtn && userMenu) {
     userMenu.hidden = true;
-    var caret = userBtn.querySelector('.header-user-caret');
     function setUser(open) {
       if (open === !userMenu.hidden) return;
       if (open) {
+        hdrOpened('user');
         userMenu.hidden = false;
         userMenu.classList.remove('hdr-user-leave-active');
         userMenu.classList.add('hdr-user-enter-active');
@@ -169,71 +168,87 @@
         setTimeout(function () { userMenu.hidden = true; userMenu.classList.remove('hdr-user-leave-active'); }, 140);
       }
       userBtn.setAttribute('aria-expanded', String(open));
+      var caret = userBtn.querySelector('.header-user-caret'); // 每次重找：lucide 會把 <i> 換成 <svg>
       if (caret) caret.classList.toggle('open', open);
     }
     userBtn.addEventListener('click', function (e) { e.stopPropagation(); setUser(userMenu.hidden); });
     userMenu.addEventListener('click', function (e) { e.stopPropagation(); });
     document.addEventListener('click', function () { setUser(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setUser(false); });
+    document.addEventListener('b:hdr-open', function (e) { if (e.detail !== 'user') setUser(false); });
   }
 
-  /* 字級三段面板 */
+  /* 字級：在頂欄原地展開成膠囊（2026-10-29 user：有連貫性；材質對齊子頁收納匣）。按 AA 往左長出「中／大／特大」，
+     選了馬上套用（applyFs）、膠囊不收（可以接著比較）；再按 AA、點外面或 Esc 收起，打開其他頂欄選單時也收起 */
   var fsWrap = document.querySelector('.header-fs-wrap');
   if (fsWrap) {
+    var fsPill = fsWrap.querySelector('.fs-pill');
     var fsBtn = fsWrap.querySelector('.header-icon-btn');
-    var fsPanel = fsWrap.querySelector('.header-fs-panel');
-    var fsRange = fsWrap.querySelector('.header-fs-range');
-    var fsMarks = fsWrap.querySelectorAll('.header-fs-marks span');
-    if (fsPanel) fsPanel.hidden = true;
+    var fsSeg = fsWrap.querySelector('.fs-seg');
+    var fsInd = fsWrap.querySelector('.fs-seg-ind');
+    var fsOpts = Array.prototype.slice.call(fsWrap.querySelectorAll('.fs-seg-opt'));
     var levelMap = { sm: 0, lg: 2 };
     var level = levelMap[document.documentElement.getAttribute('data-fs')] != null
       ? levelMap[document.documentElement.getAttribute('data-fs')] : 1;
-    function paintFs() {
-      if (fsRange) fsRange.value = String(level);
-      fsMarks.forEach(function (m, i) { m.classList.toggle('on', i === level); });
-    }
-    paintFs();
-    if (fsBtn && fsPanel) {
-      // 開收動畫與帳號下拉同款（hdrUserIn 進場／反向退場）——規範：所有浮層開收都要有動畫
-      var fsLeaveTimer = null;
-      var setFsPanel = function (open) {
-        if (open === !fsPanel.hidden) return;
-        clearTimeout(fsLeaveTimer);
-        if (open) {
-          fsPanel.hidden = false;
-          fsPanel.classList.remove('hdr-user-leave-active');
-          fsPanel.classList.add('hdr-user-enter-active');
-        } else {
-          fsPanel.classList.remove('hdr-user-enter-active');
-          fsPanel.classList.add('hdr-user-leave-active');
-          fsLeaveTimer = setTimeout(function () { fsPanel.hidden = true; fsPanel.classList.remove('hdr-user-leave-active'); }, 140);
-        }
-        fsBtn.setAttribute('aria-expanded', String(open));
-      };
-      fsBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        setFsPanel(fsPanel.hidden);
-      });
-      fsPanel.addEventListener('click', function (e) { e.stopPropagation(); });
-      document.addEventListener('click', function () { setFsPanel(false); });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setFsPanel(false); });
-    }
-    if (fsRange) {
-      fsRange.addEventListener('input', function () {
-        level = Number(fsRange.value);
-        var val = ({ 0: 'sm', 2: 'lg' })[level];
-        softApply(function () {
-          if (val) {
-            document.documentElement.setAttribute('data-fs', val);
-            localStorage.setItem('adminFontSize', val);
-          } else {
-            document.documentElement.removeAttribute('data-fs');
-            localStorage.removeItem('adminFontSize');
-          }
-        });
+    var fsOpen = false;
+    // 選中那格：主題字＋小卡片滑到它底下
+    var paintFs = function (instant) {
+      fsOpts.forEach(function (o, i) { o.classList.toggle('on', i === level); o.setAttribute('aria-checked', String(i === level)); });
+      var cur = fsOpts[level];
+      if (!cur || !fsInd) return;
+      if (instant) fsInd.style.transition = 'none';
+      fsInd.style.width = cur.offsetWidth + 'px';
+      fsInd.style.transform = 'translateX(' + cur.offsetLeft + 'px)';
+      if (instant) { void fsInd.offsetWidth; fsInd.style.transition = ''; }
+      if (fsOpen) fsPill.style.width = (fsBtn.offsetWidth + fsSeg.offsetWidth) + 'px'; // 選中的變粗體會寬一點：膠囊跟著調，左邊的「中」才不會被切到
+    };
+    var setFsPanel = function (open) {
+      if (open === fsOpen) return;
+      fsOpen = open;
+      if (open) { hdrOpened('fs'); paintFs(true); } // 打開時小卡片直接在選中那格，不從旁邊滑過來
+      fsPill.style.width = (fsBtn.offsetWidth + (open ? fsSeg.offsetWidth : 0)) + 'px';
+      fsPill.classList.toggle('is-open', open);
+      fsBtn.setAttribute('aria-expanded', String(open));
+      fsSeg.setAttribute('aria-hidden', String(!open));
+      fsOpts.forEach(function (o) { o.tabIndex = open ? 0 : -1; });
+    };
+    paintFs(true);
+    fsOpts.forEach(function (o) { o.tabIndex = -1; });
+    fsBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setFsPanel(!fsOpen);
+    });
+    fsPill.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('click', function () { setFsPanel(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') setFsPanel(false); });
+    document.addEventListener('b:hdr-open', function (e) { if (e.detail !== 'fs') setFsPanel(false); });
+    fsOpts.forEach(function (o) {
+      o.addEventListener('click', function () {
+        var next = Number(o.dataset.level);
+        if (next === level) return;
+        level = next;
         paintFs();
+        applyFs(({ 0: 'sm', 2: 'lg' })[level]);
       });
-    }
+    });
+  }
+  // 換字級的過場（2026-10-29 user：調整字體大小時網頁切換很不順）：原本整頁交叉淡入淡出，新舊兩種字級的版面疊在一起 .35 秒像兩層字。
+  // 改成內容區先很快淡出、再淡入（兩層不重疊）；頂欄自己一組、不參加過場（膠囊的小卡片照常滑）。點了馬上換，不再先等小卡片滑完。
+  // 不支援 View Transitions 或「減少動態效果」＝直接換（不用逐元素 font-size 過場：全頁重排會掉幀，2026-09-14 user 回報過）
+  var fsTransition = null;
+  function applyFs(val) {
+    var root = document.documentElement;
+    var set = function () {
+      if (val) { root.setAttribute('data-fs', val); try { localStorage.setItem('adminFontSize', val); } catch (e) { /* 無痕 */ } }
+      else { root.removeAttribute('data-fs'); try { localStorage.removeItem('adminFontSize'); } catch (e) { /* 無痕 */ } }
+    };
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (typeof document.startViewTransition !== 'function' || reduce) { set(); return; }
+    root.classList.add('vt-fs');
+    var t;
+    try { t = document.startViewTransition(set); } catch (e) { root.classList.remove('vt-fs'); set(); return; }
+    fsTransition = t;
+    t.finished.then(function () { if (fsTransition === t) root.classList.remove('vt-fs'); }, function () { if (fsTransition === t) root.classList.remove('vt-fs'); });
   }
 
   /* 深淺色切換：點一下循環 淺色 → 深色 → 跟隨裝置；「跟隨裝置」時再監聽 OS 變化即時套用 */

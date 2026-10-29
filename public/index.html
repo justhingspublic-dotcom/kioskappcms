@@ -65,14 +65,20 @@
         <span class="logo-icon"><img src="img/JustDisplay-logo.svg" alt="JustDisplay"></span>
       </div>
       <div class="header-right">
+        <!-- 字體大小（2026-10-29 user）：按 AA 在頂欄原地展開成膠囊，往左長出「中／大／特大」（材質同子頁收納匣；kit.js 字級膠囊） -->
         <div class="header-fs-wrap">
-          <button type="button" class="header-icon-btn" title="字體大小" aria-label="字體大小" aria-haspopup="true" aria-expanded="false">
-            <i data-lucide="a-large-small"></i>
-          </button>
-          <div class="header-fs-panel" hidden>
-            <div class="header-fs-title">字體大小</div>
-            <input type="range" class="header-fs-range" min="0" max="2" step="1" value="1" aria-label="字體大小（中／大／特大）">
-            <div class="header-fs-marks"><span>中</span><span class="on">大</span><span>特大</span></div>
+          <div class="fs-pill">
+            <div class="fs-clip">
+              <div class="fs-seg" role="radiogroup" aria-label="字體大小" aria-hidden="true">
+                <span class="fs-seg-ind" aria-hidden="true"></span>
+                <button type="button" class="fs-seg-opt" role="radio" data-level="0" aria-checked="false">中</button>
+                <button type="button" class="fs-seg-opt" role="radio" data-level="1" aria-checked="true">大</button>
+                <button type="button" class="fs-seg-opt" role="radio" data-level="2" aria-checked="false">特大</button>
+              </div>
+            </div>
+            <button type="button" class="header-icon-btn" title="字體大小" aria-label="字體大小" aria-expanded="false">
+              <i data-lucide="a-large-small"></i>
+            </button>
           </div>
         </div>
         <button type="button" class="header-icon-btn header-mode-btn" title="外觀：跟隨裝置（按一下以切換）" aria-label="外觀：跟隨裝置（按一下以切換）">
@@ -407,9 +413,23 @@
 
           <!-- 版面頁籤 -->
           <div id="layoutTab">
+            <!-- 子頁收納匣點開的下拉清單（2026-10-28 user：直式、跟鈕連成一體）：從鈕的位置往下長，鈕本身就是清單的頂端（placeSparePop 算位置）；
+                 新增子頁固定在最上面、清單最多約五個再捲動，蓋在右欄上（拖起來就換成放大預覽） -->
+            <div id="sparePop" class="spare-pop" role="region" aria-label="子頁收納匣" hidden>
+              <div class="spare-pop-body"><div class="spare-pop-inner">
+                <button id="spareAddBtn" class="spare-add" type="button"><i data-lucide="plus"></i><span>新增子頁</span></button>
+                <div id="sparePopList" class="spare-pop-list"></div>
+                <p class="spare-pop-hint">拖曳套用</p>
+              </div></div>
+            </div>
             <!-- 頁籤列＋右側「重新載入」icon 鈕（2026-09-07 指示：灰底圓角矩形、只放 icon） -->
             <div class="page-tabs-row">
               <nav id="pageTabs" class="page-tabs"></nav>
+              <!-- 子頁收納匣（2026-10-27 user）：整台機器共用，所以放在頁籤列這一層、自己一個容器（頁籤與重新載入中間）；
+                   共用版面沒有頁籤列，app.js 會把它移到標題列（關閉鈕左邊） -->
+              <div id="spareBox" class="spare-box" hidden>
+                <button id="spareBtn" class="spare-box-btn" type="button" aria-controls="sparePop" aria-expanded="false" aria-label="子頁收納匣" data-tip="子頁收納匣"><i data-lucide="layers"></i><span>子頁收納匣</span><span class="spare-tray-count"></span><i data-lucide="chevron-down" class="spare-tray-chev"></i></button>
+              </div>
               <button id="reloadBtn" class="page-tabs-reload" type="button" title="重新載入" aria-label="重新載入"><i data-lucide="refresh-cw"></i></button>
             </div>
 
